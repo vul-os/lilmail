@@ -1,0 +1,94 @@
+{{define "content"}}
+<div class="max-w-md mx-auto mt-16">
+    <div class="card">
+        <h1 class="text-2xl font-bold mb-6">Webmail Login</h1>
+        
+        {{if .Error}}
+        <div class="alert alert-destructive mb-4">
+            {{.Error}}
+        </div>
+        {{end}}
+        
+        <form onsubmit="handleLogin(event)" class="space-y-4">
+            <div>
+                <label class="block mb-2">Email Address</label>
+                <input type="email" name="email" class="input" required 
+                    placeholder="name@example.com">
+            </div>
+            
+            <div>
+                <label class="block mb-2">Password</label>
+                <input type="password" name="password" class="input" required
+                    placeholder="Your email password">
+            </div>
+            
+            <div>
+                <label class="block mb-2">
+                    <span>IMAP Server</span>
+                    <span class="text-[hsl(var(--muted-foreground))] text-sm">(optional)</span>
+                </label>
+                <input type="text" name="server" class="input"
+                    placeholder="imap.example.com">
+                <div class="text-[hsl(var(--muted-foreground))] text-sm mt-1">
+                    Leave blank for auto-detection
+                </div>
+            </div>
+            
+            <button type="submit" class="btn btn-primary w-full">
+                Login
+            </button>
+        </form>
+    </div>
+</div>
+
+<script>
+async function handleLogin(event) {
+    event.preventDefault();
+    const form = event.target;
+    
+    // Disable form during submission
+    const submitBtn = form.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    submitBtn.innerText = 'Connecting...';
+    
+    const data = {
+        email: form.email.value,
+        password: form.password.value,
+        server: form.server.value || undefined
+    };
+
+    try {
+        const response = await fetch('/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+
+        if (response.ok) {
+            window.location.href = '/inbox';
+        } else {
+            const error = await response.text();
+            showError(error);
+            submitBtn.disabled = false;
+            submitBtn.innerText = 'Login';
+        }
+    } catch (err) {
+        showError('Connection failed');
+        submitBtn.disabled = false;
+        submitBtn.innerText = 'Login';
+    }
+}
+
+function showError(message) {
+    const errorDiv = document.createElement('div');
+    errorDiv.className = 'alert alert-destructive mb-4';
+    errorDiv.textContent = message;
+    
+    const existing = document.querySelector('.alert');
+    if (existing) existing.remove();
+    
+    const form = document.querySelector('form');
+    form.insertAdjacentElement('beforebegin', errorDiv);
+}
+</script>
+{{end}}

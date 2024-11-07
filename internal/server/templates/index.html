@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ .Title }} - Webmail</title>
+    <link rel="stylesheet" href="/static/css/variables.css">
+    <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="bg-[hsl(var(--background))] text-[hsl(var(--foreground))]">
+    <!-- Navigation Bar -->
+    {{if .User}}
+    <nav class="bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))] p-4">
+        <div class="container mx-auto flex justify-between items-center">
+            <div class="text-xl font-bold">Webmail</div>
+            <div class="flex items-center space-x-4">
+                <span>{{.User.Email}}</span>
+                <button onclick="handleLogout()" class="btn btn-secondary">Logout</button>
+            </div>
+        </div>
+    </nav>
+    {{end}}
+
+    <!-- Main Content -->
+    <main class="container mx-auto p-4">
+        {{template "content" .}}
+    </main>
+
+    <!-- Login Form Template -->
+    {{define "login"}}
+    <div class="max-w-md mx-auto mt-16">
+        <div class="card">
+            <h1 class="text-2xl font-bold mb-6">Webmail Login</h1>
+            
+            {{if .Error}}
+            <div class="alert alert-destructive mb-4">
+                {{.Error}}
+            </div>
+            {{end}}
+            
+            <form onsubmit="handleLogin(event)" class="space-y-4">
+                <div>
+                    <label class="block mb-2">Email Address</label>
+                    <input type="email" name="email" class="input" required>
+                </div>
+                
+                <div>
+                    <label class="block mb-2">Password</label>
+                    <input type="password" name="password" class="input" required>
+                </div>
+                
+                <div>
+                    <label class="block mb-2">
+                        <span>IMAP Server</span>
+                        <span class="text-[hsl(var(--muted-foreground))] text-sm">(optional)</span>
+                    </label>
+                    <input type="text" name="server" class="input">
+                    <div class="text-[hsl(var(--muted-foreground))] text-sm mt-1">
+                        Leave blank for auto-detection
+                    </div>
+                </div>
+                
+                <div>
+                    <label class="block mb-2">
+                        <span>Port</span>
+                        <span class="text-[hsl(var(--muted-foreground))] text-sm">(optional)</span>
+                    </label>
+                    <input type="number" name="port" class="input">
+                </div>
+
+                <button type="submit" class="btn btn-primary w-full">
+                    Login
+                </button>
+            </form>
+        </div>
+    </div>
+    {{end}}
+
+    <!-- Mail Interface Template -->
+    {{define "mail"}}
+    <div class="grid grid-cols-12 gap-4 min-h-[calc(100vh-8rem)]">
+        <!-- Folder sidebar -->
+        <div class="col-span-3 card">
+            <div class="font-bold mb-4">Folders</div>
+            <div class="space-y-1">
+                {{range .Folders}}
+                <a href="/folder/{{.Name}}"
+                    class="block p-2 rounded hover:bg-[hsl(var(--accent))] transition-colors
+                    {{if eq $.CurrentFolder .Name}}bg-[hsl(var(--accent))]{{end}}">
+                    {{.Name}}
+                    {{if .Unread}}
+                    <span class="float-right text-[hsl(var(--primary))]">{{.Unread}}</span>
+                    {{end}}
+                </a>
+                {{end}}
+            </div>
+        </div>
+
+        <!-- Message list -->
+        <div class="col-span-9 card">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-bold">{{.CurrentFolder}}</h2>
+                <div class="space-x-2">
+                    <button onclick="refreshMessages()" class="btn btn-secondary">
+                        Refresh
+                    </button>
+                </div>
+            </div>
+
+            <div class="divide-y divide-[hsl(var(--border))]">
+                {{range .Messages}}
+                <a href="/folder/{{$.CurrentFolder}}/message/{{.UID}}"
+                    class="block py-4 px-2 hover:bg-[hsl(var(--accent))] transition-colors
+                    {{if not .Seen}}font-semibold{{end}}">
+                    <div class="flex justify-between mb-1">
+                        <span>{{.From.Name}}</span>
+                        <span class="text-[hsl(var(--muted-foreground))]">
+                            {{formatDate .Date}}
+                        </span>
+                    </div>
+                    <div class="text-[hsl(var(--muted-foreground))]">{{.Subject}}</div>
+                </a>
+                {{end}}
+            </div>
+
+            {{if .Pagination}}
+            <div class="flex justify-between items-center mt-4">
+                {{if .Pagination.HasPrev}}
+                <a href="?page={{.Pagination.PrevPage}}" class="btn btn-secondary">
+                    Previous
+                </a>
+                {{else}}
+                <div></div>
+                {{end}}
+
+                <span class="text-[hsl(var(--muted-foreground))]">
+                    Page {{.Pagination.CurrentPage}} of {{.Pagination.TotalPages}}
+                </span>
+
+                {{if .Pagination.HasNext}}
+                <a href="?page={{.Pagination.NextPage}}" class="btn btn-secondary">
+                    Next
+                </a>
+                {{else}}
+                <div></div>
+                {{end}}
+            </div>
+            {{end}}
+        </div>
+    </div>
+    {{end}}
+
+    <!-- JavaScript -->
+    <script>
+        async function handleLogin(event) {
+            event.preventDefault();
+            const form = event.target;
+            const data = {
+                email: form.email.value,
+                password: form.password.value,
+                server: form.server.value || undefined,
+                port: parseInt(form.port.value) || undefined
+            };
+
+            try {
+                const response = await fetch('/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                if (response.ok) {
+                    window.location.href = '/folders';
+                } else {
+                    const error = await response.text();
+                    showError(error);
+                }
+            } catch (err) {
+                showError('Connection failed');
+            }
+        }
+
+        async function handleLogout() {
+            try {
+                await fetch('/logout', { method: 'POST' });
+                window.location.href = '/';
+            } catch (err) {
+                console.error('Logout failed:', err);
+            }
+        }
+
+        async function refreshMessages() {
+            window.location.reload();
+        }
+
+        function showError(message) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'alert alert-destructive mb-4';
+            errorDiv.textContent = message;
+
+            const existing = document.querySelector('.alert');
+            if (existing) existing.remove();
+
+            const form = document.querySelector('form');
+            form.insertAdjacentElement('beforebegin', errorDiv);
+        }
+    </script>
+
+    {{/* Helper functions */}}
+    {{define "formatDate"}}
+        {{.Format "Jan 02, 2006 15:04"}}
+    {{end}}
+
+    {{define "formatSize"}}
+        {{if lt . 1024}}
+            {{.}}B
+        {{else if lt . 1048576}}
+            {{printf "%.1f" (div . 1024)}}KB
+        {{else}}
+            {{printf "%.1f" (div . 1048576)}}MB
+        {{end}}
+    {{end}}
+</body>
+</html>
