@@ -1,0 +1,119 @@
+{{define "content"}}
+<div class="max-w-4xl mx-auto">
+    <div class="card">
+        <div class="flex justify-between items-center mb-6">
+            <a href="/folder/{{.Folder}}" class="btn btn-secondary">
+                Back to {{.Folder}}
+            </a>
+            <div class="space-x-2">
+                <button onclick="handleMove()" class="btn btn-secondary">
+                    Move
+                </button>
+                <button onclick="handleDelete()" class="btn btn-destructive">
+                    Delete
+                </button>
+            </div>
+        </div>
+
+        <div class="mb-6">
+            <h1 class="text-2xl font-bold mb-4">{{.Message.Subject}}</h1>
+            
+            <div class="grid grid-cols-2 gap-4 text-[hsl(var(--muted-foreground))]">
+                <div>
+                    <div class="mb-2">
+                        <span class="font-semibold">From:</span>
+                        {{.Message.From.Name}} &lt;{{.Message.From.Address}}&gt;
+                    </div>
+                    <div>
+                        <span class="font-semibold">Date:</span>
+                        {{formatDate .Message.Date}}
+                    </div>
+                </div>
+                
+                <div>
+                    <div class="mb-2">
+                        <span class="font-semibold">To:</span>
+                        {{range .Message.To}}
+                        <div>{{.Name}} &lt;{{.Address}}&gt;</div>
+                        {{end}}
+                    </div>
+                    {{if .Message.Cc}}
+                    <div>
+                        <span class="font-semibold">CC:</span>
+                        {{range .Message.Cc}}
+                        <div>{{.Name}} &lt;{{.Address}}&gt;</div>
+                        {{end}}
+                    </div>
+                    {{end}}
+                </div>
+            </div>
+        </div>
+
+        {{if .Message.Body.Attached}}
+        <div class="mb-6">
+            <div class="font-semibold mb-2">Attachments:</div>
+            <div class="flex flex-wrap gap-2">
+                {{range .Message.Body.Attached}}
+                <a href="/attachment/{{.CacheKey}}"
+                   class="btn btn-secondary flex items-center space-x-2">
+                    <span>{{.Filename}}</span>
+                    <span class="text-[hsl(var(--muted-foreground))]">
+                        ({{formatSize .Size}})
+                    </span>
+                </a>
+                {{end}}
+            </div>
+        </div>
+        {{end}}
+
+        <div class="prose max-w-none">
+            {{if .Message.Body.HTML}}
+                <div class="message-content">{{.Message.Body.HTML}}</div>
+            {{else}}
+                <pre class="whitespace-pre-wrap">{{.Message.Body.Text}}</pre>
+            {{end}}
+        </div>
+    </div>
+</div>
+
+<script>
+async function handleDelete() {
+    if (!confirm('Delete this message?')) return;
+    
+    try {
+        const response = await fetch(window.location.pathname, {
+            method: 'DELETE'
+        });
+        
+        if (response.ok) {
+            window.location.href = '/folder/{{.Folder}}';
+        } else {
+            alert('Failed to delete message');
+        }
+    } catch (err) {
+        alert('Failed to delete message');
+    }
+}
+
+async function handleMove() {
+    const folder = prompt('Enter destination folder:');
+    if (!folder) return;
+    
+    try {
+        const response = await fetch(`${window.location.pathname}/move`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ destination: folder })
+        });
+        
+        if (response.ok) {
+            window.location.href = '/folder/{{.Folder}}';
+        } else {
+            alert('Failed to move message');
+        }
+    } catch (err) {
+        alert('Failed to move message');
+    }
+}
+</script>
+{{end}}

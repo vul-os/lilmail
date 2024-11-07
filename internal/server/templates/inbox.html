@@ -1,0 +1,84 @@
+{{define "content"}}
+<div class="grid grid-cols-12 gap-4 min-h-[calc(100vh-8rem)]">
+    <!-- Folder sidebar -->
+    <div class="col-span-3 card">
+        <div class="font-bold mb-4">Folders</div>
+        <div class="space-y-1">
+            {{range .Folders}}
+            <a href="/folder/{{.Name}}" 
+                class="block p-2 rounded hover:bg-[hsl(var(--accent))] transition-colors
+                {{if eq $.CurrentFolder .Name}}bg-[hsl(var(--accent))]{{end}}">
+                {{.Name}}
+                {{if .Unread}}
+                <span class="float-right text-[hsl(var(--primary))]">{{.Unread}}</span>
+                {{end}}
+            </a>
+            {{end}}
+        </div>
+    </div>
+
+    <!-- Message list -->
+    <div class="col-span-9 card">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-xl font-bold">{{.CurrentFolder}}</h2>
+            <div class="space-x-2">
+                <button onclick="refreshMessages()" class="btn btn-secondary">
+                    Refresh
+                </button>
+            </div>
+        </div>
+
+        {{if not .Messages}}
+        <div class="text-center py-8 text-[hsl(var(--muted-foreground))]">
+            No messages in this folder
+        </div>
+        {{else}}
+        <div class="divide-y divide-[hsl(var(--border))]">
+            {{range .Messages}}
+            <a href="/folder/{{$.CurrentFolder}}/message/{{.UID}}"
+                class="block py-4 px-2 hover:bg-[hsl(var(--accent))] transition-colors
+                {{if not .Seen}}font-semibold{{end}}">
+                <div class="flex justify-between mb-1">
+                    <span>{{.From.Name}}</span>
+                    <span class="text-[hsl(var(--muted-foreground))]">
+                        {{formatDate .Date}}
+                    </span>
+                </div>
+                <div class="text-[hsl(var(--muted-foreground))]">{{.Subject}}</div>
+            </a>
+            {{end}}
+        </div>
+
+        {{if .Pagination}}
+        <div class="flex justify-between items-center mt-4">
+            {{if .Pagination.HasPrev}}
+            <a href="?page={{.Pagination.PrevPage}}" class="btn btn-secondary">
+                Previous
+            </a>
+            {{else}}
+            <div></div>
+            {{end}}
+
+            <span class="text-[hsl(var(--muted-foreground))]">
+                Page {{.Pagination.CurrentPage}} of {{.Pagination.TotalPages}}
+            </span>
+
+            {{if .Pagination.HasNext}}
+            <a href="?page={{.Pagination.NextPage}}" class="btn btn-secondary">
+                Next
+            </a>
+            {{else}}
+            <div></div>
+            {{end}}
+        </div>
+        {{end}}
+        {{end}}
+    </div>
+</div>
+
+<script>
+async function refreshMessages() {
+    window.location.reload();
+}
+</script>
+{{end}}
