@@ -1,0 +1,8 @@
+fix rendering emails, when i click on an emails its not working, 
+tell it to give you fmt.println statments to debug the code as well as debug statements if any js is used. 
+ask me to give you files based on imports rather than making them up. 
+
+when i click on other folders it doesnt work, it need to load those emails 
+
+you need to make and a threading algorithm, jwz algorithm to thread emails together, make as efficient as possible, 
+use only a db that is built into go, we dont want to install anything other than go
