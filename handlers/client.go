@@ -4,107 +4,95 @@ import (
 	"fmt"
 	"io"
 	"lilmail/models"
+	"strconv"
 	"strings"
 
 	"github.com/emersion/go-imap"
 )
 
-// Add FetchSingleMessage to the Client struct
-func (c *Client) FetchSingleMessage(uid string) (models.Email, error) {
+// FetchSingleMessage retrieves a specific message by its UID from a specific folder
+func (c *Client) FetchSingleMessage(folderName, uid string) (models.Email, error) {
 	// Convert string UID to uint32
 	uidNum, err := parseUID(uid)
 	if err != nil {
 		return models.Email{}, fmt.Errorf("invalid UID: %v", err)
 	}
 
-	// First, find which mailbox contains this message
-	mailboxes, err := c.FetchFolders()
+	// Select the specific folder
+	_, err = c.client.Select(folderName, true) // true for read-only mode
 	if err != nil {
-		return models.Email{}, fmt.Errorf("error fetching folders: %v", err)
+		return models.Email{}, fmt.Errorf("error selecting folder %s: %v", folderName, err)
 	}
 
+	// Create sequence set for fetching
+	seqSet := new(imap.SeqSet)
+	seqSet.AddNum(uidNum)
+
+	// Define the items we want to fetch
+	section := &imap.BodySectionName{}
+	items := []imap.FetchItem{
+		imap.FetchEnvelope,
+		imap.FetchFlags,
+		imap.FetchBodyStructure,
+		imap.FetchUid,
+		section.FetchItem(),
+	}
+
+	// Create channels for the fetch operation
+	messages := make(chan *imap.Message, 1)
+	done := make(chan error, 1)
+
+	// Start the fetch
+	go func() {
+		done <- c.client.UidFetch(seqSet, items, messages)
+	}()
+
+	// Process the message
 	var email models.Email
 	found := false
 
-	// Search through each mailbox for the message
-	for _, mailbox := range mailboxes {
-		// Select the mailbox
-		_, err := c.client.Select(mailbox.Name, true) // true for read-only mode
-		if err != nil {
-			continue // Skip mailboxes we can't access
-		}
-
-		// Create a search criteria for the UID
-		criteria := imap.NewSearchCriteria()
-		criteria.Uid = new(imap.SeqSet)
-		criteria.Uid.AddNum(uidNum)
-
-		// Search for the message
-		uids, err := c.client.UidSearch(criteria)
-		if err != nil {
-			continue
-		}
-
-		// If we found the message in this mailbox
-		if len(uids) > 0 {
-			// Create sequence set for fetching
-			seqSet := new(imap.SeqSet)
-			seqSet.AddNum(uidNum)
-
-			// Define the items we want to fetch
-			items := []imap.FetchItem{
-				imap.FetchEnvelope,
-				imap.FetchFlags,
-				imap.FetchBody,
-				imap.FetchBodyStructure,
-				imap.FetchUid,
+	for msg := range messages {
+		if msg != nil {
+			var err error
+			email, err = processMessage(msg)
+			if err != nil {
+				return models.Email{}, fmt.Errorf("error processing message: %v", err)
 			}
-
-			// Create a channel to receive the message
-			messages := make(chan *imap.Message, 1)
-			done := make(chan error, 1)
-
-			// Start the fetch
-			go func() {
-				done <- c.client.UidFetch(seqSet, items, messages)
-			}()
-
-			// Get the message
-			msg := <-messages
-
-			if msg != nil {
-				var err error
-				email, err = c.processMessage(msg)
-				if err != nil {
-					return models.Email{}, fmt.Errorf("error processing message: %v", err)
-				}
-				found = true
-				break
-			}
-
-			// Check if the fetch completed successfully
-			if err := <-done; err != nil {
-				return models.Email{}, fmt.Errorf("error during fetch: %v", err)
-			}
+			found = true
+			break
 		}
 	}
 
+	// Check if the fetch completed successfully
+	if err := <-done; err != nil {
+		return models.Email{}, fmt.Errorf("error during fetch: %v", err)
+	}
+
 	if !found {
-		return models.Email{}, fmt.Errorf("message with UID %s not found", uid)
+		return models.Email{}, fmt.Errorf("message with UID %s not found in folder %s", uid, folderName)
 	}
 
 	return email, nil
 }
 
-// Helper function to parse UID string to uint32
+// Add this helper function if you don't already have it
 func parseUID(uid string) (uint32, error) {
-	var uidNum uint32
-	_, err := fmt.Sscanf(uid, "%d", &uidNum)
+	n, err := strconv.ParseUint(uid, 10, 32)
 	if err != nil {
 		return 0, err
 	}
-	return uidNum, nil
+	return uint32(n), nil
 }
+
+// // Helper function to parse UID string to uint32
+// func parseUID(uid string) (uint32, error) {
+// 	var uidNum uint32
+// 	_, err := fmt.Sscanf(uid, "%d", &uidNum)
+// 	if err != nil {
+// 		return 0, err
+// 	}
+// 	return uidNum, nil
+// }
 
 // FetchMessages retrieves messages from a specified folder
 func (c *Client) FetchMessages(folderName string, limit uint32) ([]models.Email, error) {

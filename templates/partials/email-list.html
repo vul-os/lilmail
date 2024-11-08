@@ -3,25 +3,20 @@
         {{range .Emails}}
         <div class="hover:bg-gray-50 cursor-pointer transition-colors"
              hx-get="/api/email/{{.ID}}"
-             hx-target="#email-viewer-content"
+             hx-target="#email-viewer-content, #email-viewer-content-mobile"
+             hx-headers='{{printf `{"Authorization": "Bearer %s", "X-Folder": "%s"}` $.Token $.CurrentFolder}}'
+             hx-headers='{"X-Folder": "{{$.CurrentFolder}}"}'
              @click="showEmailViewer = true">
-            <div class="px-6 py-4">
-                <div class="flex justify-between items-start mb-1">
-                    <div class="flex items-center space-x-2">
-                        <span class="font-medium text-gray-700">
-                            {{.From}}
-                        </span>
+            <div class="px-4 py-3">
+                <div class="flex justify-between items-start">
+                    <div class="min-w-0 flex-1">
+                        <div class="flex items-center space-x-2 mb-1">
+                            <span class="font-medium text-gray-900 truncate">{{.From}}</span>
+                            <span class="text-sm text-gray-500">{{formatDate .Date}}</span>
+                        </div>
+                        <h3 class="text-sm font-semibold text-gray-900 mb-0.5">{{.Subject}}</h3>
+                        <p class="text-sm text-gray-500 line-clamp-2">{{.Preview}}</p>
                     </div>
-                    <span class="text-sm text-gray-500 whitespace-nowrap ml-4">
-                        {{formatDate .Date}}
-                    </span>
-                </div>
-                <div class="ml-4">
-                    <h3 class="text-sm font-semibold text-gray-700 mb-0.5">
-                
-                        {{.Subject}}
-                    </h3>
-                    <p class="text-sm text-gray-500 truncate">{{.Preview}}</p>
                 </div>
             </div>
         </div>
@@ -29,7 +24,7 @@
     {{else}}
         <div class="flex flex-col items-center justify-center h-96">
             <svg class="w-16 h-16 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                       d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
             </svg>
             <h3 class="mt-4 text-lg font-medium text-gray-900">No messages</h3>

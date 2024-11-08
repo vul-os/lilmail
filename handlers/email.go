@@ -149,22 +149,44 @@ func (h *EmailHandler) HandleEmailView(c *fiber.Ctx) error {
 		return c.Status(401).SendString("Invalid token")
 	}
 
+	// Get and decode email ID
 	emailID := c.Params("id")
 	if emailID == "" {
 		return c.Status(400).SendString("Email ID required")
 	}
 
+	// Get and decode folder name from header or query
+	folderName := c.Get("X-Folder")
+	if folderName == "" {
+		// Try getting from query parameter
+		folderName = c.Query("folder")
+		if folderName == "" {
+			folderName = "INBOX" // Default to INBOX if not specified
+		}
+	}
+
+	// URL decode the folder name if needed
+	decodedFolder, err := url.QueryUnescape(folderName)
+	if err != nil {
+		return c.Status(400).SendString("Invalid folder name")
+	}
+
 	// Get IMAP client
 	client, err := h.auth.CreateIMAPClient(c)
 	if err != nil {
-		return c.Status(500).SendString("Error connecting to email server")
+		return c.Status(500).JSON(fiber.Map{
+			"error": "Error connecting to email server",
+		})
 	}
 	defer client.Close()
 
 	// Fetch the email
-	email, err := client.FetchSingleMessage(emailID)
+	email, err := client.FetchSingleMessage(decodedFolder, emailID)
 	if err != nil {
-		return c.Status(500).SendString("Error fetching email")
+		log.Printf("Error fetching email %s from folder %s: %v", emailID, decodedFolder, err)
+		return c.Status(500).JSON(fiber.Map{
+			"error": fmt.Sprintf("Error fetching email: %v", err),
+		})
 	}
 
 	// Cache the email for future reference
@@ -205,6 +227,14 @@ func (h *EmailHandler) HandleFolderEmails(c *fiber.Ctx) error {
 		})
 	}
 
+	// Get JWT token for API requests
+	token, err := h.auth.GetSessionToken(c)
+	if err != nil {
+		return c.Status(401).JSON(fiber.Map{
+			"error": "Invalid session",
+		})
+	}
+
 	// Get IMAP client
 	client, err := h.auth.CreateIMAPClient(c)
 	if err != nil {
@@ -222,17 +252,16 @@ func (h *EmailHandler) HandleFolderEmails(c *fiber.Ctx) error {
 		})
 	}
 
-	// Cache the emails
-	userCacheFolder := filepath.Join(h.config.Cache.Folder, username.(string))
-	if err := utils.SaveCache(filepath.Join(userCacheFolder, fmt.Sprintf("folder_%s.json", folderName)), emails); err != nil {
-		log.Printf("Error caching folder %s: %v\n", folderName, err)
-	}
+	// Log for debugging
+	log.Printf("Rendering folder %s with %d emails", folderName, len(emails))
 
-	// Render the email list partial
+	// Render the email list partial with all necessary data
 	return c.Render("partials/email-list", fiber.Map{
-		"Emails": emails,
-		"Layout": "", // No layout for partial
-	})
+		"Emails":        emails,
+		"CurrentFolder": folderName,
+		"Token":         token,
+		"Layout":        "",
+	}, "") // Added empty string as second argument to explicitly disable layout
 }
 
 // HandleComposeEmail handles the compose email form submission

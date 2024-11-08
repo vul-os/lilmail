@@ -67,7 +67,8 @@ func main() {
 	engine.AddFunc("upper", strings.ToUpper)
 	engine.AddFunc("title", strings.Title)
 	engine.AddFunc("trim", strings.TrimSpace)
-
+	// Add to your template functions
+	engine.AddFunc("hasPrefix", strings.HasPrefix)
 	// Add template functions
 	engine.AddFunc("formatDate", func(t time.Time) string {
 		return t.Format("Jan 02, 2006 15:04")
