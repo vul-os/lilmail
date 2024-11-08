@@ -1,84 +1,98 @@
-{{define "content"}}
-<div class="grid grid-cols-12 gap-4 min-h-[calc(100vh-8rem)]">
-    <!-- Folder sidebar -->
-    <div class="col-span-3 card">
-        <div class="font-bold mb-4">Folders</div>
-        <div class="space-y-1">
-            {{range .Folders}}
-            <a href="/folder/{{.Name}}" 
-                class="block p-2 rounded hover:bg-[hsl(var(--accent))] transition-colors
-                {{if eq $.CurrentFolder .Name}}bg-[hsl(var(--accent))]{{end}}">
-                {{.Name}}
-                {{if .Unread}}
-                <span class="float-right text-[hsl(var(--primary))]">{{.Unread}}</span>
-                {{end}}
-            </a>
-            {{end}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inbox - LilMail</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body class="bg-gray-100 min-h-screen" x-data="{ loading: false }">
+    <nav class="bg-white shadow-md px-6 py-3">
+        <div class="flex items-center justify-between">
+            <h1 class="text-xl font-bold">LilMail</h1>
+            <div class="flex items-center space-x-4">
+                <span class="text-gray-600">{{.Username}}</span>
+                <a href="/logout" class="text-red-500 hover:text-red-700">Logout</a>
+            </div>
         </div>
-    </div>
+    </nav>
 
-    <!-- Message list -->
-    <div class="col-span-9 card">
-        <div class="flex justify-between items-center mb-4">
-            <h2 class="text-xl font-bold">{{.CurrentFolder}}</h2>
-            <div class="space-x-2">
-                <button onclick="refreshMessages()" class="btn btn-secondary">
-                    Refresh
+    <div class="flex h-[calc(100vh-64px)]">
+        <!-- Sidebar with folder structure -->
+        <div class="w-64 bg-white shadow-md overflow-y-auto">
+            <div class="p-4">
+                <button class="w-full bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 mb-4">
+                    Compose
                 </button>
+                
+                <h2 class="text-lg font-semibold mb-4">Folders</h2>
+                <ul class="space-y-2">
+                    {{range .Folders}}
+                    <li>
+                        <a href="/folder/{{.Name}}" 
+                            hx-get="/api/folder/{{.Name}}/emails"
+                            hx-target="#email-list"
+                            hx-trigger="click"
+                            @click="loading = true"
+                            class="block px-3 py-2 rounded {{if eq $.CurrentFolder .Name}}bg-blue-100 text-blue-700{{else}}hover:bg-gray-100{{end}}">
+                            {{.Name}}
+                        </a>
+                    </li>
+                    {{end}}
+                </ul>
             </div>
         </div>
 
-        {{if not .Messages}}
-        <div class="text-center py-8 text-[hsl(var(--muted-foreground))]">
-            No messages in this folder
-        </div>
-        {{else}}
-        <div class="divide-y divide-[hsl(var(--border))]">
-            {{range .Messages}}
-            <a href="/folder/{{$.CurrentFolder}}/message/{{.UID}}"
-                class="block py-4 px-2 hover:bg-[hsl(var(--accent))] transition-colors
-                {{if not .Seen}}font-semibold{{end}}">
-                <div class="flex justify-between mb-1">
-                    <span>{{.From.Name}}</span>
-                    <span class="text-[hsl(var(--muted-foreground))]">
-                        {{formatDate .Date}}
-                    </span>
+        <!-- Main content area -->
+        <div class="flex-1 overflow-hidden flex flex-col">
+            <div class="bg-white shadow p-4 flex items-center justify-between">
+                <h2 class="text-xl font-semibold">{{.CurrentFolder}}</h2>
+                <div class="flex items-center space-x-2">
+                    <button 
+                        hx-get="/api/folder/{{.CurrentFolder}}/emails"
+                        hx-target="#email-list"
+                        @click="loading = true"
+                        class="bg-gray-100 p-2 rounded hover:bg-gray-200" 
+                        title="Refresh">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                    </button>
                 </div>
-                <div class="text-[hsl(var(--muted-foreground))]">{{.Subject}}</div>
-            </a>
-            {{end}}
+            </div>
+
+            <!-- Loading indicator -->
+            <div x-show="loading" 
+                class="absolute inset-0 bg-white/50 flex items-center justify-center">
+                <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+            </div>
+
+            <!-- Email list -->
+            <div id="email-list" class="overflow-y-auto flex-1 p-4"
+                @htmx:after-settle="loading = false">
+                {{if .Emails}}
+                    {{range .Emails}}
+                    <div class="border-b hover:bg-gray-50 bg-white rounded-lg shadow-sm mb-2">
+                        <a href="/email/{{.ID}}" class="block p-4">
+                            <div class="flex items-center justify-between mb-1">
+                                <div class="font-medium">{{.From}}</div>
+                                <div class="text-sm text-gray-600">{{formatDate .Date}}</div>
+                            </div>
+                            <div class="font-semibold">{{.Subject}}</div>
+                            <div class="text-sm text-gray-600 truncate">{{.Body}}</div>
+                        </a>
+                    </div>
+                    {{end}}
+                {{else}}
+                    <div class="text-center text-gray-500 mt-8">
+                        No emails found in this folder
+                    </div>
+                {{end}}
+            </div>
         </div>
-
-        {{if .Pagination}}
-        <div class="flex justify-between items-center mt-4">
-            {{if .Pagination.HasPrev}}
-            <a href="?page={{.Pagination.PrevPage}}" class="btn btn-secondary">
-                Previous
-            </a>
-            {{else}}
-            <div></div>
-            {{end}}
-
-            <span class="text-[hsl(var(--muted-foreground))]">
-                Page {{.Pagination.CurrentPage}} of {{.Pagination.TotalPages}}
-            </span>
-
-            {{if .Pagination.HasNext}}
-            <a href="?page={{.Pagination.NextPage}}" class="btn btn-secondary">
-                Next
-            </a>
-            {{else}}
-            <div></div>
-            {{end}}
-        </div>
-        {{end}}
-        {{end}}
     </div>
-</div>
-
-<script>
-async function refreshMessages() {
-    window.location.reload();
-}
-</script>
-{{end}}
+</body>
+</html>

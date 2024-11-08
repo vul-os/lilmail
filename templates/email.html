@@ -1,0 +1,74 @@
+
+<!-- templates/email.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Email.Subject}} - LilMail</title>
+    <link rel="stylesheet" href="/assets/css/style.css">
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <nav class="bg-white shadow-md px-6 py-3">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-4">
+                <a href="/inbox" class="text-gray-600 hover:text-gray-800">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                    </svg>
+                </a>
+                <h1 class="text-xl font-bold">LilMail</h1>
+            </div>
+            <a href="/logout" class="text-red-500 hover:text-red-700">Logout</a>
+        </div>
+    </nav>
+
+    <div class="max-w-4xl mx-auto mt-6 p-6">
+        <div class="bg-white rounded-lg shadow-md">
+            <!-- Email Header -->
+            <div class="p-6 border-b">
+                <h1 class="text-2xl font-bold mb-4">{{.Email.Subject}}</h1>
+                
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <div class="font-semibold">{{.Email.From}}</div>
+                        <div class="text-sm text-gray-600">To: {{.Email.To}}</div>
+                    </div>
+                    <div class="text-sm text-gray-600">
+                        {{formatDate .Email.Date}}
+                    </div>
+                </div>
+
+                {{if .Email.Attachments}}
+                <div class="mt-4 p-4 bg-gray-50 rounded">
+                    <h3 class="font-semibold mb-2">Attachments</h3>
+                    <div class="flex flex-wrap gap-2">
+                        {{range .Email.Attachments}}
+                        <a href="/attachment/{{$.Email.ID}}/{{.Filename}}" 
+                            class="inline-flex items-center space-x-2 px-3 py-2 bg-white rounded border hover:bg-gray-50">
+                            <svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                                    d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                            </svg>
+                            <span>{{.Filename}}</span>
+                        </a>
+                        {{end}}
+                    </div>
+                </div>
+                {{end}}
+            </div>
+
+            <!-- Email Body -->
+            <div class="p-6">
+                {{if .Email.HTML}}
+                <div class="prose max-w-none" id="email-body">
+                    {{.Email.HTML}}
+                </div>
+                {{else}}
+                <pre class="whitespace-pre-wrap">{{.Email.Body}}</pre>
+                {{end}}
+            </div>
+        </div>
+    </div>
+</body>
+</html>
