@@ -328,7 +328,6 @@ func (h *AuthHandler) fetchInitialData(client *Client, cacheFolder string) error
 	if err != nil {
 		return fmt.Errorf("failed to fetch folders: %v", err)
 	}
-
 	if err := utils.SaveCache(filepath.Join(cacheFolder, "folders.json"), folders); err != nil {
 		return fmt.Errorf("failed to cache folders: %v", err)
 	}

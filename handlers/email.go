@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"lilmail/config"
 	"lilmail/utils"
+	"log"
+	"net/url"
 	"path/filepath"
 
 	"github.com/gofiber/fiber/v2"
@@ -17,9 +19,10 @@ type EmailHandler struct {
 }
 
 type MailboxInfo struct {
-	Name       string   `json:"name"`
-	Delimiter  string   `json:"delimiter"`
-	Attributes []string `json:"attributes"`
+	Attributes  []string `json:"attributes"`
+	Delimiter   string   `json:"delimiter"`
+	Name        string   `json:"name"`
+	UnreadCount int      `json:"unreadCount,omitempty"`
 }
 
 func NewEmailHandler(store *session.Store, config *config.Config, auth *AuthHandler) *EmailHandler {
@@ -91,7 +94,8 @@ func (h *EmailHandler) HandleFolder(c *fiber.Ctx) error {
 		return c.Redirect("/login")
 	}
 
-	folderName := c.Params("name")
+	// Decode the folder name from URL
+	folderName, err := url.QueryUnescape(c.Params("name"))
 	if folderName == "" {
 		return c.Redirect("/inbox")
 	}
@@ -167,57 +171,68 @@ func (h *EmailHandler) HandleEmailView(c *fiber.Ctx) error {
 	userCacheFolder := filepath.Join(h.config.Cache.Folder, claims.Username)
 	if err := utils.SaveCache(filepath.Join(userCacheFolder, fmt.Sprintf("email_%s.json", emailID)), email); err != nil {
 		// Log the error but don't fail the request
-		fmt.Printf("Error caching email %s: %v\n", emailID, err)
+		log.Printf("Error caching email %s: %v\n", emailID, err)
 	}
 
-	// Render the email view template without layout
-	return c.Render("email-view", fiber.Map{
-		"Email": email,
-	}, "")
+	// Render the email view partial template
+	return c.Render("partials/email-viewer", fiber.Map{
+		"Email":  email,
+		"Layout": "", // Ensure no layout is used
+	})
 }
 
-// HandleFolderEmails handles AJAX requests for folder emails
+// HandleFolderEmails handles AJAX requests for folder contents
 func (h *EmailHandler) HandleFolderEmails(c *fiber.Ctx) error {
-	// Validate Authorization header
-	token := c.Get("Authorization")
-	if token == "" || len(token) < 8 || token[:7] != "Bearer " {
-		return c.Status(401).SendString("Unauthorized")
-	}
-
-	// Validate JWT token
-	claims, err := h.auth.ValidateToken(token[7:])
+	// Get folder name from params and decode it
+	folderName, err := url.QueryUnescape(c.Params("name"))
 	if err != nil {
-		return c.Status(401).SendString("Invalid token")
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Invalid folder name",
+		})
 	}
 
-	folderName := c.Params("name")
 	if folderName == "" {
-		return c.Status(400).SendString("Folder name required")
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Folder name required",
+		})
+	}
+
+	// Get username from context
+	username := c.Locals("username")
+	if username == nil {
+		return c.Status(401).JSON(fiber.Map{
+			"error": "Unauthorized",
+		})
 	}
 
 	// Get IMAP client
 	client, err := h.auth.CreateIMAPClient(c)
 	if err != nil {
-		return c.Status(500).SendString("Error connecting to email server")
+		return c.Status(500).JSON(fiber.Map{
+			"error": "Error connecting to email server",
+		})
 	}
 	defer client.Close()
 
-	// Fetch messages
+	// Fetch emails from the folder
 	emails, err := client.FetchMessages(folderName, 50)
 	if err != nil {
-		return c.Status(500).SendString("Error fetching emails")
+		return c.Status(500).JSON(fiber.Map{
+			"error": fmt.Sprintf("Error fetching emails: %v", err),
+		})
 	}
 
-	// Cache the results
-	userCacheFolder := filepath.Join(h.config.Cache.Folder, claims.Username)
-	if err := utils.SaveCache(filepath.Join(userCacheFolder, fmt.Sprintf("%s.json", folderName)), emails); err != nil {
-		fmt.Printf("Error caching emails for folder %s: %v\n", folderName, err)
+	// Cache the emails
+	userCacheFolder := filepath.Join(h.config.Cache.Folder, username.(string))
+	if err := utils.SaveCache(filepath.Join(userCacheFolder, fmt.Sprintf("folder_%s.json", folderName)), emails); err != nil {
+		log.Printf("Error caching folder %s: %v\n", folderName, err)
 	}
 
-	// Return partial template with just the email list
+	// Render the email list partial
 	return c.Render("partials/email-list", fiber.Map{
 		"Emails": emails,
-	}, "")
+		"Layout": "", // No layout for partial
+	})
 }
 
 // HandleComposeEmail handles the compose email form submission

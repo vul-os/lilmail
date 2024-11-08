@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"lilmail/config"
 	"lilmail/handlers"
+	"lilmail/storage"
 	"log"
 	"strings"
 	"time"
@@ -12,17 +13,41 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/fiber/v2/middleware/session"
+
 	"github.com/gofiber/template/html/v2"
 )
 
 var store *session.Store
 
 func init() {
+	// Create file storage
+	storage, err := storage.NewFileStorage("./sessions")
+	if err != nil {
+		log.Fatal("Failed to initialize session storage:", err)
+	}
+
 	store = session.New(session.Config{
+		Storage:        storage,
 		Expiration:     24 * time.Hour,
 		CookieSecure:   false, // Set to true in production with HTTPS
 		CookieHTTPOnly: true,
 	})
+}
+
+// Helper function to determine if request is an API request
+func isAPIRequest(c *fiber.Ctx) bool {
+	if c == nil {
+		return false
+	}
+
+	// Check for HTMX request first
+	if c.Get("HX-Request") != "" {
+		return true
+	}
+
+	// Safely check if path starts with /api
+	path := c.Path()
+	return len(path) >= 4 && path[:4] == "/api"
 }
 
 func main() {
@@ -42,6 +67,7 @@ func main() {
 	engine.AddFunc("upper", strings.ToUpper)
 	engine.AddFunc("title", strings.Title)
 	engine.AddFunc("trim", strings.TrimSpace)
+
 	// Add template functions
 	engine.AddFunc("formatDate", func(t time.Time) string {
 		return t.Format("Jan 02, 2006 15:04")
@@ -69,6 +95,14 @@ func main() {
 		Views:       engine,
 		ViewsLayout: "layouts/main", // Default layout
 		ErrorHandler: func(c *fiber.Ctx, err error) error {
+			// Recover from panic if any
+			// if err := recover(); err != nil {
+			// 	log.Printf("Panic recovered: %v", err)
+			// 	return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			// 		"error": "Internal server error",
+			// 	})
+			// }
+
 			code := fiber.StatusInternalServerError
 			if e, ok := err.(*fiber.Error); ok {
 				code = e.Code
@@ -121,8 +155,6 @@ func main() {
 	{
 		// Email routes
 		api.Get("/email/:id", emailHandler.HandleEmailView)
-		// api.Post("/email/:id/mark-read", emailHandler.HandleMarkRead)
-		// api.Post("/email/:id/mark-unread", emailHandler.HandleMarkUnread)
 		api.Delete("/email/:id", emailHandler.HandleDeleteEmail)
 
 		// Folder routes
@@ -130,11 +162,6 @@ func main() {
 
 		// Composition routes
 		api.Post("/compose", emailHandler.HandleComposeEmail)
-		// api.Post("/reply/:id", emailHandler.HandleReplyEmail)
-		// api.Post("/forward/:id", emailHandler.HandleForwardEmail)
-
-		// Attachment routes
-		// api.Get("/attachment/:id", emailHandler.HandleGetAttachment)
 	}
 
 	// Health check endpoint
@@ -162,9 +189,4 @@ func main() {
 	if err := app.Listen(fmt.Sprintf(":%d", port)); err != nil {
 		log.Fatal("Error starting server: ", err)
 	}
-}
-
-// Helper function to determine if request is an API request
-func isAPIRequest(c *fiber.Ctx) bool {
-	return c.Path()[:4] == "/api" || c.Get("HX-Request") != ""
 }

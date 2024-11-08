@@ -45,6 +45,9 @@
 
     <!-- First load HTMX -->
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    
+    <!-- Load Alpine.js before body -->
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </head>
 <body class="bg-gray-100 min-h-screen">
     <!-- Navigation -->
@@ -69,7 +72,18 @@
     {{end}}
 
     <!-- Main Content -->
-    <main class="{{if not .FullWidth}}container mx-auto px-4 py-8{{end}}">
+    <main 
+        x-data="{ 
+            showEmailViewer: false, 
+            showComposeModal: false,
+            toggleEmailViewer() {
+                this.showEmailViewer = !this.showEmailViewer
+            },
+            toggleComposeModal() {
+                this.showComposeModal = !this.showComposeModal
+            }
+        }"
+    >
         <!-- Error Messages -->
         {{if .Error}}
         <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
@@ -95,9 +109,6 @@
         </div>
     </footer>
 
-    <!-- Load Alpine.js -->
-    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
-
     <!-- Initialize after all scripts are loaded -->
     <script>
         // Wait for document to be ready
@@ -108,25 +119,6 @@
                 if (token) {
                     evt.detail.headers['Authorization'] = `Bearer ${token}`;
                 }
-            });
-
-            document.body.addEventListener('htmx:responseError', function(evt) {
-                if (evt.detail.xhr.status === 401) {
-                    window.location.href = '/login';
-                    return;
-                }
-
-                const error = evt.detail.xhr.response;
-                let message = 'An error occurred';
-                
-                try {
-                    const response = JSON.parse(error);
-                    message = response.error || message;
-                } catch (e) {
-                    message = error || message;
-                }
-
-                showError(message);
             });
         });
 
