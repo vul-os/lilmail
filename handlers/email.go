@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"path/filepath"
 
+	"github.com/emersion/go-imap"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/session"
 )
@@ -317,6 +318,20 @@ func (h *EmailHandler) HandleDeleteEmail(c *fiber.Ctx) error {
 		return c.Status(401).SendString("Invalid token")
 	}
 
+	// Get folder name from params and decode it
+	folderName, err := url.QueryUnescape(c.Params("name"))
+	if err != nil {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Invalid folder name",
+		})
+	}
+
+	if folderName == "" {
+		return c.Status(400).JSON(fiber.Map{
+			"error": "Folder name required",
+		})
+	}
+
 	emailID := c.Params("id")
 	if emailID == "" {
 		return c.Status(400).SendString("Email ID required")
@@ -329,11 +344,79 @@ func (h *EmailHandler) HandleDeleteEmail(c *fiber.Ctx) error {
 	}
 	defer client.Close()
 
-	// // Delete the email
-	// err = client.DeleteMessage(emailID)
-	// if err != nil {
-	// 	return c.Status(500).SendString("Error deleting email")
-	// }
+	// Delete the email
+	err = client.DeleteMessage(folderName, emailID)
+	if err != nil {
+		return c.Status(500).SendString("Error deleting email")
+	}
 
 	return c.SendString("Email deleted successfully")
+}
+
+// MarkMessageAsUnread marks a specific message as unread by its UID in a specific folder
+func (c *Client) MarkMessageAsUnread(folderName, uid string) error {
+	if folderName == "" {
+		return fmt.Errorf("folder name is required")
+	}
+
+	// Convert string UID to uint32
+	uidNum, err := parseUID(uid)
+	if err != nil {
+		return fmt.Errorf("invalid UID: %v", err)
+	}
+
+	// Select the specific folder
+	_, err = c.client.Select(folderName, false) // false for write mode
+	if err != nil {
+		return fmt.Errorf("error selecting folder %s: %v", folderName, err)
+	}
+
+	// Create sequence set for the message
+	seqSet := new(imap.SeqSet)
+	seqSet.AddNum(uidNum)
+
+	// Remove the \Seen flag
+	item := imap.FormatFlagsOp(imap.RemoveFlags, true)
+	flags := []interface{}{imap.SeenFlag}
+
+	err = c.client.UidStore(seqSet, item, flags, nil)
+	if err != nil {
+		return fmt.Errorf("error marking message as unread: %v", err)
+	}
+
+	return nil
+}
+
+// MarkMessageAsRead marks a specific message as read by its UID in a specific folder
+func (c *Client) MarkMessageAsRead(folderName, uid string) error {
+	if folderName == "" {
+		return fmt.Errorf("folder name is required")
+	}
+
+	// Convert string UID to uint32
+	uidNum, err := parseUID(uid)
+	if err != nil {
+		return fmt.Errorf("invalid UID: %v", err)
+	}
+
+	// Select the specific folder
+	_, err = c.client.Select(folderName, false) // false for write mode
+	if err != nil {
+		return fmt.Errorf("error selecting folder %s: %v", folderName, err)
+	}
+
+	// Create sequence set for the message
+	seqSet := new(imap.SeqSet)
+	seqSet.AddNum(uidNum)
+
+	// Add the \Seen flag
+	item := imap.FormatFlagsOp(imap.AddFlags, true)
+	flags := []interface{}{imap.SeenFlag}
+
+	err = c.client.UidStore(seqSet, item, flags, nil)
+	if err != nil {
+		return fmt.Errorf("error marking message as read: %v", err)
+	}
+
+	return nil
 }
