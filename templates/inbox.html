@@ -1,9 +1,9 @@
-<div class="h-[calc(100vh-64px)] flex overflow-hidden">
+<div class="h-[calc(100vh-64px)] flex overflow-hidden" x-data="{ showEmailViewer: false, showComposeModal: false }">
     <!-- Left Sidebar -->
     <div class="w-64 bg-white shadow-sm flex-shrink-0 border-r flex flex-col">
         <!-- Compose Button -->
         <div class="p-4">
-            <button @click="toggleComposeModal()" 
+            <button @click="showComposeModal = true" 
                     class="w-full flex items-center justify-center px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-sm transition-colors duration-150">
                 <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -19,15 +19,16 @@
                 {{range .Folders}}
                     {{if eq .Name "INBOX"}}
                     <a href="/folder/{{.Name}}"
-                    hx-get="/api/folder/{{.Name}}/emails"
-                    hx-target="#email-list"
-                    hx-trigger="click"
-                    @click="showEmailViewer = false"
-                    class="flex items-center px-6 py-3 {{ if eq $.CurrentFolder .Name }}
-                          bg-blue-50 text-blue-700 font-medium
-                          {{ else }}
-                          text-gray-700 hover:bg-gray-50
-                          {{ end }}">
+                       hx-get="/api/folder/{{.Name}}/emails"
+                       hx-target="#email-list"
+                       hx-trigger="click"
+                       @click="showEmailViewer = false"
+                       hx-swap="innerHTML"
+                       class="flex items-center px-6 py-3 {{ if eq $.CurrentFolder .Name }}
+                             bg-blue-50 text-blue-700 font-medium
+                             {{ else }}
+                             text-gray-700 hover:bg-gray-50
+                             {{ end }}">
                         <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
                                 d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
@@ -41,15 +42,16 @@
                 {{range .Folders}}
                     {{if ne .Name "INBOX"}}
                     <a href="/folder/{{.Name}}"
-                    hx-get="/api/folder/{{.Name}}/emails"
-                    hx-target="#email-list"
-                    hx-trigger="click"
-                    @click="showEmailViewer = false"
-                    class="flex items-center px-6 py-3 {{ if eq $.CurrentFolder .Name }}
-                            bg-blue-50 text-blue-700 font-medium
-                            {{ else }}
-                            text-gray-700 hover:bg-gray-50
-                            {{ end }}">
+                       hx-get="/api/folder/{{.Name}}/emails"
+                       hx-target="#email-list"
+                       hx-trigger="click"
+                       @click="showEmailViewer = false"
+                       hx-swap="innerHTML"
+                       class="flex items-center px-6 py-3 {{ if eq $.CurrentFolder .Name }}
+                               bg-blue-50 text-blue-700 font-medium
+                               {{ else }}
+                               text-gray-700 hover:bg-gray-50
+                               {{ end }}">
                         <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             {{if eq .Name "Sent Items"}}
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
@@ -69,21 +71,58 @@
                 {{end}}
             </div>
         </nav>
+    </div>
 
     <!-- Main Content Area -->
     <div class="flex-1 flex bg-gray-50 overflow-hidden">
         <!-- Email List -->
-        <div id="email-list" class="flex-1 overflow-y-auto bg-white" 
-             :class="{ 'hidden lg:block lg:w-2/5 xl:w-5/12': showEmailViewer }">
-            {{template "partials/email-list" .}}
+        <div id="email-list" class="w-full lg:w-2/5 xl:w-5/12 bg-white border-r overflow-y-auto"
+             :class="{ 'hidden lg:block': showEmailViewer }">
+            <div class="divide-y divide-gray-200">
+                {{if .Emails}}
+                    {{range .Emails}}
+                    <div class="hover:bg-gray-50 cursor-pointer transition-colors"
+                         hx-get="/api/email/{{.ID}}"
+                         hx-target="#email-viewer-content, #email-viewer-content-mobile"
+                         hx-headers='{"Authorization": "Bearer {{$.Token}}", "X-Folder": "{{$.CurrentFolder}}"}'
+                         @click="showEmailViewer = true"
+                         hx-swap="innerHTML">
+                        <div class="px-4 py-3">
+                            <div class="flex justify-between items-start">
+                                <div class="min-w-0 flex-1">
+                                    <div class="flex items-center space-x-2 mb-1">
+                                        <span class="font-medium text-gray-900 truncate">{{.From}}</span>
+                                        <span class="text-sm text-gray-500">{{formatDate .Date}}</span>
+                                    </div>
+                                    <h3 class="text-sm font-semibold text-gray-900 mb-0.5">{{.Subject}}</h3>
+                                    <p class="text-sm text-gray-500 line-clamp-2">{{.Preview}}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {{end}}
+                {{else}}
+                    <div class="flex flex-col items-center justify-center h-96">
+                        <svg class="w-16 h-16 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                        </svg>
+                        <h3 class="mt-4 text-lg font-medium text-gray-900">No messages</h3>
+                        <p class="mt-1 text-sm text-gray-500">This folder is empty.</p>
+                    </div>
+                {{end}}
+            </div>
         </div>
 
         <!-- Email Viewer -->
         <div x-show="showEmailViewer"
              x-cloak
-             class="hidden lg:block lg:flex-1 bg-white border-l">
+             class="hidden lg:block lg:flex-1 bg-white">
             <div id="email-viewer-content" class="h-full overflow-y-auto">
                 <!-- Content loaded via HTMX -->
+                <div class="flex items-center justify-center h-full text-gray-500">
+                    <p>Select an email to view its contents</p>
+                </div>
             </div>
         </div>
 
@@ -91,73 +130,80 @@
         <div x-show="showEmailViewer"
              x-cloak
              class="lg:hidden fixed inset-0 bg-white z-40">
-            <div id="email-viewer-content-mobile" class="h-full overflow-y-auto">
+            <div class="flex items-center px-4 py-3 border-b">
+                <button @click="showEmailViewer = false" 
+                        class="text-gray-500 hover:text-gray-700 mr-4">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                    </svg>
+                </button>
+                <h2 class="text-lg font-medium">Email</h2>
+            </div>
+            <div id="email-viewer-content-mobile" class="h-[calc(100%-4rem)] overflow-y-auto">
                 <!-- Content loaded via HTMX -->
             </div>
         </div>
     </div>
-</div>
 
-<!-- Compose Modal -->
-<div x-show="showComposeModal" 
-     x-cloak
-     class="fixed inset-0 z-50 overflow-y-auto"
-     @keydown.escape.window="toggleComposeModal()">
-    <div class="flex min-h-screen items-end justify-center px-4 pt-4 pb-20 text-center sm:block sm:p-0">
-        <!-- Background overlay -->
-        <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" 
-             @click="toggleComposeModal()"></div>
+    <!-- Compose Modal -->
+    <div x-show="showComposeModal" 
+         x-cloak
+         class="fixed inset-0 z-50 overflow-y-auto"
+         @keydown.escape.window="showComposeModal = false">
+        <div class="flex min-h-screen items-end justify-center px-4 pt-4 pb-20 text-center sm:block sm:p-0">
+            <!-- Background overlay -->
+            <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" 
+                 @click="showComposeModal = false"></div>
 
-        <!-- Modal panel -->
-        <div class="relative inline-block transform overflow-hidden rounded-lg bg-white px-4 pt-5 pb-4 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-2xl sm:p-6"
-             @click.outside="toggleComposeModal()">
-            <form hx-post="/api/compose"
-                  hx-headers='{"Authorization": "Bearer {{.Token}}"}'
-                  @submit="toggleComposeModal()"
-                  class="space-y-4">
-                <!-- To Field -->
-                <div>
-                    <label for="to" class="block text-sm font-medium text-gray-700">To</label>
-                    <input type="email" 
-                           name="to" 
-                           id="to" 
-                           required
-                           class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
-                </div>
+            <!-- Modal panel -->
+            <div class="relative inline-block transform overflow-hidden rounded-lg bg-white px-4 pt-5 pb-4 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-2xl sm:p-6"
+                 @click.outside="showComposeModal = false">
+                <form hx-post="/api/compose"
+                      hx-headers='{"Authorization": "Bearer {{.Token}}"}'>
+                    <!-- To Field -->
+                    <div>
+                        <label for="to" class="block text-sm font-medium text-gray-700">To</label>
+                        <input type="email" 
+                               name="to" 
+                               id="to" 
+                               required
+                               class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                    </div>
 
-                <!-- Subject Field -->
-                <div>
-                    <label for="subject" class="block text-sm font-medium text-gray-700">Subject</label>
-                    <input type="text" 
-                           name="subject" 
-                           id="subject" 
-                           required
-                           class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
-                </div>
+                    <!-- Subject Field -->
+                    <div class="mt-4">
+                        <label for="subject" class="block text-sm font-medium text-gray-700">Subject</label>
+                        <input type="text" 
+                               name="subject" 
+                               id="subject" 
+                               required
+                               class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                    </div>
 
-                <!-- Message Field -->
-                <div>
-                    <label for="body" class="block text-sm font-medium text-gray-700">Message</label>
-                    <textarea name="body" 
-                             id="body" 
-                             rows="8" 
-                             required
-                             class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"></textarea>
-                </div>
+                    <!-- Message Field -->
+                    <div class="mt-4">
+                        <label for="body" class="block text-sm font-medium text-gray-700">Message</label>
+                        <textarea name="body" 
+                                 id="body" 
+                                 rows="8" 
+                                 required
+                                 class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"></textarea>
+                    </div>
 
-                <!-- Action Buttons -->
-                <div class="mt-5 sm:mt-6 flex justify-end space-x-2">
-                    <button type="button"
-                            @click="toggleComposeModal()"
-                            class="inline-flex justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
-                        Cancel
-                    </button>
-                    <button type="submit"
-                            class="inline-flex justify-center rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
-                        Send
-                    </button>
-                </div>
-            </form>
+                    <!-- Action Buttons -->
+                    <div class="mt-5 sm:mt-6 flex justify-end space-x-2">
+                        <button type="button"
+                                @click="showComposeModal = false"
+                                class="inline-flex justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+                            Cancel
+                        </button>
+                        <button type="submit"
+                                class="inline-flex justify-center rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+                            Send
+                        </button>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
 </div>
