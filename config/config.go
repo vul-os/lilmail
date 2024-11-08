@@ -5,16 +5,25 @@ import "github.com/BurntSushi/toml"
 type IMAPConfig struct {
 	Server string `toml:"server"`
 	Port   int    `toml:"port"`
-	TLS    bool   `toml:"tls"`
+}
+
+type JWTConfig struct {
+	Secret string `toml:"secret"` // For JWT signing
 }
 
 type CacheConfig struct {
 	Folder string `toml:"folder"`
 }
 
+type EncryptionConfig struct {
+	Key string `toml:"key"` // 32-byte key for AES encryption
+}
+
 type Config struct {
-	IMAP  IMAPConfig  `toml:"imap"`
-	Cache CacheConfig `toml:"cache"`
+	IMAP       IMAPConfig       `toml:"imap"`
+	JWT        JWTConfig        `toml:"jwt"`
+	Cache      CacheConfig      `toml:"cache"`
+	Encryption EncryptionConfig `toml:"encryption"`
 }
 
 func LoadConfig(filepath string) (*Config, error) {

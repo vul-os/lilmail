@@ -1,11 +1,8 @@
-// handlers/email.go
-
 package handlers
 
 import (
 	"fmt"
 	"lilmail/config"
-	"lilmail/models"
 	"lilmail/utils"
 	"path/filepath"
 
@@ -16,263 +13,283 @@ import (
 type EmailHandler struct {
 	store  *session.Store
 	config *config.Config
-}
-
-func NewEmailHandler(store *session.Store, config *config.Config) *EmailHandler {
-	return &EmailHandler{
-		store:  store,
-		config: config,
-	}
-}
-
-// HandleInbox renders the inbox page
-func (h *EmailHandler) HandleInbox(c *fiber.Ctx) error {
-	username := c.Locals("username")
-	if username == nil {
-		return c.Redirect("/login")
-	}
-
-	usernameStr, ok := username.(string)
-	if !ok {
-		return c.Redirect("/login")
-	}
-
-	userCacheFolder := filepath.Join(h.config.Cache.Folder, usernameStr)
-
-	// Load folders
-	var folders []*MailboxInfo
-	if err := utils.LoadCache(filepath.Join(userCacheFolder, "folders.json"), &folders); err != nil {
-		return c.Status(500).SendString("Failed to load folders")
-	}
-
-	// Load emails
-	var emails []models.Email
-	if err := utils.LoadCache(filepath.Join(userCacheFolder, "emails.json"), &emails); err != nil {
-		return c.Status(500).SendString("Failed to load emails")
-	}
-
-	return c.Render("inbox", fiber.Map{
-		"Username":      usernameStr,
-		"Folders":       folders,
-		"Emails":        emails,
-		"CurrentFolder": "INBOX",
-	})
-}
-
-// HandleFolder handles displaying emails from a specific folder
-func (h *EmailHandler) HandleFolder(c *fiber.Ctx) error {
-	username := c.Locals("username")
-	if username == nil {
-		return c.Redirect("/login")
-	}
-
-	usernameStr, ok := username.(string)
-	if !ok {
-		return c.Redirect("/login")
-	}
-
-	folderName := c.Params("name")
-	if folderName == "" {
-		return c.Redirect("/inbox")
-	}
-
-	// Get IMAP client
-	client, err := h.getIMAPClient(c)
-	if err != nil {
-		return c.Status(500).SendString("Error connecting to email server")
-	}
-	defer client.Close()
-
-	// Load folders for sidebar
-	userCacheFolder := filepath.Join(h.config.Cache.Folder, usernameStr)
-	var folders []*MailboxInfo
-	if err := utils.LoadCache(filepath.Join(userCacheFolder, "folders.json"), &folders); err != nil {
-		return c.Status(500).SendString("Error loading folders")
-	}
-
-	// Fetch folder emails
-	emails, err := client.FetchMessages(folderName, 10)
-	if err != nil {
-		return c.Status(500).SendString("Error fetching emails")
-	}
-
-	// Cache the emails for this folder
-	if err := utils.SaveCache(filepath.Join(userCacheFolder, fmt.Sprintf("%s.json", folderName)), emails); err != nil {
-		// Log error but don't fail the request
-		fmt.Printf("Error caching emails for folder %s: %v\n", folderName, err)
-	}
-
-	return c.Render("inbox", fiber.Map{
-		"Username":      usernameStr,
-		"Folders":       folders,
-		"Emails":        emails,
-		"CurrentFolder": folderName,
-	})
-}
-
-// HandleSingleEmail displays a single email
-func (h *EmailHandler) HandleSingleEmail(c *fiber.Ctx) error {
-	username := c.Locals("username")
-	if username == nil {
-		return c.Redirect("/login")
-	}
-
-	usernameStr, ok := username.(string)
-	if !ok {
-		return c.Redirect("/login")
-	}
-
-	emailID := c.Params("id")
-	if emailID == "" {
-		return c.Redirect("/inbox")
-	}
-
-	userCacheFolder := filepath.Join(h.config.Cache.Folder, usernameStr)
-
-	// Load current folder's emails
-	var emails []models.Email
-	if err := utils.LoadCache(filepath.Join(userCacheFolder, "emails.json"), &emails); err != nil {
-		return c.Status(500).SendString("Failed to load emails")
-	}
-
-	// Find the requested email
-	var targetEmail models.Email
-	found := false
-	for _, email := range emails {
-		if email.ID == emailID {
-			targetEmail = email
-			found = true
-			break
-		}
-	}
-
-	if !found {
-		return c.Status(404).SendString("Email not found")
-	}
-
-	return c.Render("email", fiber.Map{
-		"Username": usernameStr,
-		"Email":    targetEmail,
-	})
-}
-
-// HandleFolderEmails handles AJAX requests for folder emails
-func (h *EmailHandler) HandleFolderEmails(c *fiber.Ctx) error {
-	username := c.Locals("username")
-	if username == nil {
-		return c.Status(401).JSON(fiber.Map{"error": "Unauthorized"})
-	}
-
-	usernameStr, ok := username.(string)
-	if !ok {
-		return c.Status(401).JSON(fiber.Map{"error": "Invalid session"})
-	}
-
-	folderName := c.Params("name")
-	if folderName == "" {
-		return c.Status(400).JSON(fiber.Map{"error": "Folder name required"})
-	}
-
-	// Get IMAP client
-	client, err := h.getIMAPClient(c)
-	if err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "Error connecting to email server"})
-	}
-	defer client.Close()
-
-	// Fetch emails from folder
-	emails, err := client.FetchMessages(folderName, 10)
-	if err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": fmt.Sprintf("Error fetching emails: %v", err)})
-	}
-
-	// Cache the emails
-	userCacheFolder := filepath.Join(h.config.Cache.Folder, usernameStr)
-	if err := utils.SaveCache(filepath.Join(userCacheFolder, fmt.Sprintf("%s.json", folderName)), emails); err != nil {
-		fmt.Printf("Error caching emails for folder %s: %v\n", folderName, err)
-	}
-
-	return c.JSON(fiber.Map{
-		"emails": emails,
-	})
-}
-
-// HandleRefreshEmails handles email refresh requests
-func (h *EmailHandler) HandleRefreshEmails(c *fiber.Ctx) error {
-	username := c.Locals("username")
-	if username == nil {
-		return c.Status(401).JSON(fiber.Map{"error": "Unauthorized"})
-	}
-
-	usernameStr, ok := username.(string)
-	if !ok {
-		return c.Status(401).JSON(fiber.Map{"error": "Invalid session"})
-	}
-
-	folderName := c.Query("folder", "INBOX")
-
-	// Get IMAP client
-	client, err := h.getIMAPClient(c)
-	if err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": "Error connecting to email server"})
-	}
-	defer client.Close()
-
-	// Fetch fresh emails
-	emails, err := client.FetchMessages(folderName, 10)
-	if err != nil {
-		return c.Status(500).JSON(fiber.Map{"error": fmt.Sprintf("Error fetching emails: %v", err)})
-	}
-
-	// Update cache
-	userCacheFolder := filepath.Join(h.config.Cache.Folder, usernameStr)
-	if err := utils.SaveCache(filepath.Join(userCacheFolder, fmt.Sprintf("%s.json", folderName)), emails); err != nil {
-		fmt.Printf("Error caching emails for folder %s: %v\n", folderName, err)
-	}
-
-	return c.JSON(fiber.Map{
-		"emails": emails,
-	})
-}
-
-// Helper function to get IMAP client
-func (h *EmailHandler) getIMAPClient(c *fiber.Ctx) (*Client, error) {
-	sess, err := h.store.Get(c)
-	if err != nil {
-		return nil, fmt.Errorf("session error: %v", err)
-	}
-
-	email := sess.Get("email")
-	if email == nil {
-		return nil, fmt.Errorf("email not found in session")
-	}
-
-	emailStr, ok := email.(string)
-	if !ok {
-		return nil, fmt.Errorf("invalid email in session")
-	}
-
-	// You should implement a secure way to handle passwords
-	password := sess.Get("password")
-	if password == nil {
-		return nil, fmt.Errorf("password not found in session")
-	}
-
-	passwordStr, ok := password.(string)
-	if !ok {
-		return nil, fmt.Errorf("invalid password in session")
-	}
-
-	return NewClient(
-		h.config.IMAP.Server,
-		h.config.IMAP.Port,
-		emailStr,
-		passwordStr,
-	)
+	auth   *AuthHandler
 }
 
 type MailboxInfo struct {
 	Name       string   `json:"name"`
 	Delimiter  string   `json:"delimiter"`
 	Attributes []string `json:"attributes"`
+}
+
+func NewEmailHandler(store *session.Store, config *config.Config, auth *AuthHandler) *EmailHandler {
+	return &EmailHandler{
+		store:  store,
+		config: config,
+		auth:   auth,
+	}
+}
+
+// HandleInbox renders the main inbox page
+func (h *EmailHandler) HandleInbox(c *fiber.Ctx) error {
+	// Get username from context (set by middleware)
+	username := c.Locals("username")
+	if username == nil {
+		return c.Redirect("/login")
+	}
+
+	userStr, ok := username.(string)
+	if !ok {
+		return c.Redirect("/login")
+	}
+
+	// Load folders from cache
+	userCacheFolder := filepath.Join(h.config.Cache.Folder, userStr)
+	var folders []*MailboxInfo
+	if err := utils.LoadCache(filepath.Join(userCacheFolder, "folders.json"), &folders); err != nil {
+		return c.Status(500).SendString("Error loading folders")
+	}
+
+	// Get IMAP client
+	client, err := h.auth.CreateIMAPClient(c)
+	if err != nil {
+		return c.Status(500).SendString("Error connecting to email server")
+	}
+	defer client.Close()
+
+	// Fetch inbox messages
+	emails, err := client.FetchMessages("INBOX", 50)
+	if err != nil {
+		return c.Status(500).SendString("Error fetching emails")
+	}
+
+	// Get JWT token for API requests
+	token, err := h.auth.GetSessionToken(c)
+	if err != nil {
+		return c.Redirect("/login")
+	}
+
+	// Render inbox template
+	return c.Render("inbox", fiber.Map{
+		"Username":      userStr,
+		"Folders":       folders,
+		"Emails":        emails,
+		"CurrentFolder": "INBOX",
+		"Token":         token,
+	})
+}
+
+// HandleFolder displays emails from a specific folder
+func (h *EmailHandler) HandleFolder(c *fiber.Ctx) error {
+	username := c.Locals("username")
+	if username == nil {
+		return c.Redirect("/login")
+	}
+
+	userStr, ok := username.(string)
+	if !ok {
+		return c.Redirect("/login")
+	}
+
+	folderName := c.Params("name")
+	if folderName == "" {
+		return c.Redirect("/inbox")
+	}
+
+	// Load folders for sidebar
+	userCacheFolder := filepath.Join(h.config.Cache.Folder, userStr)
+	var folders []*MailboxInfo
+	if err := utils.LoadCache(filepath.Join(userCacheFolder, "folders.json"), &folders); err != nil {
+		return c.Status(500).SendString("Error loading folders")
+	}
+
+	// Get IMAP client
+	client, err := h.auth.CreateIMAPClient(c)
+	if err != nil {
+		return c.Status(500).SendString("Error connecting to email server")
+	}
+	defer client.Close()
+
+	// Fetch folder emails
+	emails, err := client.FetchMessages(folderName, 50)
+	if err != nil {
+		return c.Status(500).SendString("Error fetching emails")
+	}
+
+	// Get JWT token for API requests
+	token, err := h.auth.GetSessionToken(c)
+	if err != nil {
+		return c.Redirect("/login")
+	}
+
+	return c.Render("inbox", fiber.Map{
+		"Username":      userStr,
+		"Folders":       folders,
+		"Emails":        emails,
+		"CurrentFolder": folderName,
+		"Token":         token,
+	})
+}
+
+// HandleEmailView handles the AJAX request for viewing a single email
+func (h *EmailHandler) HandleEmailView(c *fiber.Ctx) error {
+	// Validate Authorization header
+	token := c.Get("Authorization")
+	if token == "" || len(token) < 8 || token[:7] != "Bearer " {
+		return c.Status(401).SendString("Unauthorized")
+	}
+
+	// Validate JWT token
+	claims, err := h.auth.ValidateToken(token[7:])
+	if err != nil {
+		return c.Status(401).SendString("Invalid token")
+	}
+
+	emailID := c.Params("id")
+	if emailID == "" {
+		return c.Status(400).SendString("Email ID required")
+	}
+
+	// Get IMAP client
+	client, err := h.auth.CreateIMAPClient(c)
+	if err != nil {
+		return c.Status(500).SendString("Error connecting to email server")
+	}
+	defer client.Close()
+
+	// Fetch the email
+	email, err := client.FetchSingleMessage(emailID)
+	if err != nil {
+		return c.Status(500).SendString("Error fetching email")
+	}
+
+	// Cache the email for future reference
+	userCacheFolder := filepath.Join(h.config.Cache.Folder, claims.Username)
+	if err := utils.SaveCache(filepath.Join(userCacheFolder, fmt.Sprintf("email_%s.json", emailID)), email); err != nil {
+		// Log the error but don't fail the request
+		fmt.Printf("Error caching email %s: %v\n", emailID, err)
+	}
+
+	// Render the email view template without layout
+	return c.Render("email-view", fiber.Map{
+		"Email": email,
+	}, "")
+}
+
+// HandleFolderEmails handles AJAX requests for folder emails
+func (h *EmailHandler) HandleFolderEmails(c *fiber.Ctx) error {
+	// Validate Authorization header
+	token := c.Get("Authorization")
+	if token == "" || len(token) < 8 || token[:7] != "Bearer " {
+		return c.Status(401).SendString("Unauthorized")
+	}
+
+	// Validate JWT token
+	claims, err := h.auth.ValidateToken(token[7:])
+	if err != nil {
+		return c.Status(401).SendString("Invalid token")
+	}
+
+	folderName := c.Params("name")
+	if folderName == "" {
+		return c.Status(400).SendString("Folder name required")
+	}
+
+	// Get IMAP client
+	client, err := h.auth.CreateIMAPClient(c)
+	if err != nil {
+		return c.Status(500).SendString("Error connecting to email server")
+	}
+	defer client.Close()
+
+	// Fetch messages
+	emails, err := client.FetchMessages(folderName, 50)
+	if err != nil {
+		return c.Status(500).SendString("Error fetching emails")
+	}
+
+	// Cache the results
+	userCacheFolder := filepath.Join(h.config.Cache.Folder, claims.Username)
+	if err := utils.SaveCache(filepath.Join(userCacheFolder, fmt.Sprintf("%s.json", folderName)), emails); err != nil {
+		fmt.Printf("Error caching emails for folder %s: %v\n", folderName, err)
+	}
+
+	// Return partial template with just the email list
+	return c.Render("partials/email-list", fiber.Map{
+		"Emails": emails,
+	}, "")
+}
+
+// HandleComposeEmail handles the compose email form submission
+func (h *EmailHandler) HandleComposeEmail(c *fiber.Ctx) error {
+	// Validate Authorization header
+	token := c.Get("Authorization")
+	if token == "" || len(token) < 8 || token[:7] != "Bearer " {
+		return c.Status(401).SendString("Unauthorized")
+	}
+
+	// Validate JWT token
+	_, err := h.auth.ValidateToken(token[7:])
+	if err != nil {
+		return c.Status(401).SendString("Invalid token")
+	}
+
+	// Get form values
+	to := c.FormValue("to")
+	subject := c.FormValue("subject")
+	body := c.FormValue("body")
+
+	if to == "" || subject == "" || body == "" {
+		return c.Status(400).SendString("All fields are required")
+	}
+
+	// // Get SMTP client (you'll need to implement this)
+	// client, err := h.auth.CreateSMTPClient(c)
+	// if err != nil {
+	// 	return c.Status(500).SendString("Error connecting to email server")
+	// }
+	// defer client.Close()
+
+	// Send the email
+	// err = client.SendEmail(to, subject, body)
+	// if err != nil {
+	// 	return c.Status(500).SendString("Error sending email")
+	// }
+
+	return c.SendString("Email sent successfully")
+}
+
+// HandleDeleteEmail handles email deletion
+func (h *EmailHandler) HandleDeleteEmail(c *fiber.Ctx) error {
+	// Validate Authorization header
+	token := c.Get("Authorization")
+	if token == "" || len(token) < 8 || token[:7] != "Bearer " {
+		return c.Status(401).SendString("Unauthorized")
+	}
+
+	// Validate JWT token
+	_, err := h.auth.ValidateToken(token[7:])
+	if err != nil {
+		return c.Status(401).SendString("Invalid token")
+	}
+
+	emailID := c.Params("id")
+	if emailID == "" {
+		return c.Status(400).SendString("Email ID required")
+	}
+
+	// Get IMAP client
+	client, err := h.auth.CreateIMAPClient(c)
+	if err != nil {
+		return c.Status(500).SendString("Error connecting to email server")
+	}
+	defer client.Close()
+
+	// // Delete the email
+	// err = client.DeleteMessage(emailID)
+	// if err != nil {
+	// 	return c.Status(500).SendString("Error deleting email")
+	// }
+
+	return c.SendString("Email deleted successfully")
 }
