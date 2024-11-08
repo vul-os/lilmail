@@ -167,7 +167,6 @@ func (c *Client) FetchMessages(folderName string, limit uint32) ([]models.Email,
 	return emails, nil
 }
 
-// processMessage converts an IMAP message to our Email model
 func (c *Client) processMessage(msg *imap.Message) (models.Email, error) {
 	email := models.Email{
 		ID:      fmt.Sprintf("%d", msg.Uid),
@@ -206,12 +205,25 @@ func (c *Client) processMessage(msg *imap.Message) (models.Email, error) {
 	email.Body = c.getMessageBody(msg, false) // Plain text
 	email.HTML = c.getMessageBody(msg, true)  // HTML
 
+	// Set preview from plain text body
+	if plainBody := c.getMessageBody(msg, false); plainBody != "" {
+		if len(plainBody) > 150 {
+			email.Preview = plainBody[:150] + "..."
+		} else {
+			email.Preview = plainBody
+		}
+	}
+
 	// Process attachments
 	attachments, err := c.processAttachments(msg)
 	if err != nil {
 		return email, fmt.Errorf("error processing attachments: %v", err)
 	}
 	email.Attachments = attachments
+	email.HasAttachments = len(attachments) > 0
+
+	// Set IsHTML based on available content
+	email.IsHTML = email.HTML != ""
 
 	return email, nil
 }
