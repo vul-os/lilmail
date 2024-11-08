@@ -1,17 +1,16 @@
-// main.go (relevant parts)
-
 package main
 
 import (
 	"fmt"
 	"lilmail/config"
 	"lilmail/handlers"
-	"lilmail/utils"
 	"log"
-	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/logger"
+	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/fiber/v2/middleware/session"
 	"github.com/gofiber/template/html/v2"
 )
@@ -33,23 +32,76 @@ func main() {
 		log.Fatal("Failed to load config:", err)
 	}
 
-	// Initialize template engine
+	// Initialize template engine with custom functions
 	engine := html.New("./templates", ".html")
+
+	// String manipulation functions
+	engine.AddFunc("split", strings.Split)
+	engine.AddFunc("join", strings.Join)
+	engine.AddFunc("lower", strings.ToLower)
+	engine.AddFunc("upper", strings.ToUpper)
+	engine.AddFunc("title", strings.Title)
+	engine.AddFunc("trim", strings.TrimSpace)
+	// Add template functions
 	engine.AddFunc("formatDate", func(t time.Time) string {
 		return t.Format("Jan 02, 2006 15:04")
 	})
 
-	// Initialize Fiber with template engine
-	app := fiber.New(fiber.Config{
-		Views: engine,
+	engine.AddFunc("split", strings.Split)
+
+	engine.AddFunc("formatSize", func(size int64) string {
+		const unit = 1024
+		if size < unit {
+			return fmt.Sprintf("%d B", size)
+		}
+		div, exp := int64(unit), 0
+		for n := size / unit; n >= unit; n /= unit {
+			div *= unit
+			exp++
+		}
+		return fmt.Sprintf("%.1f %cB", float64(size)/float64(div), "KMGTPE"[exp])
 	})
 
+	engine.Reload(true)
+
+	// Initialize Fiber with template engine
+	app := fiber.New(fiber.Config{
+		Views:       engine,
+		ViewsLayout: "layouts/main", // Default layout
+		ErrorHandler: func(c *fiber.Ctx, err error) error {
+			code := fiber.StatusInternalServerError
+			if e, ok := err.(*fiber.Error); ok {
+				code = e.Code
+			}
+
+			// Handle API requests differently
+			if isAPIRequest(c) {
+				return c.Status(code).JSON(fiber.Map{
+					"error": err.Error(),
+				})
+			}
+
+			// Render error page for regular requests
+			return c.Status(code).Render("error", fiber.Map{
+				"Error": err.Error(),
+				"Code":  code,
+			})
+		},
+	})
+
+	// Add middleware
+	app.Use(recover.New()) // Recover from panics
+	app.Use(logger.New())  // Request logging
+
 	// Serve static files
-	app.Static("/assets", "./assets")
+	app.Static("/assets", "./assets", fiber.Static{
+		Compress:      true,
+		CacheDuration: 24 * time.Hour,
+	})
 
 	// Initialize handlers
 	authHandler := handlers.NewAuthHandler(store, config)
-	emailHandler := handlers.NewEmailHandler(store, config)
+	emailHandler := handlers.NewEmailHandler(store, config, authHandler)
 
 	// Public routes
 	app.Get("/login", authHandler.ShowLogin)
@@ -59,136 +111,60 @@ func main() {
 	// Protected routes group
 	protected := app.Group("", handlers.AuthMiddleware(store))
 
-	protected.Get("/inbox", emailHandler.HandleInbox)
-	protected.Get("/email/:id", emailHandler.HandleSingleEmail)
+	// Main routes
+	protected.Get("/", emailHandler.HandleInbox)      // Default to inbox
+	protected.Get("/inbox", emailHandler.HandleInbox) // Explicit inbox route
 	protected.Get("/folder/:name", emailHandler.HandleFolder)
-	protected.Get("/api/folder/:name/emails", emailHandler.HandleFolderEmails)
+
+	// API routes
+	api := protected.Group("/api")
+	{
+		// Email routes
+		api.Get("/email/:id", emailHandler.HandleEmailView)
+		// api.Post("/email/:id/mark-read", emailHandler.HandleMarkRead)
+		// api.Post("/email/:id/mark-unread", emailHandler.HandleMarkUnread)
+		api.Delete("/email/:id", emailHandler.HandleDeleteEmail)
+
+		// Folder routes
+		api.Get("/folder/:name/emails", emailHandler.HandleFolderEmails)
+
+		// Composition routes
+		api.Post("/compose", emailHandler.HandleComposeEmail)
+		// api.Post("/reply/:id", emailHandler.HandleReplyEmail)
+		// api.Post("/forward/:id", emailHandler.HandleForwardEmail)
+
+		// Attachment routes
+		// api.Get("/attachment/:id", emailHandler.HandleGetAttachment)
+	}
+
+	// Health check endpoint
+	app.Get("/health", func(c *fiber.Ctx) error {
+		return c.SendString("OK")
+	})
+
+	// 404 Handler for undefined routes
+	app.Use(func(c *fiber.Ctx) error {
+		if isAPIRequest(c) {
+			return c.Status(404).JSON(fiber.Map{
+				"error": "Not Found",
+			})
+		}
+		return c.Status(404).Render("error", fiber.Map{
+			"Error": "Page not found",
+			"Code":  404,
+		})
+	})
 
 	// Start server
-	log.Fatal(app.Listen(":3000"))
-}
+	port := 3000 // default port
 
-// handlers/auth.go (middleware part)
-
-// AuthMiddleware checks if the user is authenticated
-func AuthMiddleware(store *session.Store) fiber.Handler {
-	return func(c *fiber.Ctx) error {
-		// Get session
-		sess, err := store.Get(c)
-		if err != nil {
-			return c.Redirect("/login")
-		}
-
-		// Check authentication
-		auth := sess.Get("authenticated")
-		if auth == nil || auth != true {
-			return c.Redirect("/login")
-		}
-
-		// Get user data
-		username := sess.Get("username")
-		email := sess.Get("email")
-
-		// Validate required session data
-		if username == nil || email == nil {
-			sess.Destroy()
-			return c.Redirect("/login")
-		}
-
-		// Set data in context
-		c.Locals("username", username)
-		c.Locals("email", email)
-		c.Locals("authenticated", true)
-
-		return c.Next()
+	log.Printf("Starting server on port %d...\n", port)
+	if err := app.Listen(fmt.Sprintf(":%d", port)); err != nil {
+		log.Fatal("Error starting server: ", err)
 	}
 }
 
-// handlers/email.go (folder handler)
-
-type EmailHandler struct {
-	store  *session.Store
-	config *config.Config
-}
-
-func (h *EmailHandler) HandleFolder(c *fiber.Ctx) error {
-	// Get username from context (set by middleware)
-	username := c.Locals("username")
-	if username == nil {
-		return c.Redirect("/login")
-	}
-
-	usernameStr, ok := username.(string)
-	if !ok {
-		return c.Redirect("/login")
-	}
-
-	folderName := c.Params("name")
-	if folderName == "" {
-		return c.Redirect("/inbox")
-	}
-
-	// Load folders for sidebar
-	userCacheFolder := filepath.Join(h.config.Cache.Folder, usernameStr)
-	var folders []*handlers.MailboxInfo
-	err := utils.LoadCache(filepath.Join(userCacheFolder, "folders.json"), &folders)
-	if err != nil {
-		return c.Status(500).SendString("Error loading folders")
-	}
-
-	// Get IMAP client and fetch folder emails
-	client, err := h.getIMAPClient(c)
-	if err != nil {
-		return c.Status(500).SendString("Error connecting to email server")
-	}
-	defer client.Close()
-
-	emails, err := client.FetchMessages(folderName, 10)
-	if err != nil {
-		return c.Status(500).SendString("Error fetching emails")
-	}
-
-	return c.Render("inbox", fiber.Map{
-		"Username":      usernameStr,
-		"Folders":       folders,
-		"Emails":        emails,
-		"CurrentFolder": folderName,
-	})
-}
-
-// Helper method to get IMAP client
-func (h *EmailHandler) getIMAPClient(c *fiber.Ctx) (*handlers.Client, error) {
-	email := c.Locals("email")
-	if email == nil {
-		return nil, fmt.Errorf("email not found in session")
-	}
-
-	emailStr, ok := email.(string)
-	if !ok {
-		return nil, fmt.Errorf("invalid email in session")
-	}
-
-	sess, err := h.store.Get(c)
-	if err != nil {
-		return nil, err
-	}
-
-	// You might want to store/retrieve password differently in production
-	// This is just an example
-	password := sess.Get("password")
-	if password == nil {
-		return nil, fmt.Errorf("password not found in session")
-	}
-
-	passwordStr, ok := password.(string)
-	if !ok {
-		return nil, fmt.Errorf("invalid password in session")
-	}
-
-	return handlers.NewClient(
-		h.config.IMAP.Server,
-		h.config.IMAP.Port,
-		emailStr,
-		passwordStr,
-	)
+// Helper function to determine if request is an API request
+func isAPIRequest(c *fiber.Ctx) bool {
+	return c.Path()[:4] == "/api" || c.Get("HX-Request") != ""
 }

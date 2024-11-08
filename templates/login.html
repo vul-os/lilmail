@@ -1,96 +1,119 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - LilMail</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
-    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
-</head>
-<body class="bg-gray-100">
-    <div class="min-h-screen flex items-center justify-center">
-        <div class="bg-white p-8 rounded-lg shadow-md w-96">
-            <h1 class="text-2xl font-bold mb-6 text-center">Login to LilMail</h1>
-            
+<div class="min-h-screen flex flex-col justify-center">
+    <div class="sm:mx-auto sm:w-full sm:max-w-md">
+        <!-- Logo/Title -->
+        <h2 class="text-center text-3xl font-extrabold text-gray-900 mb-8">
+            LilMail Login
+        </h2>
+    </div>
+
+    <div class="sm:mx-auto sm:w-full sm:max-w-md">
+        <div class="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
+            <!-- Error Display -->
             {{if .Error}}
-            <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-                {{.Error}}
+            <div class="mb-4 bg-red-50 border-l-4 border-red-400 p-4">
+                <div class="flex">
+                    <div class="flex-shrink-0">
+                        <svg class="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+                        </svg>
+                    </div>
+                    <div class="ml-3">
+                        <p class="text-sm text-red-700">
+                            {{.Error}}
+                        </p>
+                    </div>
+                </div>
             </div>
             {{end}}
 
-            <div x-data="{ 
-                email: '', 
-                loading: false,
-                submitForm(event) {
-                    this.loading = true;
-                    const formData = new FormData(event.target);                    
-                    fetch('/login', {
-                        method: 'POST',
-                        body: formData
-                    })
-                    .then(response => {
-                        if (response.ok) {
-                            window.location.href = '/inbox';
-                        } else {
-                            this.loading = false;
-                            throw new Error('Login failed');
-                        }
-                    })
-                    .catch(() => {
-                        this.loading = false;
-                    });
-                    
-                    event.preventDefault();
-                }
-            }">
-                <form @submit="submitForm" class="space-y-4">
-                    <div>
-                        <label class="block text-gray-700 mb-2" for="email">Email Address</label>
-                        <input type="email" id="email" name="email" 
-                            x-model="email"
-                            placeholder="your.name@example.com"
-                            class="w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            required
-                            :disabled="loading">
+            <!-- Login Form -->
+            <form class="space-y-6" action="/login" method="POST">
+                <!-- Email Field -->
+                <div>
+                    <label for="email" class="block text-sm font-medium text-gray-700">
+                        Email address
+                    </label>
+                    <div class="mt-1">
+                        <input id="email" 
+                               name="email" 
+                               type="email" 
+                               autocomplete="email" 
+                               required 
+                               value="{{.Email}}"
+                               class="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
                     </div>
-                    
-                    <div>
-                        <label class="block text-gray-700 mb-2" for="password">Password</label>
-                        <input type="password" id="password" name="password" 
-                            class="w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            required
-                            :disabled="loading">
+                </div>
+
+                <!-- Password Field -->
+                <div>
+                    <label for="password" class="block text-sm font-medium text-gray-700">
+                        Password
+                    </label>
+                    <div class="mt-1">
+                        <input id="password" 
+                               name="password" 
+                               type="password" 
+                               autocomplete="current-password" 
+                               required 
+                               class="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
                     </div>
-                    
+                </div>
+
+                <!-- Remember Me Checkbox -->
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center">
+                        <input id="remember_me" 
+                               name="remember_me" 
+                               type="checkbox" 
+                               class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
+                        <label for="remember_me" class="ml-2 block text-sm text-gray-900">
+                            Remember me
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Submit Button -->
+                <div>
                     <button type="submit" 
-                        class="w-full bg-blue-500 text-white py-2 rounded hover:bg-blue-600 transition duration-200 flex items-center justify-center"
-                        :disabled="loading">
-                        <template x-if="!loading">
-                            <span>Login</span>
-                        </template>
-                        <template x-if="loading">
-                            <div class="flex items-center">
-                                <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                                <span>Logging in...</span>
-                            </div>
-                        </template>
+                            class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                        Sign in
                     </button>
-                </form>
+                </div>
+            </form>
+
+            <!-- Server Requirements Note -->
+            <div class="mt-6">
+                <p class="text-center text-sm text-gray-500">
+                    Please ensure you have your IMAP server credentials ready.
+                </p>
             </div>
 
-            <div class="mt-4 text-sm text-gray-600">
-                <p>Common IMAP servers:</p>
-                <ul class="list-disc list-inside mt-2">
-                    <li>Gmail: imap.gmail.com</li>
-                    <li>Outlook: outlook.office365.com</li>
-                    <li>Yahoo: imap.mail.yahoo.com</li>
-                </ul>
+            <!-- Loading State (using Alpine.js) -->
+            <div x-data="{ loading: false }"
+                 @submit.prevent="loading = true; $event.target.submit()">
+                <div x-show="loading" 
+                     class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+                     style="display: none;">
+                    <div class="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-blue-500"></div>
+                </div>
             </div>
         </div>
     </div>
-</body>
-</html>
+</div>
+
+<!-- Hide default navigation for login page -->
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Hide navigation on login page
+        const nav = document.querySelector('nav');
+        if (nav) {
+            nav.style.display = 'none';
+        }
+        
+        // Hide footer on login page
+        const footer = document.querySelector('footer');
+        if (footer) {
+            footer.style.display = 'none';
+        }
+    });
+</script>

@@ -1,98 +1,195 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Inbox - LilMail</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
-    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
-</head>
-<body class="bg-gray-100 min-h-screen" x-data="{ loading: false }">
-    <nav class="bg-white shadow-md px-6 py-3">
-        <div class="flex items-center justify-between">
-            <h1 class="text-xl font-bold">LilMail</h1>
-            <div class="flex items-center space-x-4">
-                <span class="text-gray-600">{{.Username}}</span>
-                <a href="/logout" class="text-red-500 hover:text-red-700">Logout</a>
-            </div>
-        </div>
-    </nav>
-
-    <div class="flex h-[calc(100vh-64px)]">
-        <!-- Sidebar with folder structure -->
-        <div class="w-64 bg-white shadow-md overflow-y-auto">
-            <div class="p-4">
-                <button class="w-full bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 mb-4">
-                    Compose
-                </button>
-                
-                <h2 class="text-lg font-semibold mb-4">Folders</h2>
-                <ul class="space-y-2">
-                    {{range .Folders}}
-                    <li>
-                        <a href="/folder/{{.Name}}" 
-                            hx-get="/api/folder/{{.Name}}/emails"
-                            hx-target="#email-list"
-                            hx-trigger="click"
-                            @click="loading = true"
-                            class="block px-3 py-2 rounded {{if eq $.CurrentFolder .Name}}bg-blue-100 text-blue-700{{else}}hover:bg-gray-100{{end}}">
-                            {{.Name}}
-                        </a>
-                    </li>
-                    {{end}}
-                </ul>
-            </div>
+<div class="h-[calc(100vh-64px)] flex overflow-hidden" x-data="{ showEmailViewer: false, showComposeModal: false }">
+    <!-- Sidebar -->
+    <div class="w-64 bg-white shadow-sm flex-shrink-0 border-r flex flex-col">
+        <div class="p-4 flex-shrink-0">
+            <!-- Compose Button -->
+            <button @click="showComposeModal = true" 
+                    class="w-full flex items-center justify-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-sm transition-colors duration-150">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                          d="M12 4v16m8-8H4" />
+                </svg>
+                Compose
+            </button>
         </div>
 
-        <!-- Main content area -->
-        <div class="flex-1 overflow-hidden flex flex-col">
-            <div class="bg-white shadow p-4 flex items-center justify-between">
-                <h2 class="text-xl font-semibold">{{.CurrentFolder}}</h2>
-                <div class="flex items-center space-x-2">
-                    <button 
-                        hx-get="/api/folder/{{.CurrentFolder}}/emails"
-                        hx-target="#email-list"
-                        @click="loading = true"
-                        class="bg-gray-100 p-2 rounded hover:bg-gray-200" 
-                        title="Refresh">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <!-- Folders List -->
+        <nav class="flex-1 overflow-y-auto p-2">
+            <div class="space-y-1">
+                <!-- Inbox (Always first) -->
+                <a href="/folder/INBOX"
+                   hx-get="/api/folder/INBOX/emails"
+                   hx-target="#email-list"
+                   hx-trigger="click"
+                   @click="showEmailViewer = false"
+                   class="flex items-center justify-between px-3 py-2 rounded-md text-sm {{ if eq .CurrentFolder "INBOX" }}
+                         bg-blue-50 text-blue-700 font-medium
+                         {{ else }}
+                         text-gray-700 hover:bg-gray-50
+                         {{ end }}">
+                    <div class="flex items-center">
+                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                  d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
                         </svg>
-                    </button>
-                </div>
-            </div>
-
-            <!-- Loading indicator -->
-            <div x-show="loading" 
-                class="absolute inset-0 bg-white/50 flex items-center justify-center">
-                <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-            </div>
-
-            <!-- Email list -->
-            <div id="email-list" class="overflow-y-auto flex-1 p-4"
-                @htmx:after-settle="loading = false">
-                {{if .Emails}}
-                    {{range .Emails}}
-                    <div class="border-b hover:bg-gray-50 bg-white rounded-lg shadow-sm mb-2">
-                        <a href="/email/{{.ID}}" class="block p-4">
-                            <div class="flex items-center justify-between mb-1">
-                                <div class="font-medium">{{.From}}</div>
-                                <div class="text-sm text-gray-600">{{formatDate .Date}}</div>
-                            </div>
-                            <div class="font-semibold">{{.Subject}}</div>
-                            <div class="text-sm text-gray-600 truncate">{{.Body}}</div>
-                        </a>
+                        Inbox
                     </div>
+                    {{if .UnreadCount}}
+                    <span class="bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full text-xs font-medium">
+                        {{.UnreadCount}}
+                    </span>
                     {{end}}
-                {{else}}
-                    <div class="text-center text-gray-500 mt-8">
-                        No emails found in this folder
-                    </div>
+                </a>
+
+                <!-- Other System Folders -->
+                {{range .Folders}}
+                    {{if ne .Name "INBOX"}}
+                    <a href="/folder/{{.Name}}"
+                       hx-get="/api/folder/{{.Name}}/emails"
+                       hx-target="#email-list"
+                       hx-trigger="click"
+                       @click="showEmailViewer = false"
+                       class="flex items-center justify-between px-3 py-2 rounded-md text-sm {{ if eq $.CurrentFolder .Name }}
+                             bg-blue-50 text-blue-700 font-medium
+                             {{ else }}
+                             text-gray-700 hover:bg-gray-50
+                             {{ end }}">
+                        <div class="flex items-center">
+                            {{if eq .Name "Sent"}}
+                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                                      d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                            </svg>
+                            {{else if eq .Name "Drafts"}}
+                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                                      d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                            </svg>
+                            {{else if eq .Name "Trash"}}
+                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                            {{else if eq .Name "Spam"}}
+                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                                      d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                            {{else}}
+                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                                      d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                            </svg>
+                            {{end}}
+                            {{.Name}}
+                        </div>
+                        {{if .UnreadCount}}
+                        <span class="bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full text-xs font-medium">
+                            {{.UnreadCount}}
+                        </span>
+                        {{end}}
+                    </a>
+                    {{end}}
                 {{end}}
+            </div>
+        </nav>
+    </div>
+
+    <!-- Main Content Area -->
+    <div class="flex-1 flex flex-col overflow-hidden bg-gray-50 relative">
+        <!-- Folder Header -->
+        <div class="bg-white border-b px-6 py-4 flex items-center justify-between flex-shrink-0">
+            <h1 class="text-lg font-medium text-gray-900">{{.CurrentFolder}}</h1>
+            <div class="flex items-center space-x-2">
+                <!-- Refresh Button -->
+                <button hx-get="/api/folder/{{.CurrentFolder}}/emails"
+                        hx-target="#email-list"
+                        class="p-2 text-gray-400 hover:text-gray-500 hover:bg-gray-100 rounded-full">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- Email List -->
+        <div id="email-list" class="flex-1 overflow-y-auto p-4">
+            {{template "partials/email-list" .}}
+        </div>
+
+        <!-- Email Viewer Sliding Panel -->
+        <div x-show="showEmailViewer"
+             x-cloak
+             class="absolute inset-0 lg:relative lg:inset-auto lg:ml-0 lg:w-1/2 xl:w-7/12 bg-white shadow-xl transform transition-transform duration-300 ease-in-out h-full"
+             :class="{ 'translate-x-0': showEmailViewer, 'translate-x-full lg:translate-x-0': !showEmailViewer }">
+            <div id="email-viewer-content" class="h-full overflow-y-auto">
+                <!-- Content will be loaded here -->
             </div>
         </div>
     </div>
-</body>
-</html>
+</div>
+
+<!-- Compose Modal -->
+<div x-show="showComposeModal" 
+     x-cloak
+     class="fixed inset-0 z-50 overflow-y-auto"
+     @keydown.escape.window="showComposeModal = false">
+    <div class="flex min-h-screen items-end justify-center px-4 pt-4 pb-20 text-center sm:block sm:p-0">
+        <!-- Background overlay -->
+        <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" 
+             @click="showComposeModal = false"></div>
+
+        <!-- Modal panel -->
+        <div class="relative inline-block transform overflow-hidden rounded-lg bg-white px-4 pt-5 pb-4 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-2xl sm:p-6"
+             @click.outside="showComposeModal = false">
+            <form hx-post="/api/compose"
+                  hx-headers='{"Authorization": "Bearer {{.Token}}"}'
+                  @submit="showComposeModal = false"
+                  class="space-y-4">
+                <!-- To Field -->
+                <div>
+                    <label for="to" class="block text-sm font-medium text-gray-700">To</label>
+                    <input type="email" 
+                           name="to" 
+                           id="to" 
+                           required
+                           class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                </div>
+
+                <!-- Subject Field -->
+                <div>
+                    <label for="subject" class="block text-sm font-medium text-gray-700">Subject</label>
+                    <input type="text" 
+                           name="subject" 
+                           id="subject" 
+                           required
+                           class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                </div>
+
+                <!-- Message Field -->
+                <div>
+                    <label for="body" class="block text-sm font-medium text-gray-700">Message</label>
+                    <textarea name="body" 
+                             id="body" 
+                             rows="8" 
+                             required
+                             class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"></textarea>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="mt-5 sm:mt-6 flex justify-end space-x-2">
+                    <button type="button"
+                            @click="showComposeModal = false"
+                            class="inline-flex justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+                        Cancel
+                    </button>
+                    <button type="submit"
+                            class="inline-flex justify-center rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+                        Send
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
