@@ -1,0 +1,7 @@
+[imap]
+server = "mail.diesels.co.za"
+port = 993
+tls = true
+
+[cache]
+folder = "./cache"
