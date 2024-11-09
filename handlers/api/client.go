@@ -3,6 +3,8 @@ package api
 
 import (
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/emersion/go-imap"
 	"github.com/emersion/go-imap/client"
@@ -10,7 +12,8 @@ import (
 
 // Client represents an IMAP client wrapper
 type Client struct {
-	client *client.Client
+	client   *client.Client
+	username string // Add username field
 }
 
 // NewClient creates a new IMAP client
@@ -79,4 +82,35 @@ func parseUID(uid string) (uint32, error) {
 		return 0, err
 	}
 	return uidNum, nil
+}
+
+// Add this method to your existing Client struct
+func (c *Client) SaveToSent(to, subject, body string) error {
+	// Try different common names for Sent folder
+	sentFolders := []string{"Sent", "Sent Items", "Sent Mail"}
+
+	var selectedFolder string
+	for _, folder := range sentFolders {
+		if _, err := c.client.Select(folder, false); err == nil {
+			selectedFolder = folder
+			break
+		}
+	}
+
+	if selectedFolder == "" {
+		return fmt.Errorf("could not find Sent folder")
+	}
+
+	// Format the message
+	message := fmt.Sprintf("From: %s\r\n"+
+		"To: %s\r\n"+
+		"Subject: %s\r\n"+
+		"Date: %s\r\n"+
+		"Content-Type: text/plain; charset=UTF-8\r\n"+
+		"\r\n"+
+		"%s", c.username, to, subject,
+		time.Now().Format(time.RFC1123Z), body)
+
+	// Append the message to the Sent folder
+	return c.client.Append(selectedFolder, nil, time.Now(), strings.NewReader(message))
 }

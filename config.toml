@@ -11,3 +11,9 @@ secret = "jVk7SzxrYp9HcNaQ2WmLg5nB4Tf8dE3R"
 
 [encryption]
 key = "dR5HmP9Kz2CvTn8LxYj4Bq7WcF3NtE6A"
+
+[smtp]
+# If not specified, will be derived from IMAP server
+server = "mail.diesels.co.za"
+port = 587
+use_starttls = true

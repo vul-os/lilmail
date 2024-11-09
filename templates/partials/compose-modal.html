@@ -1,0 +1,155 @@
+{{ define "compose-modal" }}
+<div 
+    x-show="showComposeModal" 
+    x-cloak
+    x-data="{ 
+        loading: false,
+        resetForm() {
+            const form = document.getElementById('compose-form');
+            if (form) {
+                form.reset();
+                loading = false;
+            }
+        }
+    }"
+    @compose-modal-opened.window="resetForm()"
+    x-init="$watch('showComposeModal', value => { if (!value) { resetForm() } })"
+    class="fixed inset-0 z-50 overflow-y-auto"
+    role="dialog"
+    aria-modal="true"
+>
+    <div class="min-h-screen px-4 text-center flex items-center justify-center">
+        <div 
+            class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" 
+            @click="showComposeModal = false"
+            aria-hidden="true"
+        ></div>
+
+        <div class="relative inline-block w-full max-w-2xl text-left transform transition-all">
+            <div class="bg-white rounded-lg shadow-xl">
+                <!-- Header -->
+                <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+                    <h3 class="text-lg font-medium text-gray-900">Compose New Message</h3>
+                    <button 
+                        @click="showComposeModal = false"
+                        class="text-gray-400 hover:text-gray-500">
+                        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+
+                <form 
+                    id="compose-form"
+                    hx-post="/api/compose"
+                    hx-swap="none"
+                    hx-headers='js:{"Authorization": "Bearer " + localStorage.getItem("token")}'
+                    @htmx:before-request="loading = true"
+                    @htmx:after-request="loading = false"
+                    @htmx:response="(() => {
+                        const resp = JSON.parse(event.detail.xhr.response);
+                        if (resp.success) {
+                            $dispatch('show-toast', { 
+                                type: 'success',
+                                title: 'Email Sent',
+                                message: 'sent!'
+                            });
+                            
+                            $nextTick(() => {
+                                resetForm();
+                                showComposeModal = false;
+                            });
+                        } else {
+                            $dispatch('show-toast', { 
+                                type: 'error',
+                                title: 'Error',
+                                message: resp.message || 'Failed to send email'
+                            });
+                        }
+                    })()"
+                    class="px-6 py-4 space-y-4"
+                >
+                    <!-- To Field -->
+                    <div class="space-y-1">
+                        <label for="to" class="block text-sm font-medium text-gray-700">To</label>
+                        <div class="mt-1">
+                            <input 
+                                type="email" 
+                                name="to" 
+                                id="to" 
+                                required
+                                placeholder="recipient@example.com"
+                                :disabled="loading"
+                                class="h-12 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-base disabled:bg-gray-50"
+                            >
+                        </div>
+                    </div>
+
+                    <!-- Subject Field -->
+                    <div class="space-y-1">
+                        <label for="subject" class="block text-sm font-medium text-gray-700">Subject</label>
+                        <div class="mt-1">
+                            <input 
+                                type="text" 
+                                name="subject" 
+                                id="subject" 
+                                required
+                                placeholder="Message subject"
+                                :disabled="loading"
+                                class="h-12 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-base disabled:bg-gray-50"
+                            >
+                        </div>
+                    </div>
+
+                    <!-- Message Field -->
+                    <div class="space-y-1">
+                        <label for="body" class="block text-sm font-medium text-gray-700">Message</label>
+                        <div class="mt-1">
+                            <textarea 
+                                name="body" 
+                                id="body" 
+                                rows="12" 
+                                required
+                                placeholder="Type your message here..."
+                                :disabled="loading"
+                                class="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-base disabled:bg-gray-50"
+                            ></textarea>
+                        </div>
+                    </div>
+
+                    <!-- Loading Indicator -->
+                    <div 
+                        x-show="loading"
+                        class="flex items-center justify-center py-2"
+                    >
+                        <svg class="animate-spin h-5 w-5 text-blue-500 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span class="text-sm text-gray-500">Sending...</span>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="mt-6 flex justify-end space-x-3">
+                        <button 
+                            type="button"
+                            @click="showComposeModal = false"
+                            :disabled="loading"
+                            class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                        >
+                            Cancel
+                        </button>
+                        <button 
+                            type="submit"
+                            :disabled="loading"
+                            class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                        >
+                            <span x-text="loading ? 'Sending...' : 'Send'"></span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{{ end }}

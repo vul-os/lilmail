@@ -1,10 +1,29 @@
-<div class="h-[calc(100vh-64px)] flex overflow-hidden" x-data="{ showEmailViewer: false, showComposeModal: false }">
+<div class="h-[calc(100vh-64px)] flex overflow-hidden" 
+    x-data="{ 
+        showEmailViewer: false, 
+        showComposeModal: false,
+        toasts: [],
+        addToast(toast) {
+            this.toasts.push({
+                id: Date.now(),
+                ...toast
+            });
+            setTimeout(() => this.removeToast(this.toasts[this.toasts.length - 1].id), 5000);
+        },
+        removeToast(id) {
+            this.toasts = this.toasts.filter(t => t.id !== id);
+        }
+    }"
+    @show-toast.window="addToast($event.detail)"
+>
     <!-- Left Sidebar -->
     <div class="w-64 bg-white shadow-sm flex-shrink-0 border-r flex flex-col">
         <!-- Compose Button -->
         <div class="p-4">
-            <button @click="showComposeModal = true" 
-                    class="w-full flex items-center justify-center px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-sm transition-colors duration-150">
+            <!-- In your main template where the compose button is -->
+            <button 
+                @click="showComposeModal = true; $nextTick(() => { $dispatch('compose-modal-opened') })" 
+                class="w-full flex items-center justify-center px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-sm transition-colors duration-150">
                 <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                 </svg>
@@ -144,66 +163,7 @@
             </div>
         </div>
     </div>
-
-    <!-- Compose Modal -->
-    <div x-show="showComposeModal" 
-         x-cloak
-         class="fixed inset-0 z-50 overflow-y-auto"
-         @keydown.escape.window="showComposeModal = false">
-        <div class="flex min-h-screen items-end justify-center px-4 pt-4 pb-20 text-center sm:block sm:p-0">
-            <!-- Background overlay -->
-            <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" 
-                 @click="showComposeModal = false"></div>
-
-            <!-- Modal panel -->
-            <div class="relative inline-block transform overflow-hidden rounded-lg bg-white px-4 pt-5 pb-4 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-2xl sm:p-6"
-                 @click.outside="showComposeModal = false">
-                <form hx-post="/api/compose"
-                      hx-headers='{"Authorization": "Bearer {{.Token}}"}'>
-                    <!-- To Field -->
-                    <div>
-                        <label for="to" class="block text-sm font-medium text-gray-700">To</label>
-                        <input type="email" 
-                               name="to" 
-                               id="to" 
-                               required
-                               class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
-                    </div>
-
-                    <!-- Subject Field -->
-                    <div class="mt-4">
-                        <label for="subject" class="block text-sm font-medium text-gray-700">Subject</label>
-                        <input type="text" 
-                               name="subject" 
-                               id="subject" 
-                               required
-                               class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
-                    </div>
-
-                    <!-- Message Field -->
-                    <div class="mt-4">
-                        <label for="body" class="block text-sm font-medium text-gray-700">Message</label>
-                        <textarea name="body" 
-                                 id="body" 
-                                 rows="8" 
-                                 required
-                                 class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"></textarea>
-                    </div>
-
-                    <!-- Action Buttons -->
-                    <div class="mt-5 sm:mt-6 flex justify-end space-x-2">
-                        <button type="button"
-                                @click="showComposeModal = false"
-                                class="inline-flex justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
-                            Cancel
-                        </button>
-                        <button type="submit"
-                                class="inline-flex justify-center rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
-                            Send
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
+    {{ template "compose-modal" . }}
+    {{ template "toast" . }}
     </div>
 </div>
