@@ -34,7 +34,7 @@
                 Forward
             </button>
 
-            <!-- More Actions Dropdown -->
+            <!-- In the More Actions Dropdown section of your email viewer -->
             <div class="relative" x-data="{ open: false }">
                 <button @click="open = !open"
                         class="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
@@ -45,15 +45,21 @@
                 </button>
 
                 <div x-show="open"
-                     @click.away="open = false"
-                     class="origin-top-right absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 divide-y divide-gray-100 z-10"
-                     x-cloak>
+                    @click.away="open = false"
+                    class="origin-top-right absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 divide-y divide-gray-100 z-10"
+                    x-cloak>
                     <div class="py-1">
                         <button hx-post="/api/email/{{.Email.ID}}/mark-unread"
                                 class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
                             Mark as unread
                         </button>
                         <button hx-delete="/api/email/{{.Email.ID}}"
+                                hx-target="#email-list"
+                                hx-swap="innerHTML"
+                                @click="showEmailViewer = false"
+                                hx-trigger="click"
+                                hx-on::after-request="htmx.ajax('GET', '/api/folder/{{$.CurrentFolder}}/emails', '#email-list')"
+                                hx-headers='{"Authorization": "Bearer {{$.Token}}", "X-Folder": "{{$.CurrentFolder}}"}'
                                 class="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100">
                             Delete
                         </button>
@@ -113,19 +119,11 @@
     </div>
     {{end}}
 
-    <!-- Email Body -->
     <div class="flex-1 overflow-auto p-6">
         {{if .Email.HTML}}
-            <div class="prose prose-sm max-w-none email-content" x-html="{{.Email.HTML}}">
-            </div>
+            <div class="prose prose-sm max-w-none email-content" x-html="{{.Email.HTML}}"></div>
         {{else}}
-            <div class="text-gray-800 whitespace-pre-line">
-                {{range $line := split .Email.Body "\n"}}
-                    {{if and (not (hasPrefix $line "Message-ID:")) (not (hasPrefix $line "Date:")) (not (hasPrefix $line "MIME-Version:")) (not (hasPrefix $line "User-Agent:")) (not (hasPrefix $line "Content-Language:")) (not (hasPrefix $line "To:")) (not (hasPrefix $line "From:")) (not (hasPrefix $line "Subject:")) (not (hasPrefix $line "Content-Type:")) (not (hasPrefix $line "Content-Transfer-Encoding:"))}}
-                        {{$line}}<br>
-                    {{end}}
-                {{end}}
-            </div>
+            <div class="text-gray-800 whitespace-pre-line">{{.Email.Body}}</div>
         {{end}}
     </div>
 </div>

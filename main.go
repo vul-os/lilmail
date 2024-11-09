@@ -3,7 +3,8 @@ package main
 import (
 	"fmt"
 	"lilmail/config"
-	"lilmail/handlers"
+	"lilmail/handlers/api"
+	"lilmail/handlers/web"
 	"lilmail/storage"
 	"log"
 	"strings"
@@ -13,7 +14,6 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/fiber/v2/middleware/session"
-
 	"github.com/gofiber/template/html/v2"
 )
 
@@ -67,15 +67,14 @@ func main() {
 	engine.AddFunc("upper", strings.ToUpper)
 	engine.AddFunc("title", strings.Title)
 	engine.AddFunc("trim", strings.TrimSpace)
-	// Add to your template functions
 	engine.AddFunc("hasPrefix", strings.HasPrefix)
-	// Add template functions
+
+	// Date formatting function
 	engine.AddFunc("formatDate", func(t time.Time) string {
 		return t.Format("Jan 02, 2006 15:04")
 	})
 
-	engine.AddFunc("split", strings.Split)
-
+	// File size formatting function
 	engine.AddFunc("formatSize", func(size int64) string {
 		const unit = 1024
 		if size < unit {
@@ -96,14 +95,6 @@ func main() {
 		Views:       engine,
 		ViewsLayout: "layouts/main", // Default layout
 		ErrorHandler: func(c *fiber.Ctx, err error) error {
-			// Recover from panic if any
-			// if err := recover(); err != nil {
-			// 	log.Printf("Panic recovered: %v", err)
-			// 	return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			// 		"error": "Internal server error",
-			// 	})
-			// }
-
 			code := fiber.StatusInternalServerError
 			if e, ok := err.(*fiber.Error); ok {
 				code = e.Code
@@ -134,35 +125,42 @@ func main() {
 		CacheDuration: 24 * time.Hour,
 	})
 
-	// Initialize handlers
-	authHandler := handlers.NewAuthHandler(store, config)
-	emailHandler := handlers.NewEmailHandler(store, config, authHandler)
+	// Initialize web handlers
+	webAuthHandler := web.NewAuthHandler(store, config)
+	webEmailHandler := web.NewEmailHandler(store, config, webAuthHandler)
 
 	// Public routes
-	app.Get("/login", authHandler.ShowLogin)
-	app.Post("/login", authHandler.HandleLogin)
-	app.Get("/logout", authHandler.HandleLogout)
+	app.Get("/login", webAuthHandler.ShowLogin)
+	app.Post("/login", webAuthHandler.HandleLogin)
+	app.Get("/logout", webAuthHandler.HandleLogout)
 
 	// Protected routes group
-	protected := app.Group("", handlers.AuthMiddleware(store))
+	protected := app.Group("", api.SessionMiddleware(store))
 
-	// Main routes
-	protected.Get("/", emailHandler.HandleInbox)      // Default to inbox
-	protected.Get("/inbox", emailHandler.HandleInbox) // Explicit inbox route
-	protected.Get("/folder/:name", emailHandler.HandleFolder)
+	// Main web routes
+	protected.Get("/", webEmailHandler.HandleInbox)      // Default to inbox
+	protected.Get("/inbox", webEmailHandler.HandleInbox) // Explicit inbox route
+	protected.Get("/folder/:name", webEmailHandler.HandleFolder)
 
-	// API routes
-	api := protected.Group("/api")
+	// API routes - Keep these paths exactly as they were before
+	apiRoutes := protected.Group("/api")
 	{
 		// Email routes
-		api.Get("/email/:id", emailHandler.HandleEmailView)
-		api.Delete("/email/:id", emailHandler.HandleDeleteEmail)
+		apiRoutes.Get("/email/:id", webEmailHandler.HandleEmailView)
+		apiRoutes.Delete("/email/:id", webEmailHandler.HandleDeleteEmail)
 
-		// Folder routes
-		api.Get("/folder/:name/emails", emailHandler.HandleFolderEmails)
+		// Folder routes - This is the important fix
+		apiRoutes.Get("/folder/:name/emails", webEmailHandler.HandleFolderEmails) // Match the path in HTML
 
 		// Composition routes
-		api.Post("/compose", emailHandler.HandleComposeEmail)
+		apiRoutes.Post("/compose", webEmailHandler.HandleComposeEmail)
+	}
+
+	// HTMX routes (partial template renders)
+	htmx := protected.Group("/htmx")
+	{
+		htmx.Get("/email/:id", webEmailHandler.HandleEmailView)
+		htmx.Get("/folder/:name/emails", webEmailHandler.HandleFolderEmails)
 	}
 
 	// Health check endpoint
@@ -185,7 +183,6 @@ func main() {
 
 	// Start server
 	port := 3000 // default port
-
 	log.Printf("Starting server on port %d...\n", port)
 	if err := app.Listen(fmt.Sprintf(":%d", port)); err != nil {
 		log.Fatal("Error starting server: ", err)

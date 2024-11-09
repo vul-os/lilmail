@@ -58,7 +58,7 @@ func (h *AuthHandler) HandleLogin(c *fiber.Ctx) error {
 		})
 	}
 
-	username := h.getUsernameFromEmail(email)
+	username := api.GetUsernameFromEmail(email)
 	if username == "" {
 		return c.Status(400).Render("login", fiber.Map{
 			"Error": "Invalid email format",
@@ -150,15 +150,6 @@ func (h *AuthHandler) HandleLogout(c *fiber.Ctx) error {
 	return c.Redirect("/login")
 }
 
-// Helper functions
-func (h *AuthHandler) getUsernameFromEmail(email string) string {
-	parts := strings.Split(strings.TrimSpace(email), "@")
-	if len(parts) == 2 && parts[0] != "" {
-		return parts[0]
-	}
-	return ""
-}
-
 func (h *AuthHandler) ensureUserCacheFolder(path string) error {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return os.MkdirAll(path, 0755)
@@ -241,7 +232,7 @@ func (h *AuthHandler) CreateIMAPClient(c *fiber.Ctx) (*api.Client, error) {
 	}
 
 	// Get username from email
-	username := h.getUsernameFromEmail(creds.Email)
+	username := api.GetUsernameFromEmail(creds.Email)
 	if username == "" {
 		return nil, fmt.Errorf("invalid email format")
 	}
@@ -253,4 +244,41 @@ func (h *AuthHandler) CreateIMAPClient(c *fiber.Ctx) (*api.Client, error) {
 		username,
 		creds.Password,
 	)
+}
+
+func (h *AuthHandler) CreateSMTPClient(c *fiber.Ctx) (*api.SMTPClient, error) {
+	// Convert IMAP server to SMTP server (e.g., imap.gmail.com -> smtp.gmail.com)
+	smtpServer := strings.Replace(h.config.IMAP.Server, "imap.", "smtp.", 1)
+
+	// Get SMTP port from config, or use default
+	smtpPort := h.config.SMTP.GetPort()
+
+	// Get credentials from session
+	sess, err := h.store.Get(c)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get session: %v", err)
+	}
+
+	encryptedCreds := sess.Get("credentials")
+	if encryptedCreds == nil {
+		return nil, fmt.Errorf("no credentials found in session")
+	}
+
+	encryptedStr, ok := encryptedCreds.(string)
+	if !ok {
+		return nil, fmt.Errorf("invalid credentials format")
+	}
+
+	// Decrypt credentials
+	creds, err := api.DecryptCredentials(encryptedStr, h.config.Encryption.Key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt credentials: %v", err)
+	}
+
+	client := api.NewSMTPClient(smtpServer, smtpPort, creds.Email, creds.Password)
+	if client == nil {
+		return nil, fmt.Errorf("failed to create SMTP client")
+	}
+
+	return client, nil
 }

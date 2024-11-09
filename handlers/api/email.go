@@ -191,113 +191,6 @@ func (c *Client) setMessageFlag(folderName, uid string, flag string, add bool) e
 	return nil
 }
 
-// processMessage converts an IMAP message to our Email model
-func (c *Client) processMessage(msg *imap.Message) (models.Email, error) {
-	email := models.Email{
-		ID:    fmt.Sprintf("%d", msg.Uid),
-		Flags: msg.Flags,
-	}
-
-	if msg.Envelope != nil {
-		email.Subject = msg.Envelope.Subject
-		email.Date = msg.Envelope.Date
-
-		if len(msg.Envelope.From) > 0 {
-			email.From = msg.Envelope.From[0].Address()
-			email.FromName = msg.Envelope.From[0].PersonalName
-		}
-
-		if len(msg.Envelope.To) > 0 {
-			var toAddresses []string
-			var toNames []string
-			for _, addr := range msg.Envelope.To {
-				toAddresses = append(toAddresses, addr.Address())
-				toNames = append(toNames, addr.PersonalName)
-			}
-			email.To = strings.Join(toAddresses, ", ")
-			email.ToNames = toNames
-		}
-
-		if len(msg.Envelope.Cc) > 0 {
-			var ccAddresses []string
-			for _, addr := range msg.Envelope.Cc {
-				ccAddresses = append(ccAddresses, addr.Address())
-			}
-			email.Cc = strings.Join(ccAddresses, ", ")
-		}
-	}
-
-	email.Body = c.getMessageBody(msg, false)
-	email.HTML = c.getMessageBody(msg, true)
-	email.IsHTML = email.HTML != ""
-
-	if plainBody := c.getMessageBody(msg, false); plainBody != "" {
-		if len(plainBody) > 150 {
-			email.Preview = plainBody[:150] + "..."
-		} else {
-			email.Preview = plainBody
-		}
-	}
-
-	attachments, err := c.processAttachments(msg)
-	if err != nil {
-		return email, fmt.Errorf("error processing attachments: %v", err)
-	}
-	email.Attachments = attachments
-	email.HasAttachments = len(attachments) > 0
-
-	return email, nil
-}
-
-// getMessageBody extracts either plain text or HTML body from the message
-func (c *Client) getMessageBody(msg *imap.Message, wantHTML bool) string {
-	if msg.BodyStructure == nil {
-		return ""
-	}
-
-	var findSection func(bs *imap.BodyStructure, partNum []int) (string, bool)
-	findSection = func(bs *imap.BodyStructure, partNum []int) (string, bool) {
-		if bs == nil {
-			return "", false
-		}
-
-		isDesiredPart := strings.ToLower(bs.MIMEType) == "text" &&
-			((wantHTML && strings.ToLower(bs.MIMESubType) == "html") ||
-				(!wantHTML && strings.ToLower(bs.MIMESubType) == "plain"))
-
-		if isDesiredPart {
-			section := &imap.BodySectionName{}
-			if len(partNum) > 0 {
-				section.Specifier = imap.PartSpecifier(strings.Join(strings.Fields(fmt.Sprint(partNum)), "."))
-			}
-
-			r := msg.GetBody(section)
-			if r == nil {
-				return "", false
-			}
-
-			body, err := io.ReadAll(r)
-			if err != nil {
-				return "", false
-			}
-
-			return string(body), true
-		}
-
-		for i, part := range bs.Parts {
-			newPartNum := append(partNum, i+1)
-			if body, found := findSection(part, newPartNum); found {
-				return body, true
-			}
-		}
-
-		return "", false
-	}
-
-	body, _ := findSection(msg.BodyStructure, nil)
-	return body
-}
-
 // processAttachments extracts attachments from the message
 func (c *Client) processAttachments(msg *imap.Message) ([]models.Attachment, error) {
 	var attachments []models.Attachment
@@ -349,4 +242,136 @@ func (c *Client) processAttachments(msg *imap.Message) ([]models.Attachment, err
 
 	err := processAttachmentPart(msg.BodyStructure, nil)
 	return attachments, err
+}
+
+// processMessage converts an IMAP message to our Email model
+func (c *Client) processMessage(msg *imap.Message) (models.Email, error) {
+	email := models.Email{
+		ID:    fmt.Sprintf("%d", msg.Uid),
+		Flags: msg.Flags,
+	}
+
+	if msg.Envelope != nil {
+		email.Subject = msg.Envelope.Subject
+		email.Date = msg.Envelope.Date
+
+		if len(msg.Envelope.From) > 0 {
+			email.From = msg.Envelope.From[0].Address()
+			email.FromName = msg.Envelope.From[0].PersonalName
+		}
+
+		if len(msg.Envelope.To) > 0 {
+			var toAddresses []string
+			for _, addr := range msg.Envelope.To {
+				toAddresses = append(toAddresses, addr.Address())
+			}
+			email.To = strings.Join(toAddresses, ", ")
+		}
+
+		if len(msg.Envelope.Cc) > 0 {
+			var ccAddresses []string
+			for _, addr := range msg.Envelope.Cc {
+				ccAddresses = append(ccAddresses, addr.Address())
+			}
+			email.Cc = strings.Join(ccAddresses, ", ")
+		}
+	}
+
+	// Get message body (try HTML first, fall back to plain text)
+	body := c.getMessageBody(msg, true) // Try HTML first
+	if body != "" {
+		email.HTML = body
+		email.IsHTML = true
+	} else {
+		body = c.getMessageBody(msg, false) // Fall back to plain text
+		// Clean up the plain text body
+		body = strings.TrimSpace(body)
+		// Remove common email headers that might appear in the body
+		lines := strings.Split(body, "\n")
+		var cleanedLines []string
+		for _, line := range lines {
+			if !strings.HasPrefix(line, "From:") &&
+				!strings.HasPrefix(line, "To:") &&
+				!strings.HasPrefix(line, "Subject:") &&
+				!strings.HasPrefix(line, "Date:") &&
+				!strings.HasPrefix(line, "Message-ID:") &&
+				!strings.HasPrefix(line, "MIME-Version:") &&
+				!strings.HasPrefix(line, "Content-Type:") &&
+				!strings.HasPrefix(line, "Content-Transfer-Encoding:") {
+				cleanedLines = append(cleanedLines, line)
+			}
+		}
+		email.Body = strings.Join(cleanedLines, "\n")
+	}
+
+	// Set preview from plain text
+	plainText := c.getMessageBody(msg, false)
+	if plainText != "" {
+		// Clean up the preview text
+		preview := strings.TrimSpace(plainText)
+		preview = strings.Join(strings.Fields(preview), " ") // Normalize whitespace
+		if len(preview) > 150 {
+			preview = preview[:150] + "..."
+		}
+		email.Preview = preview
+	}
+
+	// Process attachments if any
+	attachments, err := c.processAttachments(msg)
+	if err != nil {
+		return email, fmt.Errorf("error processing attachments: %v", err)
+	}
+	email.Attachments = attachments
+	email.HasAttachments = len(attachments) > 0
+
+	return email, nil
+}
+
+// Clean up the getMessageBody method as well
+func (c *Client) getMessageBody(msg *imap.Message, wantHTML bool) string {
+	if msg.BodyStructure == nil {
+		return ""
+	}
+
+	var findSection func(bs *imap.BodyStructure, partNum []int) (string, bool)
+	findSection = func(bs *imap.BodyStructure, partNum []int) (string, bool) {
+		if bs == nil {
+			return "", false
+		}
+
+		isDesiredPart := strings.ToLower(bs.MIMEType) == "text" &&
+			((wantHTML && strings.ToLower(bs.MIMESubType) == "html") ||
+				(!wantHTML && strings.ToLower(bs.MIMESubType) == "plain"))
+
+		if isDesiredPart {
+			section := &imap.BodySectionName{}
+			if len(partNum) > 0 {
+				section.Specifier = imap.PartSpecifier(strings.Join(strings.Fields(fmt.Sprint(partNum)), "."))
+			}
+
+			r := msg.GetBody(section)
+			if r == nil {
+				return "", false
+			}
+
+			body, err := io.ReadAll(r)
+			if err != nil {
+				return "", false
+			}
+
+			return string(body), true
+		}
+
+		for i, part := range bs.Parts {
+			newPartNum := append(partNum, i+1)
+			if body, found := findSection(part, newPartNum); found {
+				return body, true
+			}
+		}
+
+		return "", false
+	}
+
+	body, _ := findSection(msg.BodyStructure, nil)
+	return body
 }
