@@ -115,6 +115,53 @@ func main() {
 		},
 	})
 
+	// Add security headers middleware if SSL is enabled
+	if config.SSL.Enabled {
+		app.Use(func(c *fiber.Ctx) error {
+			for header, value := range config.GetSecurityHeaders() {
+				c.Set(header, value)
+			}
+			return c.Next()
+		})
+
+		// Start HTTPS server
+		log.Printf("Starting HTTPS server on port %d...\n", config.SSL.Port)
+
+		// If auto-redirect is enabled, configure the app to listen on both ports
+		if config.SSL.AutoRedirect {
+			// Create redirect handler for HTTP
+			go func() {
+				// Use the same app instance but only for redirects on HTTP port
+				if err := app.Listen(fmt.Sprintf(":%d", config.SSL.HTTPPort)); err != nil {
+					log.Printf("Warning: HTTP redirect server failed: %v", err)
+				}
+			}()
+
+			// Add middleware to redirect HTTP to HTTPS
+			app.Use(func(c *fiber.Ctx) error {
+				if !c.Secure() {
+					return c.Redirect("https://" + c.Hostname() + c.OriginalURL())
+				}
+				return c.Next()
+			})
+		}
+
+		// Start the main HTTPS server
+		if err := app.ListenTLS(
+			fmt.Sprintf(":%d", config.SSL.Port),
+			config.SSL.CertFile,
+			config.SSL.KeyFile,
+		); err != nil {
+			log.Fatal("Error starting HTTPS server: ", err)
+		}
+	} else {
+		// Start regular HTTP server
+		log.Printf("Starting HTTP server on port %d...\n", config.SSL.HTTPPort)
+		if err := app.Listen(fmt.Sprintf(":%d", config.SSL.HTTPPort)); err != nil {
+			log.Fatal("Error starting HTTP server: ", err)
+		}
+	}
+
 	// Add middleware
 	app.Use(recover.New()) // Recover from panics
 	app.Use(logger.New())  // Request logging
