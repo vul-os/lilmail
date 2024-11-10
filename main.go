@@ -115,44 +115,6 @@ func main() {
 		},
 	})
 
-	// In main.go
-	if config.SSL.Enabled {
-		// Start HTTP redirect server if auto-redirect is enabled
-		if config.SSL.AutoRedirect {
-			go func() {
-				httpApp := fiber.New()
-				httpApp.All("/*", func(c *fiber.Ctx) error {
-					return c.Redirect("https://" + c.Hostname() + c.OriginalURL())
-				})
-				log.Fatal(httpApp.Listen(fmt.Sprintf(":%d", config.SSL.HTTPPort)))
-			}()
-		}
-
-		// Add security headers middleware
-		app.Use(func(c *fiber.Ctx) error {
-			for header, value := range config.GetSecurityHeaders() {
-				c.Set(header, value)
-			}
-			return c.Next()
-		})
-
-		// Start HTTPS server
-		log.Printf("Starting HTTPS server on port %d...\n", config.SSL.Port)
-		if err := app.ListenTLS(
-			fmt.Sprintf(":%d", config.SSL.Port),
-			config.SSL.CertFile,
-			config.SSL.KeyFile,
-		); err != nil {
-			log.Fatal("Error starting HTTPS server: ", err)
-		}
-	} else {
-		// Start regular HTTP server
-		log.Printf("Starting HTTP server on port %d...\n", config.Server.FrontPort)
-		if err := app.Listen(fmt.Sprintf(":%d", config.Server.FrontPort)); err != nil {
-			log.Fatal("Error starting HTTP server: ", err)
-		}
-	}
-
 	// Add middleware
 	app.Use(recover.New()) // Recover from panics
 	app.Use(logger.New())  // Request logging
@@ -220,8 +182,8 @@ func main() {
 	})
 
 	// Start server
-	log.Printf("Starting server on port %d...\n", config.Server.BackPort)
-	if err := app.Listen(fmt.Sprintf(":%d", config.Server.BackPort)); err != nil {
+	log.Printf("Starting server on port %d...\n", config.Server.Port)
+	if err := app.Listen(fmt.Sprintf(":%d", config.Server.Port)); err != nil {
 		log.Fatal("Error starting server: ", err)
 	}
 }
