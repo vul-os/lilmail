@@ -1,10 +1,9 @@
 # LilMail 📧
 
-[![Build Status](https://github.com/exolutionza/lilmail/workflows/build/badge.svg)](https://github.com/exolutionza/lilmail/actions)
+[![Build Status](https://github.com/exolutionza/lilmail/workflows/Release/badge.svg)](https://github.com/exolutionza/lilmail/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/github/v/release/yourusername/lilmail)](https://github.com/exolutionza/lilmail/releases)
-[![Go Report Card](https://goreportcard.com/badge/github.com/yourusername/lilmail)](https://goreportcard.com/report/github.com/yourusername/lilmail)
-
+[![Version](https://img.shields.io/github/v/release/exolutionza/lilmail)](https://github.com/exolutionza/lilmail/releases)
+[![Go Report Card](https://goreportcard.com/badge/github.com/exolutionza/lilmail)](https://goreportcard.com/report/github.com/exolutionza/lilmail)
 A lightweight, resource-efficient webmail client written in Go, supporting IMAP and SMTP protocols. LilMail emphasizes simplicity and minimal system requirements, with a file-based storage system that eliminates the need for a database.
 
 ## ✨ Features
