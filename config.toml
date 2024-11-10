@@ -1,5 +1,5 @@
 [imap]
-server = "mail.diesels.co.za"
+server = "mail.example.com"
 port = 993
 tls = true
 
@@ -7,13 +7,13 @@ tls = true
 folder = "./cache"
 
 [jwt]
-secret = "jVk7SzxrYp9HcNaQ2WmLg5nB4Tf8dE3R"
+secret = "your-secure-jwt-secret"
 
 [encryption]
-key = "dR5HmP9Kz2CvTn8LxYj4Bq7WcF3NtE6A"
+key = "your-32-character-encryption-key"
 
 [smtp]
-# If not specified, will be derived from IMAP server
-server = "mail.diesels.co.za"
+# If not specified, SMTP server will be derived from IMAP server
+server = "mail.example.com"
 port = 587
 use_starttls = true
