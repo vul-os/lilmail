@@ -28,26 +28,28 @@ jobs:
         cp config.toml builds/lilmail/
         cp -r templates builds/lilmail/
 
-        # Binary builds directly into platform-specific temporary directories
+        # Linux build
         GOOS=linux GOARCH=amd64 go build -o builds/lilmail/lilmail
         cd builds
         zip -r lilmail${VERSION}_linux_amd64.zip lilmail/*
+        cd ..
         rm builds/lilmail/lilmail
 
-        cd ..
+        # Windows build
         GOOS=windows GOARCH=amd64 go build -o builds/lilmail/lilmail.exe
         cd builds
         zip -r lilmail${VERSION}_windows_amd64.zip lilmail/*
+        cd ..
         rm builds/lilmail/lilmail.exe
 
-        cd ..
+        # Darwin build
         GOOS=darwin GOARCH=amd64 go build -o builds/lilmail/lilmail
         cd builds
         zip -r lilmail${VERSION}_darwin_amd64.zip lilmail/*
+        cd ..
         rm builds/lilmail/lilmail
         
         # Source archive
-        cd ..
         git archive --format=zip HEAD -o builds/lilmail${VERSION}_source.zip
 
         # Clean up build directory
