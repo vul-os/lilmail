@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"io"
 	"lilmail/models"
+	"log"
+	"regexp"
 	"strings"
+	"time"
 
 	"github.com/emersion/go-imap"
 )
@@ -62,15 +65,21 @@ func (c *Client) FetchMessages(folderName string, limit uint32) ([]models.Email,
 
 // FetchSingleMessage retrieves a specific message by its UID
 func (c *Client) FetchSingleMessage(folderName, uid string) (models.Email, error) {
+	log.Printf("Starting to fetch message with UID %s from folder %s", uid, folderName)
+
 	uidNum, err := parseUID(uid)
 	if err != nil {
-		return models.Email{}, fmt.Errorf("invalid UID: %v", err)
+		return models.Email{}, fmt.Errorf("invalid UID %s: %v", uid, err)
 	}
+	log.Printf("Parsed UID: %d", uidNum)
 
-	_, err = c.client.Select(folderName, true)
+	// Select folder with debug info
+	mbox, err := c.client.Select(folderName, true)
 	if err != nil {
 		return models.Email{}, fmt.Errorf("error selecting folder %s: %v", folderName, err)
 	}
+	log.Printf("Selected folder %s: Messages: %d, Recent: %d, Unseen: %d",
+		folderName, mbox.Messages, mbox.Recent, mbox.Unseen)
 
 	seqSet := new(imap.SeqSet)
 	seqSet.AddNum(uidNum)
@@ -85,33 +94,51 @@ func (c *Client) FetchSingleMessage(folderName, uid string) (models.Email, error
 		section.FetchItem(),
 	}
 
+	// Start fetch with timeout
 	done := make(chan error, 1)
+	timeout := time.After(30 * time.Second)
+
 	go func() {
+		log.Printf("Starting UidFetch for UID %d", uidNum)
 		done <- c.client.UidFetch(seqSet, items, messages)
 	}()
 
 	var email models.Email
 	found := false
 
-	for msg := range messages {
-		if msg != nil {
-			email, err = c.processMessage(msg)
-			if err != nil {
-				return models.Email{}, fmt.Errorf("error processing message: %v", err)
-			}
-			found = true
-			break
+	select {
+	case <-timeout:
+		return models.Email{}, fmt.Errorf("timeout while fetching message")
+	case err := <-done:
+		if err != nil {
+			return models.Email{}, fmt.Errorf("error during fetch: %v", err)
 		}
 	}
 
-	if err := <-done; err != nil {
-		return models.Email{}, fmt.Errorf("error during fetch: %v", err)
+	// Process received messages
+	for msg := range messages {
+		if msg == nil {
+			log.Printf("Received nil message for UID %d", uidNum)
+			continue
+		}
+
+		log.Printf("Processing message: UID=%d, Flags=%v, Subject=%s",
+			msg.Uid, msg.Flags, msg.Envelope.Subject)
+
+		email, err = c.processMessage(msg)
+		if err != nil {
+			return models.Email{}, fmt.Errorf("error processing message: %v", err)
+		}
+		found = true
+		break
 	}
 
 	if !found {
+		log.Printf("No message found with UID %s in folder %s", uid, folderName)
 		return models.Email{}, fmt.Errorf("message with UID %s not found in folder %s", uid, folderName)
 	}
 
+	log.Printf("Successfully fetched and processed message: %s", email.Subject)
 	return email, nil
 }
 
@@ -244,87 +271,157 @@ func (c *Client) processAttachments(msg *imap.Message) ([]models.Attachment, err
 	return attachments, err
 }
 
-// processMessage converts an IMAP message to our Email model
 func (c *Client) processMessage(msg *imap.Message) (models.Email, error) {
 	email := models.Email{
 		ID:    fmt.Sprintf("%d", msg.Uid),
 		Flags: msg.Flags,
 	}
 
+	// Process envelope information
 	if msg.Envelope != nil {
 		email.Subject = msg.Envelope.Subject
 		email.Date = msg.Envelope.Date
 
-		if len(msg.Envelope.From) > 0 {
+		// Process From addresses
+		if len(msg.Envelope.From) > 0 && msg.Envelope.From[0] != nil {
 			email.From = msg.Envelope.From[0].Address()
 			email.FromName = msg.Envelope.From[0].PersonalName
 		}
 
+		// Process To addresses
 		if len(msg.Envelope.To) > 0 {
 			var toAddresses []string
+			var toNames []string
 			for _, addr := range msg.Envelope.To {
-				toAddresses = append(toAddresses, addr.Address())
+				if addr != nil {
+					toAddresses = append(toAddresses, addr.Address())
+					if addr.PersonalName != "" {
+						toNames = append(toNames, addr.PersonalName)
+					}
+				}
 			}
 			email.To = strings.Join(toAddresses, ", ")
+			email.ToNames = toNames
 		}
 
+		// Process CC addresses
 		if len(msg.Envelope.Cc) > 0 {
 			var ccAddresses []string
 			for _, addr := range msg.Envelope.Cc {
-				ccAddresses = append(ccAddresses, addr.Address())
+				if addr != nil {
+					ccAddresses = append(ccAddresses, addr.Address())
+				}
 			}
 			email.Cc = strings.Join(ccAddresses, ", ")
 		}
 	}
 
-	// Get message body (try HTML first, fall back to plain text)
-	body := c.getMessageBody(msg, true) // Try HTML first
-	if body != "" {
-		email.HTML = body
-		email.IsHTML = true
-	} else {
-		body = c.getMessageBody(msg, false) // Fall back to plain text
-		// Clean up the plain text body
-		body = strings.TrimSpace(body)
-		// Remove common email headers that might appear in the body
-		lines := strings.Split(body, "\n")
-		var cleanedLines []string
-		for _, line := range lines {
-			if !strings.HasPrefix(line, "From:") &&
-				!strings.HasPrefix(line, "To:") &&
-				!strings.HasPrefix(line, "Subject:") &&
-				!strings.HasPrefix(line, "Date:") &&
-				!strings.HasPrefix(line, "Message-ID:") &&
-				!strings.HasPrefix(line, "MIME-Version:") &&
-				!strings.HasPrefix(line, "Content-Type:") &&
-				!strings.HasPrefix(line, "Content-Transfer-Encoding:") {
-				cleanedLines = append(cleanedLines, line)
+	// Get message body sections
+	for _, section := range []struct {
+		what string
+		html bool
+	}{
+		{"HTML", true},
+		{"TEXT", false},
+	} {
+		body := c.getMessageBody(msg, section.html)
+		if body != "" {
+			if section.html {
+				email.HTML = body
+				email.IsHTML = true
+			} else {
+				// Clean up plain text body
+				cleanedBody := cleanPlainTextBody(body)
+				if email.Body == "" { // Only set if not already set
+					email.Body = cleanedBody
+				}
+
+				// Set preview if not already set
+				if email.Preview == "" {
+					email.Preview = createPreview(cleanedBody)
+				}
 			}
 		}
-		email.Body = strings.Join(cleanedLines, "\n")
 	}
 
-	// Set preview from plain text
-	plainText := c.getMessageBody(msg, false)
-	if plainText != "" {
-		// Clean up the preview text
-		preview := strings.TrimSpace(plainText)
-		preview = strings.Join(strings.Fields(preview), " ") // Normalize whitespace
-		if len(preview) > 150 {
-			preview = preview[:150] + "..."
-		}
-		email.Preview = preview
-	}
-
-	// Process attachments if any
+	// Process attachments
 	attachments, err := c.processAttachments(msg)
 	if err != nil {
-		return email, fmt.Errorf("error processing attachments: %v", err)
+		log.Printf("Warning: error processing attachments: %v", err)
+		// Continue processing even if attachments fail
 	}
 	email.Attachments = attachments
 	email.HasAttachments = len(attachments) > 0
 
+	// Ensure we have at least some content
+	if email.Body == "" && email.HTML != "" {
+		// Convert HTML to plain text for preview if we only have HTML
+		plainText := html2text(email.HTML)
+		email.Body = plainText
+		if email.Preview == "" {
+			email.Preview = createPreview(plainText)
+		}
+	}
+
 	return email, nil
+}
+
+// Helper functions
+
+func cleanPlainTextBody(body string) string {
+	body = strings.TrimSpace(body)
+	lines := strings.Split(body, "\n")
+	var cleanedLines []string
+
+	headerPattern := regexp.MustCompile(`^(From|To|Subject|Date|Message-ID|MIME-Version|Content-Type|Content-Transfer-Encoding):`)
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if !headerPattern.MatchString(line) {
+			cleanedLines = append(cleanedLines, line)
+		}
+	}
+
+	return strings.Join(cleanedLines, "\n")
+}
+
+func createPreview(text string) string {
+	// Normalize whitespace
+	text = strings.Join(strings.Fields(text), " ")
+
+	// Trim to preview length
+	if len(text) > 150 {
+		// Try to break at a word boundary
+		if idx := strings.LastIndex(text[:150], " "); idx > 0 {
+			return text[:idx] + "..."
+		}
+		return text[:150] + "..."
+	}
+	return text
+}
+
+func html2text(html string) string {
+	// Simple HTML to text conversion
+	text := strings.NewReplacer(
+		"<br>", "\n",
+		"<br/>", "\n",
+		"<br />", "\n",
+		"<p>", "\n",
+		"</p>", "\n",
+		"&nbsp;", " ",
+	).Replace(html)
+
+	// Remove remaining HTML tags
+	text = regexp.MustCompile(`<[^>]*>`).ReplaceAllString(text, "")
+
+	// Decode HTML entities
+	text = html.UnescapeString(text)
+
+	// Clean up whitespace
+	text = strings.TrimSpace(text)
+	text = regexp.MustCompile(`\s+`).ReplaceAllString(text, " ")
+
+	return text
 }
 
 // Clean up the getMessageBody method as well

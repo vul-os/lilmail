@@ -34,7 +34,7 @@
                 Forward
             </button>
 
-            <!-- In the More Actions Dropdown section of your email viewer -->
+            <!-- More Actions Dropdown -->
             <div class="relative" x-data="{ open: false }">
                 <button @click="open = !open"
                         class="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
@@ -120,8 +120,12 @@
     {{end}}
 
     <div class="flex-1 overflow-auto p-6">
-        {{if .Email.HTML}}
-            <div class="prose prose-sm max-w-none email-content" x-html="{{.Email.HTML}}"></div>
+        {{if .Email.IsHTML}}
+            {{if .Email.HTML}}
+                <div class="prose prose-sm max-w-none email-content">{{.Email.HTML}}</div>
+            {{else}}
+                <div class="prose prose-sm max-w-none email-content">{{.Email.Body}}</div>
+            {{end}}
         {{else}}
             <div class="text-gray-800 whitespace-pre-line">{{.Email.Body}}</div>
         {{end}}
