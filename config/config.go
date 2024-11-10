@@ -7,6 +7,11 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+type ServerConfig struct {
+	FrontPort int `toml:"front_port"`
+	BackPort  int `toml:"back_port"`
+}
+
 type IMAPConfig struct {
 	Server string `toml:"server"`
 	Port   int    `toml:"port"`
@@ -42,6 +47,7 @@ type SSLConfig struct {
 }
 
 type Config struct {
+	Server     ServerConfig     `toml:"server"`
 	IMAP       IMAPConfig       `toml:"imap"`
 	SMTP       SMTPConfig       `toml:"smtp"`
 	JWT        JWTConfig        `toml:"jwt"`
@@ -53,6 +59,8 @@ type Config struct {
 func LoadConfig(filepath string) (*Config, error) {
 	var config Config
 
+	config.Server.BackPort = 3000
+	config.Server.FrontPort = 3001
 	// Set default values
 	config.SMTP.Port = 587 // Default to STARTTLS port
 	config.SMTP.UseSTARTTLS = true
