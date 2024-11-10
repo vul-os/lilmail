@@ -166,7 +166,6 @@ func (h *EmailHandler) HandleEmailView(c *fiber.Ctx) error {
 			"error": fmt.Sprintf("Error fetching email: %v", err),
 		})
 	}
-	fmt.Println(email)
 	// Important: Set empty layout and only render the partial
 	return c.Render("partials/email-viewer", fiber.Map{
 		"Email":         email,

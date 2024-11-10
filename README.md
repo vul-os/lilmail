@@ -1,5 +1,7 @@
 # LilMail 📧
 
+![LilMail Demo](docs/demo.png)
+
 [![Build Status](https://github.com/exolutionza/lilmail/workflows/Release/badge.svg)](https://github.com/exolutionza/lilmail/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 <!-- [![Latest Release](https://img.shields.io/github/v/tag/exolutionza/lilmail?label=latest)](https://github.com/exolutionza/lilmail/releases/latest) -->

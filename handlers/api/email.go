@@ -2,13 +2,21 @@
 package api
 
 import (
+	"bytes"
 	"fmt"
+	"html/template"
 	"io"
+	"io/ioutil"
 	"lilmail/models"
 	"log"
+	"mime"
+	"mime/multipart"
+	"net/mail"
 	"regexp"
+	"strconv"
 	"strings"
-	"time"
+
+	"golang.org/x/net/html"
 
 	"github.com/emersion/go-imap"
 )
@@ -63,29 +71,26 @@ func (c *Client) FetchMessages(folderName string, limit uint32) ([]models.Email,
 	return emails, nil
 }
 
-// FetchSingleMessage retrieves a specific message by its UID
 func (c *Client) FetchSingleMessage(folderName, uid string) (models.Email, error) {
-	log.Printf("Starting to fetch message with UID %s from folder %s", uid, folderName)
-
-	uidNum, err := parseUID(uid)
+	uidNum, err := strconv.ParseUint(uid, 10, 32)
 	if err != nil {
-		return models.Email{}, fmt.Errorf("invalid UID %s: %v", uid, err)
+		return models.Email{}, fmt.Errorf("invalid UID: %v", err)
 	}
-	log.Printf("Parsed UID: %d", uidNum)
 
-	// Select folder with debug info
-	mbox, err := c.client.Select(folderName, true)
+	// Select the folder
+	_, err = c.client.Select(folderName, true)
 	if err != nil {
 		return models.Email{}, fmt.Errorf("error selecting folder %s: %v", folderName, err)
 	}
-	log.Printf("Selected folder %s: Messages: %d, Recent: %d, Unseen: %d",
-		folderName, mbox.Messages, mbox.Recent, mbox.Unseen)
 
 	seqSet := new(imap.SeqSet)
-	seqSet.AddNum(uidNum)
+	seqSet.AddNum(uint32(uidNum))
 
-	messages := make(chan *imap.Message, 1)
-	section := &imap.BodySectionName{}
+	// Define the items to fetch
+	section := &imap.BodySectionName{
+		Peek: true,
+	}
+
 	items := []imap.FetchItem{
 		imap.FetchEnvelope,
 		imap.FetchFlags,
@@ -94,52 +99,28 @@ func (c *Client) FetchSingleMessage(folderName, uid string) (models.Email, error
 		section.FetchItem(),
 	}
 
-	// Start fetch with timeout
+	messages := make(chan *imap.Message, 1)
 	done := make(chan error, 1)
-	timeout := time.After(30 * time.Second)
 
 	go func() {
-		log.Printf("Starting UidFetch for UID %d", uidNum)
 		done <- c.client.UidFetch(seqSet, items, messages)
 	}()
 
-	var email models.Email
-	found := false
-
-	select {
-	case <-timeout:
-		return models.Email{}, fmt.Errorf("timeout while fetching message")
-	case err := <-done:
-		if err != nil {
-			return models.Email{}, fmt.Errorf("error during fetch: %v", err)
-		}
-	}
-
-	// Process received messages
-	for msg := range messages {
-		if msg == nil {
-			log.Printf("Received nil message for UID %d", uidNum)
-			continue
-		}
-
-		log.Printf("Processing message: UID=%d, Flags=%v, Subject=%s",
-			msg.Uid, msg.Flags, msg.Envelope.Subject)
-
-		email, err = c.processMessage(msg)
-		if err != nil {
-			return models.Email{}, fmt.Errorf("error processing message: %v", err)
-		}
-		found = true
+	var msg *imap.Message
+	for m := range messages {
+		msg = m
 		break
 	}
 
-	if !found {
-		log.Printf("No message found with UID %s in folder %s", uid, folderName)
-		return models.Email{}, fmt.Errorf("message with UID %s not found in folder %s", uid, folderName)
+	if err := <-done; err != nil {
+		return models.Email{}, fmt.Errorf("fetch error: %v", err)
 	}
 
-	log.Printf("Successfully fetched and processed message: %s", email.Subject)
-	return email, nil
+	if msg == nil {
+		return models.Email{}, fmt.Errorf("message not found")
+	}
+
+	return c.processMessage(msg)
 }
 
 // DeleteMessage deletes a specific message by its UID
@@ -316,57 +297,117 @@ func (c *Client) processMessage(msg *imap.Message) (models.Email, error) {
 		}
 	}
 
-	// Get message body sections
-	for _, section := range []struct {
-		what string
-		html bool
-	}{
-		{"HTML", true},
-		{"TEXT", false},
-	} {
-		body := c.getMessageBody(msg, section.html)
-		if body != "" {
-			if section.html {
-				email.HTML = body
-				email.IsHTML = true
-			} else {
-				// Clean up plain text body
-				cleanedBody := cleanPlainTextBody(body)
-				if email.Body == "" { // Only set if not already set
-					email.Body = cleanedBody
+	// Process body
+	// Process body
+	var section imap.BodySectionName
+	r := msg.GetBody(&section)
+	if r != nil {
+		// Read the body
+		body, err := ioutil.ReadAll(r)
+		if err != nil {
+			return email, fmt.Errorf("error reading body: %v", err)
+		}
+
+		// Debug
+		log.Printf("Initial body length: %d", len(body))
+
+		// Parse the message
+		m, err := mail.ReadMessage(bytes.NewReader(body))
+		if err != nil {
+			return email, fmt.Errorf("error parsing message: %v", err)
+		}
+
+		// Debug content type
+		contentType := m.Header.Get("Content-Type")
+		log.Printf("Content-Type: %s", contentType)
+
+		// Handle multipart messages
+		mediaType, params, err := mime.ParseMediaType(contentType)
+		if err == nil && strings.HasPrefix(mediaType, "multipart/") {
+			mr := multipart.NewReader(m.Body, params["boundary"])
+			for {
+				p, err := mr.NextPart()
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					log.Printf("Error getting next part: %v", err)
+					continue
 				}
 
-				// Set preview if not already set
-				if email.Preview == "" {
-					email.Preview = createPreview(cleanedBody)
+				// Debug part content type
+				log.Printf("Part Content-Type: %s", p.Header.Get("Content-Type"))
+
+				// Read the part
+				partData, err := ioutil.ReadAll(p)
+				if err != nil {
+					log.Printf("Error reading part: %v", err)
+					continue
+				}
+
+				// Debug part length
+				log.Printf("Part length: %d", len(partData))
+
+				partType := p.Header.Get("Content-Type")
+				switch {
+				case strings.Contains(partType, "text/plain"):
+					email.Body = string(partData)
+					log.Printf("Found plain text: %d bytes", len(email.Body))
+				case strings.Contains(partType, "text/html"):
+					email.HTML = template.HTML(partData)
+					log.Printf("Found HTML: %d bytes", len(string(email.HTML)))
 				}
 			}
+		} else {
+			// Handle non-multipart messages
+			bodyData, err := ioutil.ReadAll(m.Body)
+			if err == nil {
+				email.Body = string(bodyData)
+				log.Printf("Non-multipart body: %d bytes", len(email.Body))
+			}
+		}
+
+		// Add preview after all content is processed
+		if email.Body != "" {
+			email.Preview = createPreview(email.Body)
+		} else if email.HTML != "" {
+			stripped := stripHTML(string(email.HTML))
+			email.Preview = createPreview(stripped)
 		}
 	}
 
-	// Process attachments
+	// Debug final state
+	log.Printf("Final state - Body: %d bytes, HTML: %d bytes, Preview: %d bytes",
+		len(email.Body), len(string(email.HTML)), len(email.Preview))
+	// Process attachments if needed
 	attachments, err := c.processAttachments(msg)
 	if err != nil {
 		log.Printf("Warning: error processing attachments: %v", err)
-		// Continue processing even if attachments fail
 	}
 	email.Attachments = attachments
 	email.HasAttachments = len(attachments) > 0
 
-	// Ensure we have at least some content
-	if email.Body == "" && email.HTML != "" {
-		// Convert HTML to plain text for preview if we only have HTML
-		plainText := html2text(email.HTML)
-		email.Body = plainText
-		if email.Preview == "" {
-			email.Preview = createPreview(plainText)
-		}
-	}
-
 	return email, nil
 }
 
-// Helper functions
+// Simple HTML tag stripping
+func stripHTML(html string) string {
+	var builder strings.Builder
+	inTag := false
+
+	for _, r := range html {
+		switch {
+		case r == '<':
+			inTag = true
+		case r == '>':
+			inTag = false
+		case !inTag:
+			builder.WriteRune(r)
+		}
+	}
+
+	return strings.TrimSpace(builder.String())
+}
 
 func cleanPlainTextBody(body string) string {
 	body = strings.TrimSpace(body)
@@ -400,7 +441,7 @@ func createPreview(text string) string {
 	return text
 }
 
-func html2text(html string) string {
+func html2text(htmlStr string) string {
 	// Simple HTML to text conversion
 	text := strings.NewReplacer(
 		"<br>", "\n",
@@ -409,7 +450,7 @@ func html2text(html string) string {
 		"<p>", "\n",
 		"</p>", "\n",
 		"&nbsp;", " ",
-	).Replace(html)
+	).Replace(htmlStr)
 
 	// Remove remaining HTML tags
 	text = regexp.MustCompile(`<[^>]*>`).ReplaceAllString(text, "")
