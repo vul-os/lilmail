@@ -1,0 +1,113 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [ "main" ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+        cache: true
+        
+    - name: Verify dependencies
+      run: go mod verify
+
+    - name: Build
+      run: go build -v ./...
+
+    - name: Run tests
+      run: go test -v ./...
+      
+    - name: Run golangci-lint
+      uses: golangci/golangci-lint-action@v3
+      with:
+        version: latest
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+
+    - name: Create release directories
+      run: |
+        mkdir -p release/src
+        mkdir -p release/binaries
+        mkdir -p release/dist
+
+    - name: Create source archive
+      run: |
+        # Copy source files
+        cp -r * release/src/
+        rm -rf release/src/release  # Remove release directory from source
+        cd release
+        zip -r "lilmail-${GITHUB_REF#refs/tags/}-src.zip" src/
+
+    - name: Build binaries
+      run: |
+        platforms=("linux-amd64" "linux-arm64" "windows-amd64" "darwin-amd64" "darwin-arm64")
+        
+        for platform in "${platforms[@]}"
+        do
+          # Split platform into OS and arch
+          IFS=- read os arch <<< "$platform"
+          
+          # Create platform directory
+          mkdir -p "release/binaries/lilmail-${GITHUB_REF#refs/tags/}-${platform}"
+          
+          # Set output name based on OS
+          if [ "$os" = "windows" ]; then
+            output="release/binaries/lilmail-${GITHUB_REF#refs/tags/}-${platform}/lilmail.exe"
+          else
+            output="release/binaries/lilmail-${GITHUB_REF#refs/tags/}-${platform}/lilmail"
+          fi
+          
+          # Build binary
+          GOOS=$os GOARCH=$arch go build -o "$output"
+          
+          # Copy additional files
+          cp README.md "release/binaries/lilmail-${GITHUB_REF#refs/tags/}-${platform}/"
+          cp config.example.toml "release/binaries/lilmail-${GITHUB_REF#refs/tags/}-${platform}/"
+          
+          # Create tar.gz or zip
+          cd release/binaries
+          if [ "$os" = "windows" ]; then
+            zip -r "../dist/lilmail-${GITHUB_REF#refs/tags/}-${platform}.zip" "lilmail-${GITHUB_REF#refs/tags/}-${platform}"
+          else
+            tar czf "../dist/lilmail-${GITHUB_REF#refs/tags/}-${platform}.tar.gz" "lilmail-${GITHUB_REF#refs/tags/}-${platform}"
+          fi
+          cd ../..
+        done
+
+    - name: Create Release
+      id: create_release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          release/dist/*.tar.gz
+          release/dist/*.zip
+          release/lilmail-*-src.zip
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
