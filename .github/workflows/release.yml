@@ -1,5 +1,3 @@
-name: Release
-
 on:
   push:
     tags:
@@ -23,37 +21,37 @@ jobs:
         VERSION=$(git describe --tags | tr -d 'v')
         mkdir -p builds
 
-        # Create Release directory structure for each platform
-        mkdir -p builds/Release/linux_amd64
-        mkdir -p builds/Release/windows_amd64
-        mkdir -p builds/Release/darwin_amd64
+        # Create lilmail directory for each platform
+        mkdir -p builds/lilmail
 
-        # Copy config and templates to each platform directory
-        for platform in linux_amd64 windows_amd64 darwin_amd64; do
-          cp config.toml builds/Release/${platform}/
-          cp -r templates builds/Release/${platform}/
-        done
+        # Copy config and templates to the common lilmail directory
+        cp config.toml builds/lilmail/
+        cp -r templates builds/lilmail/
 
-        # Binary builds with platform-specific directories
-        GOOS=linux GOARCH=amd64 go build -o builds/Release/linux_amd64/lilmail
-        GOOS=windows GOARCH=amd64 go build -o builds/Release/windows_amd64/lilmail.exe
-        GOOS=darwin GOARCH=amd64 go build -o builds/Release/darwin_amd64/lilmail
-
-        # Create archives for each platform
+        # Binary builds directly into platform-specific temporary directories
+        GOOS=linux GOARCH=amd64 go build -o builds/lilmail/lilmail
         cd builds
-        zip -r lilmail${VERSION}_linux_amd64.zip Release/linux_amd64/*
-        zip -r lilmail${VERSION}_windows_amd64.zip Release/windows_amd64/*
-        zip -r lilmail${VERSION}_darwin_amd64.zip Release/darwin_amd64/*
-        
-        # Source archive including config and templates
+        zip -r lilmail${VERSION}_linux_amd64.zip lilmail/*
+        rm builds/lilmail/lilmail
+
         cd ..
-        mkdir -p builds/Release/source
-        git archive --format=zip HEAD -o builds/Release/source/source.zip
+        GOOS=windows GOARCH=amd64 go build -o builds/lilmail/lilmail.exe
         cd builds
-        zip -r lilmail${VERSION}_source.zip Release/source/*
+        zip -r lilmail${VERSION}_windows_amd64.zip lilmail/*
+        rm builds/lilmail/lilmail.exe
 
-        # Clean up build directories
-        rm -rf builds/Release
+        cd ..
+        GOOS=darwin GOARCH=amd64 go build -o builds/lilmail/lilmail
+        cd builds
+        zip -r lilmail${VERSION}_darwin_amd64.zip lilmail/*
+        rm builds/lilmail/lilmail
+        
+        # Source archive
+        cd ..
+        git archive --format=zip HEAD -o builds/lilmail${VERSION}_source.zip
+
+        # Clean up build directory
+        rm -rf builds/lilmail
 
     - uses: softprops/action-gh-release@v1
       with:
