@@ -6,24 +6,20 @@ tls = true
 [cache]
 folder = "./cache"
 
+# Optional sections - will use defaults if not specified
 [jwt]
-secret = "jVk7SzxrYp9HcNaQ2WmLg5nB4Tf8dE3R"
+secret = "your-custom-jwt-secret"
 
 [encryption]
-key = "dR5HmP9Kz2CvTn8LxYj4Bq7WcF3NtE6A"
+key = "your-custom-32-byte-encryption-key"
 
-[smtp]
-# If not specified, will be derived from IMAP server
-server = "mail.diesels.co.za"
-port = 587
-use_starttls = true
 
 [ssl]
 enabled = true
-cert_file = "/etc/letsencrypt/live/mail.diesels.co.za/fullchain.pem"
-key_file = "/etc/letsencrypt/live/mail.diesels.co.za/privkey.pem"
+cert_file = "/etc/letsencrypt/live/yourdomain.com/fullchain.pem"
+key_file = "/etc/letsencrypt/live/yourdomain.com/privkey.pem"
 port = 443
 http_port = 80
 auto_redirect = true
-domain = "mail.diesels.co.za"
+domain = "yourdomain.com"
 hsts_max_age = 31536000  # 1 year in seconds
