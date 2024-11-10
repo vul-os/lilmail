@@ -104,10 +104,10 @@
         <div class="flex flex-wrap gap-2">
             {{range .Email.Attachments}}
             <a href="/api/attachment/{{.ID}}"
-               class="inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium bg-white border border-gray-200 text-gray-700 hover:bg-gray-50">
+            class="inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium bg-white border border-gray-200 text-gray-700 hover:bg-gray-50">
                 <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                          d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                        d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                 </svg>
                 {{.Filename}}
                 {{if .Size}}
@@ -120,12 +120,8 @@
     {{end}}
 
     <div class="flex-1 overflow-auto p-6">
-        {{if .Email.IsHTML}}
-            {{if .Email.HTML}}
-                <div class="prose prose-sm max-w-none email-content">{{.Email.HTML}}</div>
-            {{else}}
-                <div class="prose prose-sm max-w-none email-content">{{.Email.Body}}</div>
-            {{end}}
+        {{if .Email.HTML}}
+            <div class="prose prose-sm max-w-none email-content">{{.Email.HTML}}</div>
         {{else}}
             <div class="text-gray-800 whitespace-pre-line">{{.Email.Body}}</div>
         {{end}}
