@@ -3,6 +3,7 @@ package api
 
 import (
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -20,12 +21,14 @@ type Client struct {
 func NewClient(server string, port int, email, password string) (*Client, error) {
 	c, err := client.DialTLS(fmt.Sprintf("%s:%d", server, port), nil)
 	if err != nil {
+		log.Printf("DialTLS %s:%d connection err: %v", server, port, err)
 		return nil, fmt.Errorf("connection error: %v", err)
 	}
 
 	err = c.Login(email, password)
 	if err != nil {
 		c.Logout()
+		log.Printf("IMAP Login %s/xxx login err: %v", email, err)
 		return nil, fmt.Errorf("login error: %v", err)
 	}
 
