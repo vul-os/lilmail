@@ -1,3 +1,7 @@
+[server]
+port = 3000
+username_is_email = true
+
 [imap]
 server = "mail.example.com"
 port = 993

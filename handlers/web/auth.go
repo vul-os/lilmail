@@ -6,6 +6,7 @@ import (
 	"lilmail/config"
 	"lilmail/handlers/api"
 	"lilmail/utils"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -57,8 +58,14 @@ func (h *AuthHandler) HandleLogin(c *fiber.Ctx) error {
 			"Email": email,
 		})
 	}
+	var username string
 
-	username := api.GetUsernameFromEmail(email)
+	if h.config.Server.UsernameIsEmail {
+		username = email
+	} else {
+		username = api.GetUsernameFromEmail(email)
+	}
+	log.Println("Username:", username)
 	if username == "" {
 		return c.Status(400).Render("login", fiber.Map{
 			"Error": "Invalid email format",
@@ -232,7 +239,13 @@ func (h *AuthHandler) CreateIMAPClient(c *fiber.Ctx) (*api.Client, error) {
 	}
 
 	// Get username from email
-	username := api.GetUsernameFromEmail(creds.Email)
+	var username string
+	if h.config.Server.UsernameIsEmail {
+		username = creds.Email
+	} else {
+		username = api.GetUsernameFromEmail(creds.Email)
+	}
+
 	if username == "" {
 		return nil, fmt.Errorf("invalid email format")
 	}

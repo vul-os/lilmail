@@ -8,7 +8,8 @@ import (
 )
 
 type ServerConfig struct {
-	Port int `toml:"port"`
+	Port            int  `toml:"port"`
+	UsernameIsEmail bool `toml:"username_is_email"`
 }
 
 type IMAPConfig struct {
@@ -58,6 +59,7 @@ type Config struct {
 func LoadConfig(filepath string) (*Config, error) {
 	var config Config
 
+	config.Server.UsernameIsEmail = true
 	config.Server.Port = 3000
 	// Set default values
 	config.SMTP.Port = 587 // Default to STARTTLS port
