@@ -3,6 +3,7 @@ package api
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"html/template"
 	"io"
@@ -11,8 +12,11 @@ import (
 	"log"
 	"mime"
 	"mime/multipart"
+	"mime/quotedprintable"
 	"net/mail"
+	"net/textproto"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -20,6 +24,187 @@ import (
 
 	"github.com/emersion/go-imap"
 )
+
+func filenameFromBodyStructure(bs *imap.BodyStructure) string {
+	if bs == nil {
+		return ""
+	}
+
+	if filename, ok := bs.DispositionParams["filename"]; ok && strings.TrimSpace(filename) != "" {
+		return strings.TrimSpace(filename)
+	}
+
+	if filename, ok := bs.DispositionParams["name"]; ok && strings.TrimSpace(filename) != "" {
+		return strings.TrimSpace(filename)
+	}
+
+	if filename, ok := bs.Params["name"]; ok && strings.TrimSpace(filename) != "" {
+		return strings.TrimSpace(filename)
+	}
+
+	if filename, ok := bs.Params["filename"]; ok && strings.TrimSpace(filename) != "" {
+		return strings.TrimSpace(filename)
+	}
+
+	return ""
+}
+
+func isAttachmentPart(bs *imap.BodyStructure) bool {
+	if bs == nil {
+		return false
+	}
+
+	disposition := strings.ToLower(strings.TrimSpace(bs.Disposition))
+	mimeType := strings.ToLower(strings.TrimSpace(bs.MIMEType))
+	mimeSubType := strings.ToLower(strings.TrimSpace(bs.MIMESubType))
+	filename := filenameFromBodyStructure(bs)
+
+	if disposition == "attachment" {
+		return true
+	}
+
+	if disposition == "inline" && mimeType != "text" {
+		return true
+	}
+
+	if filename != "" {
+		return !(mimeType == "text" && (mimeSubType == "plain" || mimeSubType == "html"))
+	}
+
+	return false
+}
+
+func bodySectionPathID(path []int) string {
+	if len(path) == 0 {
+		return ""
+	}
+
+	parts := make([]string, len(path))
+	for i, p := range path {
+		parts[i] = strconv.Itoa(p)
+	}
+
+	return strings.Join(parts, ".")
+}
+
+func fetchBodyPartContent(msg *imap.Message, partPath []int) ([]byte, error) {
+	section := &imap.BodySectionName{Peek: true}
+	section.Path = append([]int(nil), partPath...)
+
+	r := msg.GetBody(section)
+	if r == nil {
+		return nil, fmt.Errorf("no body for part %v", partPath)
+	}
+
+	content, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("error reading part %v: %v", partPath, err)
+	}
+
+	return content, nil
+}
+
+func decodeByTransferEncoding(data []byte, encoding string) ([]byte, error) {
+	switch strings.ToLower(strings.TrimSpace(encoding)) {
+	case "", "7bit", "8bit", "binary":
+		return data, nil
+	case "base64":
+		decoded, err := io.ReadAll(base64.NewDecoder(base64.StdEncoding, bytes.NewReader(data)))
+		if err != nil {
+			return nil, err
+		}
+		return decoded, nil
+	case "quoted-printable":
+		decoded, err := io.ReadAll(quotedprintable.NewReader(bytes.NewReader(data)))
+		if err != nil {
+			return nil, err
+		}
+		return decoded, nil
+	default:
+		return data, nil
+	}
+}
+
+func parseMIMEPart(header textproto.MIMEHeader, body io.Reader, email *models.Email, attachments *[]models.Attachment, nextAttachmentID *int) error {
+	contentTypeHeader := header.Get("Content-Type")
+	mediaType, params, err := mime.ParseMediaType(contentTypeHeader)
+	if err != nil || mediaType == "" {
+		mediaType = "text/plain"
+		params = map[string]string{}
+	}
+
+	if strings.HasPrefix(strings.ToLower(mediaType), "multipart/") {
+		boundary := params["boundary"]
+		if boundary == "" {
+			return nil
+		}
+
+		mr := multipart.NewReader(body, boundary)
+		for {
+			part, err := mr.NextPart()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return err
+			}
+
+			if err := parseMIMEPart(part.Header, part, email, attachments, nextAttachmentID); err != nil {
+				part.Close()
+				return err
+			}
+			part.Close()
+		}
+
+		return nil
+	}
+
+	rawData, err := io.ReadAll(body)
+	if err != nil {
+		return err
+	}
+
+	decodedData, err := decodeByTransferEncoding(rawData, header.Get("Content-Transfer-Encoding"))
+	if err != nil {
+		decodedData = rawData
+	}
+
+	disposition, dispParams, _ := mime.ParseMediaType(header.Get("Content-Disposition"))
+	filename := strings.TrimSpace(dispParams["filename"])
+	if filename == "" {
+		filename = strings.TrimSpace(params["name"])
+	}
+
+	lowerMediaType := strings.ToLower(mediaType)
+	isText := lowerMediaType == "text/plain" || lowerMediaType == "text/html"
+	isAttachment := strings.EqualFold(disposition, "attachment") || (!isText && filename != "") || (strings.EqualFold(disposition, "inline") && !isText)
+
+	if isAttachment {
+		if filename == "" {
+			filename = fmt.Sprintf("attachment-%d", *nextAttachmentID)
+		}
+
+		*attachments = append(*attachments, models.Attachment{
+			ID:          strconv.Itoa(*nextAttachmentID),
+			Filename:    filename,
+			ContentType: mediaType,
+			Size:        len(decodedData),
+			Content:     decodedData,
+		})
+		*nextAttachmentID++
+		return nil
+	}
+
+	if lowerMediaType == "text/plain" && email.Body == "" {
+		email.Body = string(decodedData)
+	}
+
+	if lowerMediaType == "text/html" && email.HTML == "" {
+		email.HTML = template.HTML(decodedData)
+	}
+
+	return nil
+}
 
 // FetchMessages retrieves messages from a specified folder
 func (c *Client) FetchMessages(folderName string, limit uint32) ([]models.Email, error) {
@@ -209,27 +394,20 @@ func (c *Client) processAttachments(msg *imap.Message) ([]models.Attachment, err
 			return nil
 		}
 
-		isAttachment := bs.Disposition == "attachment" ||
-			(bs.Disposition == "inline" && bs.MIMEType != "text")
-
-		if isAttachment {
-			section := &imap.BodySectionName{}
-			if len(partNum) > 0 {
-				section.Specifier = imap.PartSpecifier(strings.Join(strings.Fields(fmt.Sprint(partNum)), "."))
-			}
-
-			r := msg.GetBody(section)
-			if r == nil {
-				return fmt.Errorf("no body for attachment part %v", partNum)
-			}
-
-			content, err := io.ReadAll(r)
+		if isAttachmentPart(bs) {
+			content, err := fetchBodyPartContent(msg, partNum)
 			if err != nil {
-				return fmt.Errorf("error reading attachment content: %v", err)
+				return err
+			}
+
+			filename := filenameFromBodyStructure(bs)
+			if filename == "" {
+				filename = "attachment-" + bodySectionPathID(partNum)
 			}
 
 			attachment := models.Attachment{
-				Filename:    bs.DispositionParams["filename"],
+				ID:          bodySectionPathID(partNum),
+				Filename:    filename,
 				ContentType: fmt.Sprintf("%s/%s", bs.MIMEType, bs.MIMESubType),
 				Size:        len(content),
 				Content:     content,
@@ -239,7 +417,7 @@ func (c *Client) processAttachments(msg *imap.Message) ([]models.Attachment, err
 		}
 
 		for i, part := range bs.Parts {
-			newPartNum := append(partNum, i+1)
+			newPartNum := append(append([]int{}, partNum...), i+1)
 			if err := processAttachmentPart(part, newPartNum); err != nil {
 				return err
 			}
@@ -249,6 +427,10 @@ func (c *Client) processAttachments(msg *imap.Message) ([]models.Attachment, err
 	}
 
 	err := processAttachmentPart(msg.BodyStructure, nil)
+	sort.SliceStable(attachments, func(i, j int) bool {
+		return attachments[i].ID < attachments[j].ID
+	})
+
 	return attachments, err
 }
 
@@ -297,12 +479,10 @@ func (c *Client) processMessage(msg *imap.Message) (models.Email, error) {
 		}
 	}
 
-	// Process body
-	// Process body
+	// Process body and attachments from raw RFC822 message
 	var section imap.BodySectionName
 	r := msg.GetBody(&section)
 	if r != nil {
-		// Read the body
 		body, err := ioutil.ReadAll(r)
 		if err != nil {
 			return email, fmt.Errorf("error reading body: %v", err)
@@ -321,51 +501,13 @@ func (c *Client) processMessage(msg *imap.Message) (models.Email, error) {
 		contentType := m.Header.Get("Content-Type")
 		log.Printf("Content-Type: %s", contentType)
 
-		// Handle multipart messages
-		mediaType, params, err := mime.ParseMediaType(contentType)
-		if err == nil && strings.HasPrefix(mediaType, "multipart/") {
-			mr := multipart.NewReader(m.Body, params["boundary"])
-			for {
-				p, err := mr.NextPart()
-				if err == io.EOF {
-					break
-				}
-				if err != nil {
-					log.Printf("Error getting next part: %v", err)
-					continue
-				}
-
-				// Debug part content type
-				log.Printf("Part Content-Type: %s", p.Header.Get("Content-Type"))
-
-				// Read the part
-				partData, err := ioutil.ReadAll(p)
-				if err != nil {
-					log.Printf("Error reading part: %v", err)
-					continue
-				}
-
-				// Debug part length
-				log.Printf("Part length: %d", len(partData))
-
-				partType := p.Header.Get("Content-Type")
-				switch {
-				case strings.Contains(partType, "text/plain"):
-					email.Body = string(partData)
-					log.Printf("Found plain text: %d bytes", len(email.Body))
-				case strings.Contains(partType, "text/html"):
-					email.HTML = template.HTML(partData)
-					log.Printf("Found HTML: %d bytes", len(string(email.HTML)))
-				}
-			}
-		} else {
-			// Handle non-multipart messages
-			bodyData, err := ioutil.ReadAll(m.Body)
-			if err == nil {
-				email.Body = string(bodyData)
-				log.Printf("Non-multipart body: %d bytes", len(email.Body))
-			}
+		attachments := []models.Attachment{}
+		nextAttachmentID := 1
+		if err := parseMIMEPart(textproto.MIMEHeader(m.Header), m.Body, &email, &attachments, &nextAttachmentID); err != nil {
+			log.Printf("Warning: MIME parse issue: %v", err)
 		}
+		email.Attachments = attachments
+		email.HasAttachments = len(attachments) > 0
 
 		// Add preview after all content is processed
 		if email.Body != "" {
@@ -379,13 +521,6 @@ func (c *Client) processMessage(msg *imap.Message) (models.Email, error) {
 	// Debug final state
 	log.Printf("Final state - Body: %d bytes, HTML: %d bytes, Preview: %d bytes",
 		len(email.Body), len(string(email.HTML)), len(email.Preview))
-	// Process attachments if needed
-	attachments, err := c.processAttachments(msg)
-	if err != nil {
-		log.Printf("Warning: error processing attachments: %v", err)
-	}
-	email.Attachments = attachments
-	email.HasAttachments = len(attachments) > 0
 
 	return email, nil
 }
@@ -482,17 +617,7 @@ func (c *Client) getMessageBody(msg *imap.Message, wantHTML bool) string {
 				(!wantHTML && strings.ToLower(bs.MIMESubType) == "plain"))
 
 		if isDesiredPart {
-			section := &imap.BodySectionName{}
-			if len(partNum) > 0 {
-				section.Specifier = imap.PartSpecifier(strings.Join(strings.Fields(fmt.Sprint(partNum)), "."))
-			}
-
-			r := msg.GetBody(section)
-			if r == nil {
-				return "", false
-			}
-
-			body, err := io.ReadAll(r)
+			body, err := fetchBodyPartContent(msg, partNum)
 			if err != nil {
 				return "", false
 			}
@@ -501,7 +626,7 @@ func (c *Client) getMessageBody(msg *imap.Message, wantHTML bool) string {
 		}
 
 		for i, part := range bs.Parts {
-			newPartNum := append(partNum, i+1)
+			newPartNum := append(append([]int{}, partNum...), i+1)
 			if body, found := findSection(part, newPartNum); found {
 				return body, true
 			}

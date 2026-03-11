@@ -75,17 +75,35 @@ func main() {
 	})
 
 	// File size formatting function
-	engine.AddFunc("formatSize", func(size int64) string {
+	engine.AddFunc("formatSize", func(size interface{}) string {
+		var s int64
+		switch v := size.(type) {
+		case int:
+			s = int64(v)
+		case int32:
+			s = int64(v)
+		case int64:
+			s = v
+		case uint:
+			s = int64(v)
+		case uint32:
+			s = int64(v)
+		case uint64:
+			s = int64(v)
+		default:
+			return "0 B"
+		}
+
 		const unit = 1024
-		if size < unit {
-			return fmt.Sprintf("%d B", size)
+		if s < unit {
+			return fmt.Sprintf("%d B", s)
 		}
 		div, exp := int64(unit), 0
-		for n := size / unit; n >= unit; n /= unit {
+		for n := s / unit; n >= unit; n /= unit {
 			div *= unit
 			exp++
 		}
-		return fmt.Sprintf("%.1f %cB", float64(size)/float64(div), "KMGTPE"[exp])
+		return fmt.Sprintf("%.1f %cB", float64(s)/float64(div), "KMGTPE"[exp])
 	})
 
 	engine.Reload(true)
@@ -148,6 +166,7 @@ func main() {
 		// Email routes
 		apiRoutes.Get("/email/:id", webEmailHandler.HandleEmailView)
 		apiRoutes.Delete("/email/:id", webEmailHandler.HandleDeleteEmail)
+		apiRoutes.Get("/email/:id/attachment/:attachmentId", webEmailHandler.HandleAttachmentDownload)
 
 		// Folder routes - This is the important fix
 		apiRoutes.Get("/folder/:name/emails", webEmailHandler.HandleFolderEmails) // Match the path in HTML
