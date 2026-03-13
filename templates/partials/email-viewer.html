@@ -103,7 +103,7 @@
     <div class="px-6 py-3 border-b border-gray-200 bg-gray-50">
         <div class="flex flex-wrap gap-2">
             {{range .Email.Attachments}}
-            <a href="/api/attachment/{{.ID}}"
+            <a href="/api/email/{{$.Email.ID}}/attachment/{{.ID}}?folder={{urlquery $.CurrentFolder}}"
             class="inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium bg-white border border-gray-200 text-gray-700 hover:bg-gray-50">
                 <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 

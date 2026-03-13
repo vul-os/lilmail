@@ -7,6 +7,7 @@ import (
 	"lilmail/handlers/api"
 	"lilmail/utils"
 	"log"
+	"mime"
 	"net/url"
 	"path/filepath"
 
@@ -18,6 +19,51 @@ type EmailHandler struct {
 	store  *session.Store
 	config *config.Config
 	auth   *AuthHandler
+}
+
+// HandleAttachmentDownload downloads a specific email attachment
+func (h *EmailHandler) HandleAttachmentDownload(c *fiber.Ctx) error {
+	folderName := c.Query("folder")
+	if folderName == "" {
+		folderName = "INBOX"
+	}
+
+	emailID := c.Params("id")
+	attachmentID := c.Params("attachmentId")
+	if emailID == "" || attachmentID == "" {
+		return c.Status(400).SendString("Email ID and attachment ID are required")
+	}
+
+	client, err := h.auth.CreateIMAPClient(c)
+	if err != nil {
+		return c.Status(500).SendString("Error connecting to email server")
+	}
+	defer client.Close()
+
+	email, err := client.FetchSingleMessage(folderName, emailID)
+	if err != nil {
+		return c.Status(500).SendString("Error fetching email")
+	}
+
+	for _, attachment := range email.Attachments {
+		if attachment.ID != attachmentID {
+			continue
+		}
+
+		contentType := attachment.ContentType
+		if contentType == "" {
+			contentType = mime.TypeByExtension(filepath.Ext(attachment.Filename))
+		}
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
+
+		c.Set(fiber.HeaderContentType, contentType)
+		c.Attachment(attachment.Filename)
+		return c.Send(attachment.Content)
+	}
+
+	return c.Status(404).SendString("Attachment not found")
 }
 
 func NewEmailHandler(store *session.Store, config *config.Config, auth *AuthHandler) *EmailHandler {

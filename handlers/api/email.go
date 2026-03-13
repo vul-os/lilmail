@@ -3,6 +3,7 @@ package api
 
 import (
 	"bytes"
+	"encoding/base64"
 	"fmt"
 	"html/template"
 	"io"
@@ -11,7 +12,9 @@ import (
 	"log"
 	"mime"
 	"mime/multipart"
+	"mime/quotedprintable"
 	"net/mail"
+	"net/textproto"
 	"regexp"
 	"strconv"
 	"strings"
@@ -20,6 +23,142 @@ import (
 
 	"github.com/emersion/go-imap"
 )
+
+func partPathID(partNum []int) string {
+	if len(partNum) == 0 {
+		return ""
+	}
+	parts := make([]string, len(partNum))
+	for i, n := range partNum {
+		parts[i] = strconv.Itoa(n)
+	}
+	return strings.Join(parts, ".")
+}
+
+func decodeTransferEncoding(content []byte, transferEncoding string) []byte {
+	switch strings.ToLower(strings.TrimSpace(transferEncoding)) {
+	case "base64":
+		decoded := make([]byte, base64.StdEncoding.DecodedLen(len(content)))
+		n, err := base64.StdEncoding.Decode(decoded, bytes.TrimSpace(content))
+		if err != nil {
+			cleaned := bytes.Map(func(r rune) rune {
+				switch r {
+				case '\r', '\n', '\t', ' ':
+					return -1
+				default:
+					return r
+				}
+			}, content)
+			n, err = base64.StdEncoding.Decode(decoded, cleaned)
+			if err != nil {
+				return content
+			}
+		}
+		return decoded[:n]
+	case "quoted-printable":
+		decoded, err := io.ReadAll(quotedprintable.NewReader(bytes.NewReader(content)))
+		if err != nil {
+			return content
+		}
+		return decoded
+	default:
+		return content
+	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func fallbackString(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func isAttachmentContent(disposition, lowerMediaType, filename string) bool {
+	return strings.EqualFold(disposition, "attachment") ||
+		(strings.EqualFold(disposition, "inline") && !strings.HasPrefix(lowerMediaType, "text/")) ||
+		(filename != "" && !strings.HasPrefix(lowerMediaType, "text/"))
+}
+
+func buildTextSection(partNum []int) *imap.BodySectionName {
+	section := &imap.BodySectionName{Peek: true}
+	section.Specifier = imap.TextSpecifier
+	section.Path = append([]int(nil), partNum...)
+	return section
+}
+
+func childPartPath(partNum []int, index int) []int {
+	return append(append([]int{}, partNum...), index+1)
+}
+
+func parseMessagePart(header textproto.MIMEHeader, partData []byte, email *models.Email, attachments *[]models.Attachment, attachmentCounter *int) {
+	contentType := header.Get("Content-Type")
+	mediaType, params, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		mediaType = strings.ToLower(strings.TrimSpace(contentType))
+	}
+
+	if strings.HasPrefix(strings.ToLower(mediaType), "multipart/") {
+		boundary := params["boundary"]
+		if boundary == "" {
+			return
+		}
+
+		mr := multipart.NewReader(bytes.NewReader(partData), boundary)
+		for {
+			p, err := mr.NextPart()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return
+			}
+
+			nestedData, err := ioutil.ReadAll(p)
+			if err != nil {
+				p.Close()
+				continue
+			}
+
+			parseMessagePart(p.Header, nestedData, email, attachments, attachmentCounter)
+			p.Close()
+		}
+		return
+	}
+
+	lowerMediaType := strings.ToLower(mediaType)
+	decodedPartData := decodeTransferEncoding(partData, header.Get("Content-Transfer-Encoding"))
+	if strings.HasPrefix(lowerMediaType, "text/plain") && email.Body == "" {
+		email.Body = string(decodedPartData)
+	}
+	if strings.HasPrefix(lowerMediaType, "text/html") && email.HTML == "" {
+		email.HTML = template.HTML(decodedPartData)
+	}
+
+	disposition, dispParams, _ := mime.ParseMediaType(header.Get("Content-Disposition"))
+	filename := firstNonEmpty(dispParams["filename"], params["name"])
+	isAttachment := isAttachmentContent(disposition, lowerMediaType, filename)
+
+	if isAttachment {
+		filename = fallbackString(filename, fmt.Sprintf("attachment-%d", *attachmentCounter))
+		*attachments = append(*attachments, models.Attachment{
+			ID:          strconv.Itoa(*attachmentCounter),
+			Filename:    filename,
+			ContentType: mediaType,
+			Size:        len(decodedPartData),
+			Content:     decodedPartData,
+		})
+		*attachmentCounter++
+	}
+}
 
 // FetchMessages retrieves messages from a specified folder
 func (c *Client) FetchMessages(folderName string, limit uint32) ([]models.Email, error) {
@@ -209,14 +348,12 @@ func (c *Client) processAttachments(msg *imap.Message) ([]models.Attachment, err
 			return nil
 		}
 
-		isAttachment := bs.Disposition == "attachment" ||
-			(bs.Disposition == "inline" && bs.MIMEType != "text")
+		lowerMediaType := strings.ToLower(fmt.Sprintf("%s/%s", bs.MIMEType, bs.MIMESubType))
+		filename := firstNonEmpty(bs.DispositionParams["filename"], bs.Params["name"])
+		isAttachment := isAttachmentContent(bs.Disposition, lowerMediaType, filename)
 
 		if isAttachment {
-			section := &imap.BodySectionName{}
-			if len(partNum) > 0 {
-				section.Specifier = imap.PartSpecifier(strings.Join(strings.Fields(fmt.Sprint(partNum)), "."))
-			}
+			section := buildTextSection(partNum)
 
 			r := msg.GetBody(section)
 			if r == nil {
@@ -227,19 +364,22 @@ func (c *Client) processAttachments(msg *imap.Message) ([]models.Attachment, err
 			if err != nil {
 				return fmt.Errorf("error reading attachment content: %v", err)
 			}
+			content = decodeTransferEncoding(content, bs.Encoding)
 
 			attachment := models.Attachment{
-				Filename:    bs.DispositionParams["filename"],
+				ID:          partPathID(partNum),
+				Filename:    filename,
 				ContentType: fmt.Sprintf("%s/%s", bs.MIMEType, bs.MIMESubType),
 				Size:        len(content),
 				Content:     content,
 			}
+			attachment.Filename = fallbackString(attachment.Filename, "attachment-"+attachment.ID)
 
 			attachments = append(attachments, attachment)
 		}
 
 		for i, part := range bs.Parts {
-			newPartNum := append(partNum, i+1)
+			newPartNum := childPartPath(partNum, i)
 			if err := processAttachmentPart(part, newPartNum); err != nil {
 				return err
 			}
@@ -257,6 +397,8 @@ func (c *Client) processMessage(msg *imap.Message) (models.Email, error) {
 		ID:    fmt.Sprintf("%d", msg.Uid),
 		Flags: msg.Flags,
 	}
+	parsedAttachments := []models.Attachment{}
+	attachmentCounter := 1
 
 	// Process envelope information
 	if msg.Envelope != nil {
@@ -321,50 +463,11 @@ func (c *Client) processMessage(msg *imap.Message) (models.Email, error) {
 		contentType := m.Header.Get("Content-Type")
 		log.Printf("Content-Type: %s", contentType)
 
-		// Handle multipart messages
-		mediaType, params, err := mime.ParseMediaType(contentType)
-		if err == nil && strings.HasPrefix(mediaType, "multipart/") {
-			mr := multipart.NewReader(m.Body, params["boundary"])
-			for {
-				p, err := mr.NextPart()
-				if err == io.EOF {
-					break
-				}
-				if err != nil {
-					log.Printf("Error getting next part: %v", err)
-					continue
-				}
-
-				// Debug part content type
-				log.Printf("Part Content-Type: %s", p.Header.Get("Content-Type"))
-
-				// Read the part
-				partData, err := ioutil.ReadAll(p)
-				if err != nil {
-					log.Printf("Error reading part: %v", err)
-					continue
-				}
-
-				// Debug part length
-				log.Printf("Part length: %d", len(partData))
-
-				partType := p.Header.Get("Content-Type")
-				switch {
-				case strings.Contains(partType, "text/plain"):
-					email.Body = string(partData)
-					log.Printf("Found plain text: %d bytes", len(email.Body))
-				case strings.Contains(partType, "text/html"):
-					email.HTML = template.HTML(partData)
-					log.Printf("Found HTML: %d bytes", len(string(email.HTML)))
-				}
-			}
-		} else {
-			// Handle non-multipart messages
-			bodyData, err := ioutil.ReadAll(m.Body)
-			if err == nil {
-				email.Body = string(bodyData)
-				log.Printf("Non-multipart body: %d bytes", len(email.Body))
-			}
+		bodyData, err := ioutil.ReadAll(m.Body)
+		if err == nil {
+			header := textproto.MIMEHeader{}
+			header.Set("Content-Type", contentType)
+			parseMessagePart(header, bodyData, &email, &parsedAttachments, &attachmentCounter)
 		}
 
 		// Add preview after all content is processed
@@ -373,6 +476,11 @@ func (c *Client) processMessage(msg *imap.Message) (models.Email, error) {
 		} else if email.HTML != "" {
 			stripped := stripHTML(string(email.HTML))
 			email.Preview = createPreview(stripped)
+		}
+
+		if len(parsedAttachments) > 0 {
+			email.Attachments = parsedAttachments
+			email.HasAttachments = true
 		}
 	}
 
@@ -384,8 +492,10 @@ func (c *Client) processMessage(msg *imap.Message) (models.Email, error) {
 	if err != nil {
 		log.Printf("Warning: error processing attachments: %v", err)
 	}
-	email.Attachments = attachments
-	email.HasAttachments = len(attachments) > 0
+	if len(attachments) > 0 {
+		email.Attachments = attachments
+		email.HasAttachments = true
+	}
 
 	return email, nil
 }
@@ -482,10 +592,7 @@ func (c *Client) getMessageBody(msg *imap.Message, wantHTML bool) string {
 				(!wantHTML && strings.ToLower(bs.MIMESubType) == "plain"))
 
 		if isDesiredPart {
-			section := &imap.BodySectionName{}
-			if len(partNum) > 0 {
-				section.Specifier = imap.PartSpecifier(strings.Join(strings.Fields(fmt.Sprint(partNum)), "."))
-			}
+			section := buildTextSection(partNum)
 
 			r := msg.GetBody(section)
 			if r == nil {
@@ -501,7 +608,7 @@ func (c *Client) getMessageBody(msg *imap.Message, wantHTML bool) string {
 		}
 
 		for i, part := range bs.Parts {
-			newPartNum := append(partNum, i+1)
+			newPartNum := childPartPath(partNum, i)
 			if body, found := findSection(part, newPartNum); found {
 				return body, true
 			}
