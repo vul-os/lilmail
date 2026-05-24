@@ -1,165 +1,144 @@
-<div class="h-[calc(100vh-64px)] flex overflow-hidden" 
-    x-data="{ 
-        showEmailViewer: false, 
-        showComposeModal: false,
-        toasts: [],
-        addToast(toast) {
-            this.toasts.push({
-                id: Date.now(),
-                ...toast
-            });
-            setTimeout(() => this.removeToast(this.toasts[this.toasts.length - 1].id), 5000);
-        },
-        removeToast(id) {
-            this.toasts = this.toasts.filter(t => t.id !== id);
-        }
-    }"
-    @show-toast.window="addToast($event.detail)"
->
-    <!-- Left Sidebar -->
-    <div class="w-64 bg-white shadow-sm flex-shrink-0 border-r flex flex-col">
+<!-- inbox.html — rendered inside <main x-data> in layouts/main.html -->
+<div class="flex h-[calc(100vh-3.5rem)] overflow-hidden">
+
+    <!-- Mobile sidebar backdrop -->
+    <div x-show="$store.ui && $store.ui.sidebarOpen"
+         x-cloak
+         class="lg:hidden fixed inset-0 top-14 z-40 bg-black/40"
+         @click="$store.ui.sidebarOpen = false"
+         x-transition:enter="transition-opacity ease-out duration-200"
+         x-transition:enter-start="opacity-0"
+         x-transition:enter-end="opacity-100"
+         x-transition:leave="transition-opacity ease-in duration-150"
+         x-transition:leave-start="opacity-100"
+         x-transition:leave-end="opacity-0">
+    </div>
+
+    <!-- ===== LEFT SIDEBAR ===== -->
+    <aside class="flex-shrink-0 flex flex-col w-64 bg-white border-r border-gray-200
+                  fixed lg:static top-14 bottom-0 left-0 z-50
+                  transition-transform duration-250 ease-out
+                  -translate-x-full lg:translate-x-0"
+           :class="{ 'translate-x-0 shadow-xl': $store.ui && $store.ui.sidebarOpen }">
+
         <!-- Compose Button -->
-        <div class="p-4">
-            <button 
-                @click="showComposeModal = true; $nextTick(() => { $dispatch('compose-modal-opened') })" 
-                class="w-full flex items-center justify-center px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-sm transition-colors duration-150">
-                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+        <div class="p-4 flex-shrink-0">
+            <button @click="showComposeModal = true"
+                    class="w-full flex items-center justify-center gap-2 px-4 py-2.5
+                           bg-blue-600 hover:bg-blue-700 text-white rounded-2xl shadow-sm
+                           text-sm font-medium transition-colors">
+                <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
                 </svg>
                 Compose
             </button>
         </div>
 
-        <!-- Folders List -->
-        <nav class="flex-1 overflow-y-auto relative">
-            <!-- Loading State -->
-            <div 
-                id="folders-loading"
-                class="htmx-indicator absolute inset-0 z-10 flex flex-col items-center justify-center bg-white/80 backdrop-blur-sm"
-                style="display: none;">
-                <div class="animate-spin rounded-full h-12 w-12 border-4 border-gray-200 border-t-blue-600"></div>
-                <p class="mt-4 text-sm text-gray-500">Loading folders...</p>
-            </div>
-
-            <div class="space-y-1">
-                <!-- Inbox (Always First) -->
-                {{range .Folders}}
-                    {{if eq .Name "INBOX"}}
-                    <a href="/folder/{{.Name}}"
-                       hx-get="/api/folder/{{.Name}}/emails"
-                       hx-target="#email-list"
-                       hx-trigger="click"
-                       hx-indicator="#folders-loading"
-                       @click="showEmailViewer = false"
-                       hx-swap="innerHTML"
-                       class="flex items-center px-6 py-3 {{ if eq $.CurrentFolder .Name }}
-                             bg-blue-50 text-blue-700 font-medium
-                             {{ else }}
-                             text-gray-700 hover:bg-gray-50
-                             {{ end }}">
-                        <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                                d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
-                        </svg>
-                        <span class="flex-1">Inbox</span>
-                    </a>
-                    {{end}}
+        <!-- Folder navigation -->
+        <nav class="flex-1 overflow-y-auto px-2 pb-4 space-y-0.5">
+            <!-- Calendar link (shown only when CalDAV is enabled) -->
+            {{if caldavEnabled}}
+            <a href="/calendar"
+               class="flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-100 transition-colors">
+                <svg class="w-4 h-4 flex-shrink-0 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                </svg>
+                <span class="flex-1 truncate">Calendar</span>
+            </a>
+            {{end}}
+            <!-- Inbox first -->
+            {{range .Folders}}
+            {{if eq .Name "INBOX"}}
+            <a href="/folder/INBOX"
+               hx-get="/api/folder/INBOX/emails"
+               hx-target="#email-list-inner"
+               hx-swap="innerHTML"
+               hx-indicator="#list-spinner"
+               @click="showEmailViewer = false; if($store.ui) $store.ui.sidebarOpen = false"
+               class="flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-colors
+                      {{if eq $.CurrentFolder .Name}}bg-blue-50 text-blue-700{{else}}text-gray-700 hover:bg-gray-100{{end}}">
+                <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/>
+                </svg>
+                <span class="flex-1 truncate">Inbox</span>
+                {{if gt .UnreadCount 0}}
+                <span class="ml-auto text-xs font-semibold bg-blue-100 text-blue-700 rounded-full px-1.5 min-w-[1.25rem] text-center">{{.UnreadCount}}</span>
                 {{end}}
+            </a>
+            {{end}}
+            {{end}}
 
-                <!-- Other System Folders -->
-                {{range .Folders}}
-                    {{if ne .Name "INBOX"}}
-                    <a href="/folder/{{.Name}}"
-                       hx-get="/api/folder/{{.Name}}/emails"
-                       hx-target="#email-list"
-                       hx-trigger="click"
-                       hx-indicator="#folders-loading"
-                       @click="showEmailViewer = false"
-                       hx-swap="innerHTML"
-                       class="flex items-center px-6 py-3 {{ if eq $.CurrentFolder .Name }}
-                               bg-blue-50 text-blue-700 font-medium
-                               {{ else }}
-                               text-gray-700 hover:bg-gray-50
-                               {{ end }}">
-                        <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            {{if eq .Name "Sent Items"}}
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                            {{else if eq .Name "Drafts"}}
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                            {{else if eq .Name "Deleted Items"}}
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                            {{else if eq .Name "Junk Mail"}}
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                            {{else}}
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                            {{end}}
-                        </svg>
-                        <span class="flex-1">{{.Name}}</span>
-                    </a>
-                    {{end}}
-                {{end}}
-            </div>
-        </nav>
-    </div>
-
-    <!-- Main Content Area -->
-    <div class="flex-1 flex bg-gray-50 overflow-hidden">
-        <!-- Email List -->
-        <div id="email-list" class="w-full lg:w-2/5 xl:w-5/12 bg-white border-r overflow-y-auto"
-            :class="{ 'hidden lg:block': showEmailViewer }">
-            <!-- Loading State -->
-            <div id="folder-loading" class="htmx-indicator flex flex-col items-center justify-center h-96 bg-white" style="display: none;">
-                <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-                <p class="mt-4 text-sm text-gray-500">Loading messages...</p>
-            </div>
-
-            <!-- Email List Content -->
-            <div id="email-list-content" class="htmx-content">
-                <div class="divide-y divide-gray-200">
-                    {{if .Emails}}
-                        {{range .Emails}}
-                        <div class="hover:bg-gray-50 cursor-pointer transition-colors"
-                            hx-get="/api/email/{{.ID}}"
-                            hx-target="#email-viewer-content, #email-viewer-content-mobile"
-                            hx-headers='{"Authorization": "Bearer {{$.Token}}", "X-Folder": "{{$.CurrentFolder}}"}'
-                            @click="showEmailViewer = true"
-                            hx-swap="innerHTML">
-                            <div class="px-4 py-3">
-                                <div class="flex justify-between items-start">
-                                    <div class="min-w-0 flex-1">
-                                        <div class="flex items-center space-x-2 mb-1">
-                                            <span class="font-medium text-gray-900 truncate">{{.From}}</span>
-                                            <span class="text-sm text-gray-500">{{formatDate .Date}}</span>
-                                        </div>
-                                        <h3 class="text-sm font-semibold text-gray-900 mb-0.5">{{.Subject}}</h3>
-                                        <p class="text-sm text-gray-500 line-clamp-2">{{.Preview}}</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        {{end}}
+            <!-- Other folders -->
+            {{range .Folders}}
+            {{if ne .Name "INBOX"}}
+            <a href="/folder/{{.Name | urlEncode}}"
+               hx-get="/api/folder/{{.Name | urlEncode}}/emails"
+               hx-target="#email-list-inner"
+               hx-swap="innerHTML"
+               hx-indicator="#list-spinner"
+               @click="showEmailViewer = false; if($store.ui) $store.ui.sidebarOpen = false"
+               class="flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-colors
+                      {{if eq $.CurrentFolder .Name}}bg-blue-50 text-blue-700{{else}}text-gray-700 hover:bg-gray-100{{end}}">
+                <svg class="w-4 h-4 flex-shrink-0 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    {{if or (eq .Name "Sent Items") (eq .Name "Sent")}}
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+                    {{else if eq .Name "Drafts"}}
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                    {{else if or (eq .Name "Deleted Items") (eq .Name "Trash")}}
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                    {{else if or (eq .Name "Junk Mail") (eq .Name "Spam")}}
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
                     {{else}}
-                        <div class="flex flex-col items-center justify-center h-96">
-                            <svg class="w-16 h-16 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                            </svg>
-                            <h3 class="mt-4 text-lg font-medium text-gray-900">No messages</h3>
-                            <p class="mt-1 text-sm text-gray-500">This folder is empty.</p>
-                        </div>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
                     {{end}}
+                </svg>
+                <span class="flex-1 truncate">{{.Name}}</span>
+                {{if gt .UnreadCount 0}}
+                <span class="ml-auto text-xs font-semibold bg-gray-100 text-gray-600 rounded-full px-1.5 min-w-[1.25rem] text-center">{{.UnreadCount}}</span>
+                {{end}}
+            </a>
+            {{end}}
+            {{end}}
+        </nav>
+    </aside>
+
+    <!-- ===== MAIN CONTENT AREA ===== -->
+    <div class="flex-1 flex overflow-hidden min-w-0">
+
+        <!-- Email List Column -->
+        <div id="email-list"
+             class="w-full lg:w-80 xl:w-96 bg-white border-r border-gray-200 flex flex-col flex-shrink-0 overflow-hidden"
+             :class="{ 'hidden lg:flex': showEmailViewer }">
+
+            <!-- Toolbar -->
+            <div class="h-11 flex items-center px-4 border-b border-gray-100 flex-shrink-0 gap-2">
+                <span class="text-sm font-semibold text-gray-700 truncate">
+                    {{if .CurrentFolder}}{{.CurrentFolder}}{{else}}Inbox{{end}}
+                </span>
+                <!-- spinner -->
+                <div id="list-spinner" class="htmx-indicator ml-auto">
+                    <div class="animate-spin rounded-full h-4 w-4 border-2 border-gray-200 border-t-blue-500"></div>
                 </div>
+            </div>
+
+            <!-- Scrollable email rows -->
+            <div id="email-list-inner" class="flex-1 overflow-y-auto">
+                {{template "email-rows" .}}
             </div>
         </div>
 
-        <!-- Email Viewer -->
-        <div x-show="showEmailViewer"
-             x-cloak
-             class="hidden lg:block lg:flex-1 bg-white">
-            <div id="email-viewer-content" class="h-full overflow-y-auto">
-                <!-- Content loaded via HTMX -->
-                <div class="flex items-center justify-center h-full text-gray-500">
-                    <p>Select an email to view its contents</p>
+        <!-- Email Viewer (desktop) -->
+        <div class="hidden lg:flex flex-1 flex-col bg-white overflow-hidden min-w-0">
+            <div id="email-viewer-pane" class="flex-1 overflow-y-auto">
+                <div class="flex flex-col items-center justify-center h-full text-gray-300 select-none">
+                    <svg class="w-16 h-16 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                            d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                    </svg>
+                    <p class="text-sm text-gray-400">Select an email to read</p>
                 </div>
             </div>
         </div>
@@ -167,21 +146,194 @@
         <!-- Mobile Email Viewer Overlay -->
         <div x-show="showEmailViewer"
              x-cloak
-             class="lg:hidden fixed inset-0 bg-white z-40">
-            <div class="flex items-center px-4 py-3 border-b">
-                <button @click="showEmailViewer = false" 
-                        class="text-gray-500 hover:text-gray-700 mr-4">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+             class="lg:hidden fixed inset-0 top-14 bg-white z-40 flex flex-col">
+            <div class="flex items-center h-11 px-4 border-b border-gray-200 gap-3 flex-shrink-0">
+                <button @click="showEmailViewer = false"
+                        class="text-gray-500 hover:text-gray-700 p-1 -ml-1">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
                     </svg>
                 </button>
-                <h2 class="text-lg font-medium">Email</h2>
+                <span class="text-sm font-medium text-gray-700">Back</span>
             </div>
-            <div id="email-viewer-content-mobile" class="h-[calc(100%-4rem)] overflow-y-auto">
-                <!-- Content loaded via HTMX -->
-            </div>
+            <div id="email-viewer-pane-mobile" class="flex-1 overflow-y-auto"></div>
         </div>
     </div>
+
     {{ template "compose-modal" . }}
     {{ template "toast" . }}
 </div>
+
+<!-- Define the email-rows sub-template so email-list.html can reuse it -->
+{{define "email-rows"}}
+{{if .Threads}}
+    {{range .Threads}}
+    {{$thread := .}}
+    {{$latest := .Latest}}
+    {{$unread := true}}
+    {{range $latest.Flags}}{{if eq . "\\Seen"}}{{$unread = false}}{{end}}{{end}}
+    <!-- Thread conversation row -->
+    <div x-data="{ open: false }"
+         class="border-b border-gray-100">
+        <!-- Thread summary row -->
+        <div class="relative group flex items-start gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors"
+             @click="if({{$thread.Count}} > 1) { open = !open } else {
+                 showEmailViewer = true;
+                 htmx.ajax('GET', '/api/email/{{$latest.ID}}',
+                     {target:'#email-viewer-pane', swap:'innerHTML',
+                      headers:{'X-Folder':'{{$.CurrentFolder}}','Authorization':'Bearer {{$.Token}}'}});
+                 if(window.innerWidth < 1024) {
+                     htmx.ajax('GET', '/api/email/{{$latest.ID}}',
+                         {target:'#email-viewer-pane-mobile', swap:'innerHTML',
+                          headers:{'X-Folder':'{{$.CurrentFolder}}','Authorization':'Bearer {{$.Token}}'}});
+                 }
+             }">
+            <!-- Unread indicator -->
+            {{if $unread}}
+            <span class="absolute left-1.5 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0"></span>
+            {{end}}
+            <!-- Avatar -->
+            <div class="flex-shrink-0 mt-0.5 w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center
+                        text-xs font-semibold text-blue-700 select-none uppercase">
+                {{initial $latest.FromName $latest.From}}
+            </div>
+            <!-- Text content -->
+            <div class="flex-1 min-w-0">
+                <div class="flex items-baseline justify-between gap-1 mb-0.5">
+                    <span class="text-sm truncate {{if $unread}}font-semibold text-gray-900{{else}}text-gray-600{{end}}">
+                        {{if $latest.FromName}}{{$latest.FromName}}{{else}}{{$latest.From}}{{end}}
+                    </span>
+                    <div class="flex items-center gap-1.5 flex-shrink-0">
+                        {{if gt $thread.Count 1}}
+                        <span class="text-xs font-semibold bg-gray-100 text-gray-500 rounded-full px-1.5 min-w-[1.25rem] text-center">{{$thread.Count}}</span>
+                        {{end}}
+                        <span class="text-xs {{if $unread}}text-blue-600 font-medium{{else}}text-gray-400{{end}}">
+                            {{formatDate $latest.Date}}
+                        </span>
+                    </div>
+                </div>
+                <div class="text-xs truncate mb-0.5 {{if $unread}}font-semibold text-gray-800{{else}}text-gray-500{{end}}">
+                    {{$thread.Root.Subject}}
+                </div>
+                <div class="text-xs text-gray-400 truncate">{{$latest.Preview}}</div>
+            </div>
+            {{if $latest.HasAttachments}}
+            <div class="flex-shrink-0 mt-1 text-gray-300 group-hover:text-gray-400">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+                </svg>
+            </div>
+            {{end}}
+            <!-- Expand/collapse chevron for multi-message threads -->
+            {{if gt $thread.Count 1}}
+            <div class="flex-shrink-0 mt-1.5 text-gray-400 transition-transform"
+                 :class="open ? 'rotate-180' : ''">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                </svg>
+            </div>
+            {{end}}
+        </div>
+        <!-- Expanded thread messages (only shown when open && Count > 1) -->
+        {{if gt $thread.Count 1}}
+        <div x-show="open"
+             x-cloak
+             x-transition:enter="transition ease-out duration-150"
+             x-transition:enter-start="opacity-0 -translate-y-1"
+             x-transition:enter-end="opacity-100 translate-y-0"
+             class="pl-12 border-t border-gray-50 bg-gray-50/60">
+            {{range $thread.Messages}}
+            {{$m := .}}
+            {{$mUnread := true}}
+            {{range $m.Flags}}{{if eq . "\\Seen"}}{{$mUnread = false}}{{end}}{{end}}
+            <div class="group flex items-start gap-3 px-4 py-2.5 cursor-pointer hover:bg-white transition-colors border-b border-gray-100 last:border-b-0"
+                 hx-get="/api/email/{{$m.ID}}"
+                 hx-target="#email-viewer-pane"
+                 hx-swap="innerHTML"
+                 hx-headers='{"X-Folder": "{{$.CurrentFolder}}", "Authorization": "Bearer {{$.Token}}"}'
+                 hx-indicator="#list-spinner"
+                 @click="showEmailViewer = true;
+                         if(window.innerWidth < 1024) {
+                             htmx.ajax('GET', '/api/email/{{$m.ID}}',
+                                 {target:'#email-viewer-pane-mobile', swap:'innerHTML',
+                                  headers:{'X-Folder':'{{$.CurrentFolder}}','Authorization':'Bearer {{$.Token}}'}});
+                         }">
+                <div class="flex-shrink-0 mt-0.5 w-6 h-6 rounded-full bg-blue-50 flex items-center justify-center
+                            text-xs font-semibold text-blue-600 select-none uppercase">
+                    {{initial $m.FromName $m.From}}
+                </div>
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-baseline justify-between gap-1">
+                        <span class="text-xs truncate {{if $mUnread}}font-semibold text-gray-900{{else}}text-gray-500{{end}}">
+                            {{if $m.FromName}}{{$m.FromName}}{{else}}{{$m.From}}{{end}}
+                        </span>
+                        <span class="text-xs flex-shrink-0 text-gray-400">{{formatDate $m.Date}}</span>
+                    </div>
+                    <div class="text-xs text-gray-400 truncate">{{$m.Preview}}</div>
+                </div>
+            </div>
+            {{end}}
+        </div>
+        {{end}}
+    </div>
+    {{end}}
+{{else if .Emails}}
+    {{range .Emails}}
+    {{$unread := true}}
+    {{range .Flags}}{{if eq . "\\Seen"}}{{$unread = false}}{{end}}{{end}}
+    <div class="relative group flex items-start gap-3 px-4 py-3 cursor-pointer
+                border-b border-gray-100 hover:bg-gray-50 transition-colors"
+         hx-get="/api/email/{{.ID}}"
+         hx-target="#email-viewer-pane"
+         hx-swap="innerHTML"
+         hx-headers='{"X-Folder": "{{$.CurrentFolder}}"}'
+         hx-indicator="#list-spinner"
+         @click="showEmailViewer = true;
+                 if(window.innerWidth < 1024) {
+                     htmx.ajax('GET', '/api/email/{{.ID}}',
+                         {target:'#email-viewer-pane-mobile', swap:'innerHTML',
+                          headers:{'X-Folder':'{{$.CurrentFolder}}','Authorization':'Bearer {{$.Token}}'}});
+                 }">
+        {{if $unread}}
+        <span class="absolute left-1.5 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0"></span>
+        {{end}}
+        <div class="flex-shrink-0 mt-0.5 w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center
+                    text-xs font-semibold text-blue-700 select-none uppercase">
+            {{initial .FromName .From}}
+        </div>
+        <div class="flex-1 min-w-0">
+            <div class="flex items-baseline justify-between gap-1 mb-0.5">
+                <span class="text-sm truncate {{if $unread}}font-semibold text-gray-900{{else}}text-gray-600{{end}}">
+                    {{if .FromName}}{{.FromName}}{{else}}{{.From}}{{end}}
+                </span>
+                <span class="text-xs flex-shrink-0 {{if $unread}}text-blue-600 font-medium{{else}}text-gray-400{{end}}">
+                    {{formatDate .Date}}
+                </span>
+            </div>
+            <div class="text-xs truncate mb-0.5 {{if $unread}}font-semibold text-gray-800{{else}}text-gray-500{{end}}">
+                {{.Subject}}
+            </div>
+            <div class="text-xs text-gray-400 truncate">{{.Preview}}</div>
+        </div>
+        {{if .HasAttachments}}
+        <div class="flex-shrink-0 mt-1 text-gray-300 group-hover:text-gray-400">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+            </svg>
+        </div>
+        {{end}}
+    </div>
+    {{end}}
+{{else}}
+    <div class="flex flex-col items-center justify-center h-64 text-center px-4">
+        <svg class="w-12 h-12 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+        </svg>
+        <p class="mt-3 text-sm font-medium text-gray-500">No messages</p>
+        <p class="text-xs text-gray-400 mt-0.5">This folder is empty.</p>
+    </div>
+{{end}}
+{{end}}

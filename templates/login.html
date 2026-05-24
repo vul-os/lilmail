@@ -85,6 +85,24 @@
                     </div>
                 </form>
 
+                <!-- OAuth2 Sign-in -->
+                {{if .OAuth2Enabled}}
+                <div class="mt-6">
+                    <div class="relative">
+                        <div class="absolute inset-0 flex items-center">
+                            <div class="w-full border-t border-gray-300"></div>
+                        </div>
+                        <div class="relative flex justify-center text-sm">
+                            <span class="px-2 bg-white text-gray-500">Or</span>
+                        </div>
+                    </div>
+                    <a href="/auth/oauth/login"
+                       class="mt-4 w-full flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                        Sign in with OAuth2
+                    </a>
+                </div>
+                {{end}}
+
                 <!-- Server Requirements Note -->
                 <div class="mt-6">
                     <p class="text-center text-sm text-gray-500">

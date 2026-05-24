@@ -131,6 +131,75 @@ func DecryptCredentials(encryptedStr, key string) (*Credentials, error) {
 	return &creds, nil
 }
 
+// encryptBytes encrypts arbitrary bytes with AES-GCM, returning base64.
+func encryptBytes(plaintext []byte, key string) (string, error) {
+	block, err := aes.NewCipher([]byte(key))
+	if err != nil {
+		return "", fmt.Errorf("failed to create cipher: %v", err)
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", fmt.Errorf("failed to create GCM: %v", err)
+	}
+
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", fmt.Errorf("failed to create nonce: %v", err)
+	}
+
+	ciphertext := gcm.Seal(nonce, nonce, plaintext, nil)
+	return base64.StdEncoding.EncodeToString(ciphertext), nil
+}
+
+// decryptBytes reverses encryptBytes.
+func decryptBytes(encryptedStr, key string) ([]byte, error) {
+	ciphertext, err := base64.StdEncoding.DecodeString(encryptedStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode: %v", err)
+	}
+
+	block, err := aes.NewCipher([]byte(key))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create cipher: %v", err)
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GCM: %v", err)
+	}
+
+	nonceSize := gcm.NonceSize()
+	if len(ciphertext) < nonceSize {
+		return nil, fmt.Errorf("ciphertext too short")
+	}
+
+	nonce, ct := ciphertext[:nonceSize], ciphertext[nonceSize:]
+	return gcm.Open(nil, nonce, ct, nil)
+}
+
+// EncryptOAuthToken serializes and encrypts an OAuth token for session storage.
+func EncryptOAuthToken(tok *OAuthToken, key string) (string, error) {
+	data, err := json.Marshal(tok)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal token: %v", err)
+	}
+	return encryptBytes(data, key)
+}
+
+// DecryptOAuthToken reverses EncryptOAuthToken.
+func DecryptOAuthToken(encryptedStr, key string) (*OAuthToken, error) {
+	data, err := decryptBytes(encryptedStr, key)
+	if err != nil {
+		return nil, err
+	}
+	var tok OAuthToken
+	if err := json.Unmarshal(data, &tok); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal token: %v", err)
+	}
+	return &tok, nil
+}
+
 // GetSessionToken safely retrieves JWT token from session
 func GetSessionToken(c *fiber.Ctx, store *session.Store) (string, error) {
 	sess, err := store.Get(c)

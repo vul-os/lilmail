@@ -9,6 +9,7 @@ import (
 
 	"github.com/emersion/go-imap"
 	"github.com/emersion/go-imap/client"
+	"github.com/emersion/go-sasl"
 )
 
 // Client represents an IMAP client wrapper
@@ -32,12 +33,49 @@ func NewClient(server string, port int, email, password string) (*Client, error)
 		return nil, fmt.Errorf("login error: %v", err)
 	}
 
-	return &Client{client: c}, nil
+	return &Client{client: c, username: email}, nil
+}
+
+// NewClientOAuth creates a new IMAP client authenticated with an OAuth2 access
+// token using the XOAUTH2 (default) or OAUTHBEARER SASL mechanism.
+func NewClientOAuth(server string, port int, username, accessToken, mechanism string) (*Client, error) {
+	c, err := client.DialTLS(fmt.Sprintf("%s:%d", server, port), nil)
+	if err != nil {
+		log.Printf("DialTLS %s:%d connection err: %v", server, port, err)
+		return nil, fmt.Errorf("connection error: %v", err)
+	}
+
+	var auth sasl.Client
+	switch strings.ToLower(mechanism) {
+	case "oauthbearer":
+		auth = sasl.NewOAuthBearerClient(&sasl.OAuthBearerOptions{
+			Username: username,
+			Token:    accessToken,
+			Host:     server,
+			Port:     port,
+		})
+	default:
+		auth = NewXoauth2Client(username, accessToken)
+	}
+
+	if err := c.Authenticate(auth); err != nil {
+		c.Logout()
+		log.Printf("IMAP OAuth2 (%s) login %s err: %v", mechanism, username, err)
+		return nil, fmt.Errorf("oauth2 login error: %v", err)
+	}
+
+	return &Client{client: c, username: username}, nil
 }
 
 // Close closes the IMAP connection
 func (c *Client) Close() error {
 	return c.client.Logout()
+}
+
+// IMAPClient returns the underlying go-imap *client.Client so that
+// packages such as the IDLE watcher can use extension-specific APIs.
+func (c *Client) IMAPClient() *client.Client {
+	return c.client
 }
 
 // FetchFolders retrieves all mailbox folders

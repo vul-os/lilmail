@@ -1,0 +1,115 @@
+# LilMail Roadmap 🗺️
+
+LilMail aims to be a **simple, self-hostable, resource-light alternative to
+Thunderbird** for the web — a single Go binary, no database to administer, and
+a UI that stays out of your way. This document tracks where we are and where
+we're going.
+
+> Scope philosophy: stay small and fast. Every feature below is weighed against
+> the "runs on 64 MB of RAM, no external services" promise. Power-user features
+> are welcome as long as they don't compromise that.
+>
+> 🎨 **Look & feel:** the UI feels like **Gmail** (layout, density, docked
+> compose, calendar) while **keeping LilMail's existing Tailwind/Alpine theme**.
+> Target: feature parity with **Thunderbird**.
+>
+> 📋 The concrete, checkbox-level breakdown lives in **[TASKS.md](TASKS.md)**.
+
+## Status legend
+
+| Symbol | Meaning |
+| ------ | ------- |
+| ✅ | Shipped |
+| 🚧 | In progress |
+| 🔜 | Planned (near-term) |
+| 💭 | Exploratory / longer-term |
+
+---
+
+## ✅ Shipped
+
+**Core mail**
+- IMAP folder browsing and message viewing; SMTP sending + save-to-Sent
+- File-based caching, no database required
+- JWT sessions + AES-GCM encrypted credentials/tokens at rest
+- Full-email-as-username support (`username_is_email`)
+
+**Authentication**
+- **OAuth2 / OpenID Connect login** with **XOAUTH2** and **OAUTHBEARER** SASL for
+  both IMAP and SMTP — authorization-code flow, **PKCE**, automatic
+  refresh-token handling — alongside classic password login
+
+**Attachments**
+- Metadata read from `BODYSTRUCTURE`; content fetched on demand per MIME part
+  (base64 / quoted-printable decoded) and streamed via `GET /api/attachment/:id`
+  — the inbox list never buffers attachment bytes
+
+**Scale & security**
+- Path-safe cache (username sanitized → no path traversal); `0700` dirs /
+  `0600` files; atomic cache writes
+- SMTP TLS certificate verification (opt-out only via `insecure_skip_verify`)
+- Request `BodyLimit` + attachment size guard
+
+**UI/UX — Gmail-inspired, responsive**
+- Responsive app shell: sticky top bar + collapsible sidebar / mobile drawer
+- Gmail-like message list (density, unread emphasis, hover actions)
+- Docked compose (bottom-right; full-screen on mobile)
+- Message viewer renders HTML mail in a **sandboxed iframe** (no scripts / no
+  same-origin) with plain-text fallback
+
+**Conversation threading**
+- **JWZ algorithm** (`References` / `In-Reply-To` / `Message-ID`) grouping
+  messages into conversations, backed by an embedded **bbolt** store
+- Collapse/expand conversation UI with message counts
+
+**Calendar (CalDAV)**
+- CalDAV client (discover calendars, list events, create events) via
+  `emersion/go-webdav` + `emersion/go-ical`
+- Gmail-style month & week views; iCalendar invite detection in the mail viewer
+  with a basic RSVP affordance — all opt-in via `[caldav].enabled`
+
+**Notifications & real-time** (opt-in via `[notifications].enabled`)
+- Server-side **IMAP IDLE** watcher
+- **SSE** stream → **Web Notifications API** (OS notifications while a tab is open)
+- Opt-in **native desktop** toasts via `gen2brain/beeep` for local runs
+
+**Packaging & distribution**
+- **Self-contained binary** — templates and vendored HTMX/Alpine/Tailwind are
+  embedded via `embed.FS`; runs fully offline with only `config.toml`
+- Unit tests (SASL/MIME/attachment-ID/threading) + **CI** workflow
+- Semantic-versioned **release pipeline** (GitHub Actions on `v*` tags)
+
+---
+
+## 🔜 Next up
+
+- 🔜 **Search** — server-side `IMAP SEARCH`; later an optional local full-text
+  index over the cache for fast offline search.
+- 🔜 **Rich compose** — HTML editor, file-upload attachments, drafts, and
+  reply/forward with proper quoting (wire up the existing Reply/Forward buttons).
+- 🔜 **CardDAV contacts** — address book + recipient autocomplete in the composer.
+- 🔜 **Web Push (VAPID + Service Worker)** — background notifications even when no
+  tab is open (the IMAP IDLE → SSE foundation already exists; `TODO(webpush)` is
+  marked in `handlers/web/notifications.go`).
+- 🔜 **Nix package + NixOS module** for declarative, reproducible self-hosting.
+
+## 💭 Later / exploratory
+
+- 💭 **Multiple accounts** / unified inbox.
+- 💭 **Filters / rules** and richer server-side flag management.
+- 💭 **PWA / offline** mode and a keyboard-driven UX / theming.
+- 💭 **JMAP** client support ([RFC 8620](https://jmap.io/)) as a modern transport
+  alongside IMAP/SMTP — abstract the mail backend behind an interface.
+- 💭 **OpenPGP** and **S/MIME** sign / encrypt / verify.
+- 💭 Container image and Helm chart.
+
+---
+
+## Non-goals
+
+- Becoming a heavyweight groupware suite.
+- Requiring an external database or message broker.
+- Bundling a full HTML rendering engine / tracking-pixel-friendly mail viewer.
+
+Have an idea or want to pick something up? See
+[Contributing](README.md#-contributing) and open an issue or PR.

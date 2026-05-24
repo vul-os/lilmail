@@ -1,117 +1,224 @@
+<!-- partials/email-viewer.html — rendered into #email-viewer-pane (and mobile) -->
 <div class="h-full flex flex-col bg-white">
-    <!-- Email Header -->
-    <div class="border-b border-gray-200 px-6 pt-4 pb-3">
-        <!-- Subject Line -->
-        <div class="flex justify-between items-start mb-4">
-            <h1 class="text-xl font-semibold text-gray-900 pr-8">{{.Email.Subject}}</h1>
+
+    <!-- ===== HEADER ===== -->
+    <div class="border-b border-gray-200 px-5 pt-4 pb-3 flex-shrink-0">
+
+        <!-- Subject + mobile close -->
+        <div class="flex items-start justify-between gap-3 mb-3">
+            <h1 class="text-lg font-semibold text-gray-900 leading-snug">{{.Email.Subject}}</h1>
             <button @click="showEmailViewer = false"
-                    class="p-2 -mr-2 text-gray-400 hover:text-gray-500 rounded-full hover:bg-gray-100 lg:hidden">
+                    class="flex-shrink-0 p-1.5 -mr-1 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 lg:hidden">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                 </svg>
             </button>
         </div>
 
-        <!-- Action Buttons -->
-        <div class="flex items-center space-x-2 mb-4">
-            <button hx-post="/api/email/{{.Email.ID}}/reply"
-                    hx-target="#compose-modal"
-                    class="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
-                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                          d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-                </svg>
-                Reply
-            </button>
-
-            <button hx-post="/api/email/{{.Email.ID}}/forward"
-                    hx-target="#compose-modal"
-                    class="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
-                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                          d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                </svg>
-                Forward
-            </button>
-
-            <!-- More Actions Dropdown -->
-            <div class="relative" x-data="{ open: false }">
-                <button @click="open = !open"
-                        class="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
-                    More
-                    <svg class="ml-2 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-                    </svg>
-                </button>
-
-                <div x-show="open"
-                    @click.away="open = false"
-                    class="origin-top-right absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 divide-y divide-gray-100 z-10"
-                    x-cloak>
-                    <div class="py-1">
-                        <button hx-post="/api/email/{{.Email.ID}}/mark-unread"
-                                class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
-                            Mark as unread
-                        </button>
-                        <button hx-delete="/api/email/{{.Email.ID}}"
-                                hx-target="#email-list"
-                                hx-swap="innerHTML"
-                                @click="showEmailViewer = false"
-                                hx-trigger="click"
-                                hx-on::after-request="htmx.ajax('GET', '/api/folder/{{$.CurrentFolder}}/emails', '#email-list')"
-                                hx-headers='{"Authorization": "Bearer {{$.Token}}", "X-Folder": "{{$.CurrentFolder}}"}'
-                                class="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100">
-                            Delete
-                        </button>
+        <!-- Sender meta row -->
+        <div class="flex items-start gap-3 mb-3">
+            <!-- Avatar -->
+            <div class="flex-shrink-0 w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center
+                        text-sm font-semibold text-blue-700 select-none uppercase">
+                {{initial .Email.FromName .Email.From}}
+            </div>
+            <!-- From / To / Date -->
+            <div class="flex-1 min-w-0">
+                <div class="flex items-baseline justify-between gap-2 flex-wrap">
+                    <div class="min-w-0">
+                        <span class="text-sm font-semibold text-gray-900">
+                            {{if .Email.FromName}}{{.Email.FromName}}{{else}}{{.Email.From}}{{end}}
+                        </span>
+                        {{if .Email.FromName}}
+                        <span class="text-xs text-gray-400 ml-1">&lt;{{.Email.From}}&gt;</span>
+                        {{end}}
                     </div>
+                    <span class="text-xs text-gray-400 flex-shrink-0 whitespace-nowrap">{{formatDate .Email.Date}}</span>
+                </div>
+                <div class="text-xs text-gray-500 mt-0.5 truncate">
+                    To: <span class="text-gray-700">{{.Email.To}}</span>
+                    {{with .Email.Cc}}
+                    <span class="ml-2">CC: <span class="text-gray-700">{{.}}</span></span>
+                    {{end}}
                 </div>
             </div>
         </div>
 
-        <!-- Email Metadata -->
-        <div class="rounded-lg bg-white">
-            <div class="flex items-center space-x-4">
-                <div class="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center">
-                    <span class="text-lg font-medium text-gray-600">
-                        {{slice (index (split .Email.From "@") 0) 0 1}}
-                    </span>
-                </div>
-                <div class="flex-1 min-w-0">
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <h2 class="text-sm font-medium text-gray-900">{{.Email.From}}</h2>
-                            <p class="text-sm text-gray-500">
-                                To: <span class="text-gray-700">{{.Email.To}}</span>
-                                {{with .Email.Cc}}
-                                <span class="ml-2">
-                                    CC: <span class="text-gray-700">{{.}}</span>
-                                </span>
-                                {{end}}
-                            </p>
-                        </div>
-                        <div class="text-sm text-gray-500">
-                            {{formatDate .Email.Date}}
-                        </div>
-                    </div>
+        <!-- Action buttons. Reply/Forward open the compose modal pre-filled,
+             entirely client-side (no backend reply/forward route needed). Email
+             values are passed via data-* attributes so html/template escapes them
+             safely instead of being interpolated into a JS string literal. -->
+        <div class="flex items-center gap-2 flex-wrap"
+             data-from="{{.Email.From}}"
+             data-fromname="{{if .Email.FromName}}{{.Email.FromName}}{{else}}{{.Email.From}}{{end}}"
+             data-subject="{{.Email.Subject}}"
+             data-date="{{formatDate .Email.Date}}"
+             data-body="{{.Email.Body}}"
+             x-data="{
+                 quoted() {
+                     const d = $root.dataset;
+                     const lines = (d.body || '').split('\n').map(l => '> ' + l).join('\n');
+                     return '\n\nOn ' + d.date + ', ' + d.fromname + ' wrote:\n' + lines;
+                 },
+                 fill(to, subject, body) {
+                     showComposeModal = true;
+                     $nextTick(() => {
+                         const t = document.getElementById('compose-to');
+                         const s = document.getElementById('compose-subject');
+                         const b = document.getElementById('compose-body');
+                         if (t) t.value = to;
+                         if (s) s.value = subject;
+                         if (b) { b.value = body; b.focus(); }
+                     });
+                 }
+             }">
+            <button @click="const d = $root.dataset;
+                            fill(d.from,
+                                 /^re:/i.test(d.subject) ? d.subject : 'Re: ' + d.subject,
+                                 quoted())"
+                    class="inline-flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 rounded-md
+                           text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/>
+                </svg>
+                Reply
+            </button>
+
+            <button @click="const d = $root.dataset;
+                            fill('',
+                                 /^fwd:/i.test(d.subject) ? d.subject : 'Fwd: ' + d.subject,
+                                 '\n\n---------- Forwarded message ----------\nFrom: ' + d.fromname + '\nDate: ' + d.date + '\nSubject: ' + d.subject + '\n\n' + (d.body || ''))"
+                    class="inline-flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 rounded-md
+                           text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M13 7l5 5m0 0l-5 5m5-5H6"/>
+                </svg>
+                Forward
+            </button>
+
+            <!-- More / Delete dropdown -->
+            <div class="relative" x-data="{ open: false }">
+                <button @click="open = !open"
+                        class="inline-flex items-center gap-1 px-3 py-1.5 border border-gray-300 rounded-md
+                               text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors">
+                    More
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                </button>
+                <div x-show="open"
+                     x-cloak
+                     @click.away="open = false"
+                     class="absolute left-0 mt-1 w-40 rounded-lg shadow-lg bg-white ring-1 ring-black/5 z-20 py-1">
+                    <button class="w-full text-left px-4 py-2 text-xs text-gray-700 hover:bg-gray-50">
+                        Mark as unread
+                    </button>
+                    <button hx-delete="/api/email/{{.Email.ID}}"
+                            hx-swap="none"
+                            hx-headers='{"X-Folder": "{{.CurrentFolder}}"}'
+                            hx-on::after-request="showEmailViewer = false; open = false; htmx.ajax('GET', '/api/folder/{{.CurrentFolder | urlEncode}}/emails', {target:'#email-list-inner', swap:'innerHTML'})"
+                            class="w-full text-left px-4 py-2 text-xs text-red-600 hover:bg-red-50">
+                        Delete
+                    </button>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Attachments -->
+    <!-- ===== iCALENDAR INVITE BANNER ===== -->
+    <!-- Shown when any attachment has ContentType text/calendar (iCal invite) -->
+    {{range .Email.Attachments}}
+    {{if eq .ContentType "text/calendar"}}
+    <div class="px-5 py-3 border-b border-blue-100 bg-blue-50 flex-shrink-0"
+         x-data="{ rsvpDone: false, rsvpMsg: '' }">
+        <div class="flex items-start gap-3">
+            <!-- Calendar icon -->
+            <div class="flex-shrink-0 w-9 h-9 rounded-lg bg-blue-100 flex items-center justify-center">
+                <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                </svg>
+            </div>
+            <div class="flex-1 min-w-0">
+                <div class="text-sm font-semibold text-blue-900 mb-0.5">Calendar Invite</div>
+                <div class="text-xs text-blue-700 mb-2">This email contains a calendar invitation.</div>
+                <!-- RSVP buttons (best-effort; POST to stub route) -->
+                <div x-show="!rsvpDone" class="flex flex-wrap gap-2">
+                    <!-- Accept -->
+                    <button hx-post="/calendar/rsvp"
+                            hx-vals='{"status":"accepted","uid":""}'
+                            hx-swap="none"
+                            hx-on::after-request="rsvpDone = true; rsvpMsg = 'Accepted'"
+                            class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-md
+                                   bg-green-600 hover:bg-green-700 text-white transition-colors">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                        </svg>
+                        Accept
+                    </button>
+                    <!-- Tentative -->
+                    <button hx-post="/calendar/rsvp"
+                            hx-vals='{"status":"tentative","uid":""}'
+                            hx-swap="none"
+                            hx-on::after-request="rsvpDone = true; rsvpMsg = 'Tentative'"
+                            class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-md
+                                   bg-yellow-500 hover:bg-yellow-600 text-white transition-colors">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                        Tentative
+                    </button>
+                    <!-- Decline -->
+                    <button hx-post="/calendar/rsvp"
+                            hx-vals='{"status":"declined","uid":""}'
+                            hx-swap="none"
+                            hx-on::after-request="rsvpDone = true; rsvpMsg = 'Declined'"
+                            class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-md
+                                   border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 transition-colors">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                        Decline
+                    </button>
+                </div>
+                <!-- Post-RSVP confirmation -->
+                <div x-show="rsvpDone" x-cloak class="text-xs text-blue-700 font-medium">
+                    Response recorded: <span x-text="rsvpMsg"></span>
+                    <span class="text-blue-400 ml-1">(note: full iTIP delivery is not yet implemented)</span>
+                </div>
+            </div>
+            <!-- Download the .ics file -->
+            <a href="/api/attachment/{{.ID}}"
+               class="flex-shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-md
+                      border border-blue-200 text-blue-700 hover:bg-blue-100 transition-colors">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                </svg>
+                .ics
+            </a>
+        </div>
+    </div>
+    {{end}}
+    {{end}}
+
+    <!-- ===== ATTACHMENTS ===== -->
     {{if .Email.Attachments}}
-    <div class="px-6 py-3 border-b border-gray-200 bg-gray-50">
+    <div class="px-5 py-2.5 border-b border-gray-100 bg-gray-50 flex-shrink-0">
         <div class="flex flex-wrap gap-2">
             {{range .Email.Attachments}}
             <a href="/api/attachment/{{.ID}}"
-            class="inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium bg-white border border-gray-200 text-gray-700 hover:bg-gray-50">
-                <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                        d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+               class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium
+                      bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors">
+                <svg class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
                 </svg>
-                {{.Filename}}
+                <span class="truncate max-w-[160px]">{{.Filename}}</span>
                 {{if .Size}}
-                <span class="ml-1 text-gray-500">({{formatSize .Size}})</span>
+                <span class="text-gray-400 flex-shrink-0">({{formatSize .Size}})</span>
                 {{end}}
             </a>
             {{end}}
@@ -119,56 +226,20 @@
     </div>
     {{end}}
 
-    <div class="flex-1 overflow-auto p-6">
+    <!-- ===== BODY ===== -->
+    <div class="flex-1 overflow-auto">
         {{if .Email.HTML}}
-            <div class="prose prose-sm max-w-none email-content">{{.Email.HTML}}</div>
+        <!-- Sandboxed iframe: no scripts, no same-origin — remote content cannot reach our origin -->
+        <iframe
+            class="w-full h-full border-0"
+            sandbox="allow-popups allow-popups-to-escape-sandbox"
+            srcdoc="{{.Email.HTML}}"
+            title="Email content"
+            referrerpolicy="no-referrer"
+            loading="lazy"
+        ></iframe>
         {{else}}
-            <div class="text-gray-800 whitespace-pre-line">{{.Email.Body}}</div>
+        <div class="px-5 py-5 text-sm text-gray-800 whitespace-pre-wrap break-words leading-relaxed">{{.Email.Body}}</div>
         {{end}}
     </div>
 </div>
-
-<style>
-    .email-content {
-        word-break: break-word;
-    }
-    
-    .email-content img {
-        max-width: 100%;
-        height: auto;
-    }
-    
-    .email-content blockquote {
-        border-left: 3px solid #e5e7eb;
-        padding: 0.5rem 0 0.5rem 1rem;
-        margin: 1rem 0;
-        color: #4b5563;
-        background: #f9fafb;
-        border-radius: 0.25rem;
-    }
-    
-    .email-content table {
-        border-collapse: collapse;
-        width: 100%;
-        margin: 1rem 0;
-        border-radius: 0.5rem;
-        overflow: hidden;
-        border: 1px solid #e5e7eb;
-    }
-    
-    .email-content table th {
-        background: #f9fafb;
-        padding: 0.75rem 1rem;
-        text-align: left;
-        font-weight: 500;
-    }
-    
-    .email-content table td {
-        padding: 0.75rem 1rem;
-        border-top: 1px solid #e5e7eb;
-    }
-    
-    .email-content table tr:hover {
-        background-color: #f9fafb;
-    }
-</style>

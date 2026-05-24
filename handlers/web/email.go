@@ -2,6 +2,7 @@
 package web
 
 import (
+	"bytes"
 	"fmt"
 	"lilmail/config"
 	"lilmail/handlers/api"
@@ -13,6 +14,11 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/session"
 )
+
+// boltPath returns the path to the per-user bbolt thread-cache database.
+func boltPath(cacheFolder, username string) string {
+	return filepath.Join(cacheFolder, api.SanitizeUsername(username), "threads.db")
+}
 
 type EmailHandler struct {
 	store  *session.Store
@@ -41,7 +47,7 @@ func (h *EmailHandler) HandleInbox(c *fiber.Ctx) error {
 	}
 
 	// Load folders from cache
-	userCacheFolder := filepath.Join(h.config.Cache.Folder, userStr)
+	userCacheFolder := filepath.Join(h.config.Cache.Folder, api.SanitizeUsername(userStr))
 	var folders []*api.MailboxInfo
 	if err := utils.LoadCache(filepath.Join(userCacheFolder, "folders.json"), &folders); err != nil {
 		return c.Status(500).SendString("Error loading folders")
@@ -66,10 +72,14 @@ func (h *EmailHandler) HandleInbox(c *fiber.Ctx) error {
 		return c.Redirect("/login")
 	}
 
+	// Build JWZ threads (uses bbolt cache; falls back to in-memory on error).
+	threads, _ := api.BuildThreads(boltPath(h.config.Cache.Folder, userStr), "INBOX", emails)
+
 	return c.Render("inbox", fiber.Map{
 		"Username":      userStr,
 		"Folders":       folders,
 		"Emails":        emails,
+		"Threads":       threads,
 		"CurrentFolder": "INBOX",
 		"Token":         token,
 	})
@@ -93,7 +103,7 @@ func (h *EmailHandler) HandleFolder(c *fiber.Ctx) error {
 	}
 
 	// Load folders for sidebar
-	userCacheFolder := filepath.Join(h.config.Cache.Folder, userStr)
+	userCacheFolder := filepath.Join(h.config.Cache.Folder, api.SanitizeUsername(userStr))
 	var folders []*api.MailboxInfo
 	if err := utils.LoadCache(filepath.Join(userCacheFolder, "folders.json"), &folders); err != nil {
 		return c.Status(500).SendString("Error loading folders")
@@ -118,10 +128,14 @@ func (h *EmailHandler) HandleFolder(c *fiber.Ctx) error {
 		return c.Redirect("/login")
 	}
 
+	// Build JWZ threads (uses bbolt cache; falls back to in-memory on error).
+	threads, _ := api.BuildThreads(boltPath(h.config.Cache.Folder, userStr), folderName, emails)
+
 	return c.Render("inbox", fiber.Map{
 		"Username":      userStr,
 		"Folders":       folders,
 		"Emails":        emails,
+		"Threads":       threads,
 		"CurrentFolder": folderName,
 		"Token":         token,
 	})
@@ -172,6 +186,45 @@ func (h *EmailHandler) HandleEmailView(c *fiber.Ctx) error {
 		"CurrentFolder": folderName,
 		"Layout":        "", // This is crucial to prevent full HTML rendering
 	}, "") // Add empty string as second argument to explicitly disable layout
+}
+
+// HandleAttachment streams a single attachment to the browser. The attachment
+// ID encodes the folder, message UID, and MIME part path; the content is
+// fetched from the server on demand.
+func (h *EmailHandler) HandleAttachment(c *fiber.Ctx) error {
+	id := c.Params("id")
+	if id == "" {
+		return c.Status(400).SendString("Attachment ID required")
+	}
+
+	folder, uid, part, err := api.DecodeAttachmentID(id)
+	if err != nil {
+		return c.Status(400).SendString("Invalid attachment ID")
+	}
+
+	client, err := h.auth.CreateIMAPClient(c)
+	if err != nil {
+		return c.Status(500).SendString("Error connecting to email server")
+	}
+	defer client.Close()
+
+	content, filename, contentType, err := client.FetchAttachment(folder, uid, part)
+	if err != nil {
+		log.Printf("Error fetching attachment %s/%s/%s: %v", folder, uid, part, err)
+		return c.Status(500).SendString("Error fetching attachment")
+	}
+
+	// Enforce a 25 MiB limit on attachment downloads to avoid unbounded memory use.
+	const maxAttachmentBytes = 25 * 1024 * 1024
+	if len(content) > maxAttachmentBytes {
+		return c.Status(413).SendString("Attachment exceeds maximum allowed size")
+	}
+
+	if contentType != "" {
+		c.Set("Content-Type", contentType)
+	}
+	c.Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	return c.SendStream(bytes.NewReader(content), len(content))
 }
 
 // HandleDeleteEmail handles the email deletion request
@@ -270,8 +323,16 @@ func (h *EmailHandler) HandleFolderEmails(c *fiber.Ctx) error {
 	// Add debug logging
 	log.Printf("Folder: %s, Emails count: %d", folderName, len(emails))
 
+	// Build JWZ threads for the HTMX partial.
+	userStr := ""
+	if u, ok := username.(string); ok {
+		userStr = u
+	}
+	threads, _ := api.BuildThreads(boltPath(h.config.Cache.Folder, userStr), folderName, emails)
+
 	return c.Render("partials/email-list", fiber.Map{
 		"Emails":        emails,
+		"Threads":       threads,
 		"CurrentFolder": folderName,
 		"Token":         token,
 	}, "") // Explicitly set no layout

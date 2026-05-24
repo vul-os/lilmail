@@ -18,13 +18,31 @@ type IMAPConfig struct {
 }
 
 type SMTPConfig struct {
-	Server      string `toml:"server"`
-	Port        int    `toml:"port"`
-	UseSTARTTLS bool   `toml:"use_starttls"` // true for port 587, false for port 465
+	Server             string `toml:"server"`
+	Port               int    `toml:"port"`
+	UseSTARTTLS        bool   `toml:"use_starttls"`         // true for port 587, false for port 465
+	InsecureSkipVerify bool   `toml:"insecure_skip_verify"` // allow self-signed certs; default false
 }
 
 type JWTConfig struct {
 	Secret string `toml:"secret"` // For JWT signing
+}
+
+// OAuth2Config configures OAuth2 / OpenID Connect login for IMAP and SMTP.
+// The same access token is presented to the mail server using either the
+// XOAUTH2 or the OAUTHBEARER SASL mechanism.
+type OAuth2Config struct {
+	Enabled      bool     `toml:"enabled"`
+	ClientID     string   `toml:"client_id"`
+	ClientSecret string   `toml:"client_secret"`
+	AuthURL      string   `toml:"auth_url"`     // Authorization endpoint
+	TokenURL     string   `toml:"token_url"`    // Token endpoint
+	UserInfoURL  string   `toml:"userinfo_url"` // Optional; used to look up the email
+	RedirectURL  string   `toml:"redirect_url"` // Must match the registered redirect URI
+	Scopes       []string `toml:"scopes"`
+	Mechanism    string   `toml:"mechanism"`   // "xoauth2" (default) or "oauthbearer"
+	EmailClaim   string   `toml:"email_claim"` // Claim holding the email (default "email")
+	UsePKCE      bool     `toml:"use_pkce"`    // Use PKCE (S256); recommended
 }
 
 type CacheConfig struct {
@@ -46,14 +64,42 @@ type SSLConfig struct {
 	HSTSMaxAge   int    `toml:"hsts_max_age"`  // Max age for HSTS in seconds
 }
 
+// CalDAVConfig configures the optional CalDAV calendar integration.
+// Set [caldav] enabled = true in config.toml to activate the calendar routes.
+type CalDAVConfig struct {
+	Enabled  bool   `toml:"enabled"`
+	URL      string `toml:"url"`      // CalDAV endpoint / principal or discovery URL
+	Auth     string `toml:"auth"`     // "basic" (default) or "oauth2"
+	Username string `toml:"username"` // used when auth = "basic"
+	Password string `toml:"password"` // used when auth = "basic"
+}
+
+// NotificationsConfig configures Phase-6 real-time notifications.
+// Everything is opt-in and default-disabled: with Enabled = false (the
+// default) the application behaves exactly as without this feature — no extra
+// goroutines, no SSE route, no JS injected into pages.
+//
+//	[notifications]
+//	enabled = false          # master switch — MUST be true to activate anything
+//	idle    = true           # start an IMAP IDLE watcher when enabled
+//	desktop = false          # native OS toast via gen2brain/beeep (local runs)
+type NotificationsConfig struct {
+	Enabled bool `toml:"enabled"` // master switch; default false
+	Idle    bool `toml:"idle"`    // IMAP IDLE watcher; default true when Enabled
+	Desktop bool `toml:"desktop"` // native OS toasts via beeep; default false
+}
+
 type Config struct {
-	Server     ServerConfig     `toml:"server"`
-	IMAP       IMAPConfig       `toml:"imap"`
-	SMTP       SMTPConfig       `toml:"smtp"`
-	JWT        JWTConfig        `toml:"jwt"`
-	Cache      CacheConfig      `toml:"cache"`
-	Encryption EncryptionConfig `toml:"encryption"`
-	SSL        SSLConfig        `toml:"ssl"`
+	Server        ServerConfig        `toml:"server"`
+	IMAP          IMAPConfig          `toml:"imap"`
+	SMTP          SMTPConfig          `toml:"smtp"`
+	JWT           JWTConfig           `toml:"jwt"`
+	Cache         CacheConfig         `toml:"cache"`
+	Encryption    EncryptionConfig    `toml:"encryption"`
+	SSL           SSLConfig           `toml:"ssl"`
+	OAuth2        OAuth2Config        `toml:"oauth2"`
+	CalDAV        CalDAVConfig        `toml:"caldav"`
+	Notifications NotificationsConfig `toml:"notifications"`
 }
 
 func LoadConfig(filepath string) (*Config, error) {
@@ -70,6 +116,22 @@ func LoadConfig(filepath string) (*Config, error) {
 	config.SSL.HTTPPort = 80
 	config.SSL.HSTSMaxAge = 31536000 // 1 year
 	config.SSL.AutoRedirect = true
+
+	// Default OAuth2 configuration
+	config.OAuth2.Mechanism = "xoauth2"
+	config.OAuth2.EmailClaim = "email"
+	config.OAuth2.UsePKCE = true
+
+	// Default CalDAV configuration
+	config.CalDAV.Auth = "basic"
+
+	// Default Notifications configuration — everything OFF by default.
+	// Idle is set to true here so that it activates automatically once the
+	// user opts in by setting enabled = true; they can still turn it off
+	// individually with idle = false.
+	config.Notifications.Enabled = false
+	config.Notifications.Idle = true
+	config.Notifications.Desktop = false
 
 	// Load config file
 	_, err := toml.DecodeFile(filepath, &config)

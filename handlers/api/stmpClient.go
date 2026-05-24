@@ -6,18 +6,23 @@ import (
 	"math/rand"
 	"net/smtp"
 	"os"
+	"strings"
 	"time"
 )
 
 // SMTPClient handles email sending
 type SMTPClient struct {
-	server   string
-	port     int
-	email    string
-	password string
+	server             string
+	port               int
+	email              string
+	password           string
+	useOAuth           bool
+	token              string
+	mechanism          string // "xoauth2" or "oauthbearer"
+	insecureSkipVerify bool   // if true, skip TLS certificate verification
 }
 
-// NewSMTPClient creates a new SMTP client
+// NewSMTPClient creates a new SMTP client using password authentication
 func NewSMTPClient(server string, port int, email, password string) *SMTPClient {
 	return &SMTPClient{
 		server:   server,
@@ -25,6 +30,25 @@ func NewSMTPClient(server string, port int, email, password string) *SMTPClient 
 		email:    email,
 		password: password,
 	}
+}
+
+// NewSMTPClientOAuth creates a new SMTP client authenticated with an OAuth2
+// access token (XOAUTH2 or OAUTHBEARER).
+func NewSMTPClientOAuth(server string, port int, email, token, mechanism string) *SMTPClient {
+	return &SMTPClient{
+		server:    server,
+		port:      port,
+		email:     email,
+		token:     token,
+		mechanism: mechanism,
+		useOAuth:  true,
+	}
+}
+
+// SetInsecureSkipVerify controls whether TLS certificate verification is skipped.
+// Use only for self-signed or development servers; default is false (verify certs).
+func (c *SMTPClient) SetInsecureSkipVerify(skip bool) {
+	c.insecureSkipVerify = skip
 }
 
 // SendMail sends an email using SMTP
@@ -46,18 +70,30 @@ func (c *SMTPClient) SendMail(to, subject, body string) error {
 		return fmt.Errorf("hello failed: %v", err)
 	}
 
-	// Start TLS
+	// Start TLS — verify against the server name by default; allow opt-out for
+	// self-signed certs via SetInsecureSkipVerify(true).
 	tlsConfig := &tls.Config{
 		ServerName:         c.server,
-		InsecureSkipVerify: true,
+		InsecureSkipVerify: c.insecureSkipVerify, //nolint:gosec // value is explicitly set by operator
 	}
 	if err = client.StartTLS(tlsConfig); err != nil {
 		return fmt.Errorf("starttls failed: %v", err)
 	}
 
 	username := GetUsernameFromEmail(c.email)
-	// Authenticate after TLS
-	auth := smtp.PlainAuth("", username, c.password, c.server)
+
+	// Authenticate after TLS, choosing the mechanism based on credentials.
+	var auth smtp.Auth
+	if c.useOAuth {
+		switch strings.ToLower(c.mechanism) {
+		case "oauthbearer":
+			auth = NewSMTPOAuthBearer(c.email, c.token, c.server, c.port)
+		default:
+			auth = NewSMTPXoauth2(c.email, c.token)
+		}
+	} else {
+		auth = smtp.PlainAuth("", username, c.password, c.server)
+	}
 	if err = client.Auth(auth); err != nil {
 		return fmt.Errorf("auth failed: %v", err)
 	}

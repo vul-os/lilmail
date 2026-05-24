@@ -39,7 +39,9 @@ func (h *AuthHandler) ShowLogin(c *fiber.Ctx) error {
 			return c.Redirect("/inbox")
 		}
 	}
-	return c.Render("login", fiber.Map{})
+	return c.Render("login", fiber.Map{
+		"OAuth2Enabled": h.config.OAuth2.Enabled,
+	})
 }
 
 // HandleLogin processes the login form
@@ -87,7 +89,7 @@ func (h *AuthHandler) HandleLogin(c *fiber.Ctx) error {
 	}
 	defer client.Close()
 
-	userCacheFolder := filepath.Join(h.config.Cache.Folder, username)
+	userCacheFolder := filepath.Join(h.config.Cache.Folder, api.SanitizeUsername(username))
 	if err := h.ensureUserCacheFolder(userCacheFolder); err != nil {
 		return c.Status(500).Render("login", fiber.Map{
 			"Error": "Server error occurred during setup",
@@ -143,7 +145,7 @@ func (h *AuthHandler) HandleLogout(c *fiber.Ctx) error {
 	if username != nil {
 		userStr, ok := username.(string)
 		if ok {
-			userCacheFolder := filepath.Join(h.config.Cache.Folder, userStr)
+			userCacheFolder := filepath.Join(h.config.Cache.Folder, api.SanitizeUsername(userStr))
 			if err := h.clearUserCache(userCacheFolder); err != nil {
 				fmt.Printf("Error clearing cache for user %s: %v\n", userStr, err)
 			}
@@ -159,7 +161,7 @@ func (h *AuthHandler) HandleLogout(c *fiber.Ctx) error {
 
 func (h *AuthHandler) ensureUserCacheFolder(path string) error {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return os.MkdirAll(path, 0755)
+		return os.MkdirAll(path, 0700)
 	}
 	return nil
 }
@@ -222,6 +224,21 @@ func (h *AuthHandler) CreateIMAPClient(c *fiber.Ctx) (*api.Client, error) {
 		return nil, fmt.Errorf("failed to get session: %v", err)
 	}
 
+	// OAuth2 sessions authenticate with a (possibly refreshed) bearer token.
+	if authType, _ := sess.Get("auth_type").(string); authType == "oauth2" {
+		username, token, err := h.validOAuthToken(c)
+		if err != nil {
+			return nil, err
+		}
+		return api.NewClientOAuth(
+			h.config.IMAP.Server,
+			h.config.IMAP.Port,
+			username,
+			token,
+			h.config.OAuth2.Mechanism,
+		)
+	}
+
 	encryptedCreds := sess.Get("credentials")
 	if encryptedCreds == nil {
 		return nil, fmt.Errorf("no credentials found in session")
@@ -260,8 +277,12 @@ func (h *AuthHandler) CreateIMAPClient(c *fiber.Ctx) (*api.Client, error) {
 }
 
 func (h *AuthHandler) CreateSMTPClient(c *fiber.Ctx) (*api.SMTPClient, error) {
-	// Convert IMAP server to SMTP server (e.g., imap.gmail.com -> smtp.gmail.com)
-	smtpServer := strings.Replace(h.config.IMAP.Server, "imap.", "smtp.", 1)
+	// Use the configured SMTP server (the config loader derives it from the
+	// IMAP server when not explicitly set).
+	smtpServer := h.config.SMTP.Server
+	if smtpServer == "" {
+		smtpServer = strings.Replace(h.config.IMAP.Server, "imap.", "smtp.", 1)
+	}
 
 	// Get SMTP port from config, or use default
 	smtpPort := h.config.SMTP.GetPort()
@@ -270,6 +291,21 @@ func (h *AuthHandler) CreateSMTPClient(c *fiber.Ctx) (*api.SMTPClient, error) {
 	sess, err := h.store.Get(c)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get session: %v", err)
+	}
+
+	// OAuth2 sessions authenticate with a (possibly refreshed) bearer token.
+	if authType, _ := sess.Get("auth_type").(string); authType == "oauth2" {
+		_, token, err := h.validOAuthToken(c)
+		if err != nil {
+			return nil, err
+		}
+		email, _ := sess.Get("email").(string)
+		client := api.NewSMTPClientOAuth(smtpServer, smtpPort, email, token, h.config.OAuth2.Mechanism)
+		if client == nil {
+			return nil, fmt.Errorf("failed to create SMTP client")
+		}
+		client.SetInsecureSkipVerify(h.config.SMTP.InsecureSkipVerify)
+		return client, nil
 	}
 
 	encryptedCreds := sess.Get("credentials")
@@ -292,6 +328,7 @@ func (h *AuthHandler) CreateSMTPClient(c *fiber.Ctx) (*api.SMTPClient, error) {
 	if client == nil {
 		return nil, fmt.Errorf("failed to create SMTP client")
 	}
+	client.SetInsecureSkipVerify(h.config.SMTP.InsecureSkipVerify)
 
 	return client, nil
 }

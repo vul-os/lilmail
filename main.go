@@ -1,21 +1,32 @@
 package main
 
 import (
+	"embed"
 	"fmt"
+	"io/fs"
 	"lilmail/config"
 	"lilmail/handlers/api"
 	"lilmail/handlers/web"
 	"lilmail/storage"
 	"log"
+	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/filesystem"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/fiber/v2/middleware/session"
 	"github.com/gofiber/template/html/v2"
 )
+
+//go:embed all:templates
+var templatesFS embed.FS
+
+//go:embed all:assets
+var assetsFS embed.FS
 
 var store *session.Store
 
@@ -57,8 +68,12 @@ func main() {
 		log.Fatal("Failed to load config:", err)
 	}
 
-	// Initialize template engine with custom functions
-	engine := html.New("./templates", ".html")
+	// Initialize template engine with embedded filesystem
+	tplSub, err := fs.Sub(templatesFS, "templates")
+	if err != nil {
+		log.Fatal("Failed to sub templates FS:", err)
+	}
+	engine := html.NewFileSystem(http.FS(tplSub), ".html")
 
 	// String manipulation functions
 	engine.AddFunc("split", strings.Split)
@@ -68,14 +83,17 @@ func main() {
 	engine.AddFunc("title", strings.Title)
 	engine.AddFunc("trim", strings.TrimSpace)
 	engine.AddFunc("hasPrefix", strings.HasPrefix)
+	engine.AddFunc("urlEncode", url.QueryEscape)
 
 	// Date formatting function
 	engine.AddFunc("formatDate", func(t time.Time) string {
 		return t.Format("Jan 02, 2006 15:04")
 	})
 
-	// File size formatting function
-	engine.AddFunc("formatSize", func(size int64) string {
+	// File size formatting function. Accepts int (models.Attachment.Size) — the
+	// template passes an int, and text/template will not coerce int -> int64.
+	engine.AddFunc("formatSize", func(sizeInt int) string {
+		size := int64(sizeInt)
 		const unit = 1024
 		if size < unit {
 			return fmt.Sprintf("%d B", size)
@@ -88,12 +106,39 @@ func main() {
 		return fmt.Sprintf("%.1f %cB", float64(size)/float64(div), "KMGTPE"[exp])
 	})
 
-	engine.Reload(true)
+	// initial returns the first letter (unicode-safe, upper-cased) of the
+	// preferred name, falling back to the email, for avatar bubbles.
+	engine.AddFunc("initial", func(name, email string) string {
+		s := strings.TrimSpace(name)
+		if s == "" {
+			s = strings.TrimSpace(email)
+		}
+		for _, r := range s {
+			return strings.ToUpper(string(r))
+		}
+		return "?"
+	})
+
+	// caldavEnabled is a zero-argument template func so templates can show/hide
+	// calendar navigation without threading a flag through every handler.
+	engine.AddFunc("caldavEnabled", func() bool {
+		return config.CalDAV.Enabled
+	})
+
+	// notificationsEnabled is a zero-argument template func so templates can
+	// conditionally emit the SSE client script.  It is always registered (so
+	// the template parse step never fails) but returns false by default.
+	engine.AddFunc("notificationsEnabled", func() bool {
+		return config.Notifications.Enabled
+	})
+
+	engine.Reload(false) // embedded — no disk reload needed
 
 	// Initialize Fiber with template engine
 	app := fiber.New(fiber.Config{
 		Views:       engine,
-		ViewsLayout: "layouts/main", // Default layout
+		ViewsLayout: "layouts/main",   // Default layout
+		BodyLimit:   25 * 1024 * 1024, // 25 MiB — guards compose form uploads
 		ErrorHandler: func(c *fiber.Ctx, err error) error {
 			code := fiber.StatusInternalServerError
 			if e, ok := err.(*fiber.Error); ok {
@@ -119,20 +164,32 @@ func main() {
 	app.Use(recover.New()) // Recover from panics
 	app.Use(logger.New())  // Request logging
 
-	// Serve static files
-	app.Static("/assets", "./assets", fiber.Static{
-		Compress:      true,
-		CacheDuration: 24 * time.Hour,
-	})
+	// Serve embedded assets
+	assetsSub, err := fs.Sub(assetsFS, "assets")
+	if err != nil {
+		log.Fatal("Failed to sub assets FS:", err)
+	}
+	app.Use("/assets", filesystem.New(filesystem.Config{
+		Root:         http.FS(assetsSub),
+		MaxAge:       int(24 * time.Hour / time.Second),
+		NotFoundFile: "",
+	}))
 
 	// Initialize web handlers
 	webAuthHandler := web.NewAuthHandler(store, config)
 	webEmailHandler := web.NewEmailHandler(store, config, webAuthHandler)
+	webCalendarHandler := web.NewCalendarHandler(store, config, webAuthHandler)
 
 	// Public routes
 	app.Get("/login", webAuthHandler.ShowLogin)
 	app.Post("/login", webAuthHandler.HandleLogin)
 	app.Get("/logout", webAuthHandler.HandleLogout)
+
+	// OAuth2 login routes (public; the callback establishes the session)
+	if config.OAuth2.Enabled {
+		app.Get("/auth/oauth/login", webAuthHandler.HandleOAuthLogin)
+		app.Get("/auth/oauth/callback", webAuthHandler.HandleOAuthCallback)
+	}
 
 	// Protected routes group
 	protected := app.Group("", api.SessionMiddleware(store))
@@ -149,11 +206,32 @@ func main() {
 		apiRoutes.Get("/email/:id", webEmailHandler.HandleEmailView)
 		apiRoutes.Delete("/email/:id", webEmailHandler.HandleDeleteEmail)
 
+		// Attachment download (ID encodes folder + UID + MIME part)
+		apiRoutes.Get("/attachment/:id", webEmailHandler.HandleAttachment)
+
 		// Folder routes - This is the important fix
 		apiRoutes.Get("/folder/:name/emails", webEmailHandler.HandleFolderEmails) // Match the path in HTML
 
 		// Composition routes
 		apiRoutes.Post("/compose", webEmailHandler.HandleComposeEmail)
+	}
+
+	// Notifications routes — registered only when notifications.enabled = true.
+	// With enabled = false (the default) this block is never entered, so no
+	// extra goroutines are created and no new routes appear.
+	if config.Notifications.Enabled {
+		hub := web.NewNotificationHub(store, config, webAuthHandler)
+		notifHandler := web.NewNotificationsHandler(hub)
+		protected.Get("/events", notifHandler.HandleSSE)
+	}
+
+	// Calendar routes — registered only when CalDAV is enabled.
+	if config.CalDAV.Enabled {
+		protected.Get("/calendar", webCalendarHandler.HandleCalendarMonth)
+		protected.Get("/calendar/week", webCalendarHandler.HandleCalendarWeek)
+		protected.Get("/calendar/event/:uid", webCalendarHandler.HandleEventDetail)
+		protected.Post("/calendar/event", webCalendarHandler.HandleCreateEvent)
+		protected.Post("/calendar/rsvp", webCalendarHandler.HandleRSVP)
 	}
 
 	// HTMX routes (partial template renders)

@@ -20,6 +20,10 @@ type Email struct {
 	HasAttachments bool          `json:"hasAttachments"`
 	Flags          []string      `json:"flags,omitempty"`
 	Attachments    []Attachment  `json:"attachments,omitempty"`
+	// Threading headers (JWZ)
+	MessageID  string   `json:"messageId,omitempty"`
+	InReplyTo  string   `json:"inReplyTo,omitempty"`
+	References []string `json:"references,omitempty"`
 }
 
 // type Attachment struct {
@@ -36,4 +40,15 @@ type Attachment struct {
 	Content     []byte
 
 	Size int
+}
+
+// Thread represents a JWZ conversation group. Root is the earliest (or
+// synthetic root) message; Messages is all messages in the thread sorted by
+// date ascending; Count is len(Messages).
+type Thread struct {
+	Root     Email
+	Messages []Email
+	Count    int
+	// Latest caches the most-recent message for sorting / display.
+	Latest Email
 }

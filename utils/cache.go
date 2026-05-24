@@ -5,26 +5,52 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 )
 
-// ss
-// SaveCache saves data to the specified cache file.
+// SaveCache atomically saves data to the specified cache file.
+// It writes to a temporary file in the same directory and then renames it so
+// that readers never see a partial write. The file is created with mode 0600.
 func SaveCache(filePath string, data interface{}) error {
-	// Open or create the cache file
-	file, err := os.Create(filePath)
-	if err != nil {
-		return fmt.Errorf("failed to create cache file: %v", err)
-	}
-	defer file.Close()
+	dir := filepath.Dir(filePath)
 
-	// Encode the data into JSON and write it to the file
-	encoder := json.NewEncoder(file)
-	encoder.SetIndent("", "  ") // Pretty print for easier inspection
-	err = encoder.Encode(data)
+	// Write to a temp file in the same directory so os.Rename is atomic.
+	tmp, err := os.CreateTemp(dir, ".cache-*.tmp")
 	if err != nil {
+		return fmt.Errorf("failed to create temp cache file: %v", err)
+	}
+	tmpName := tmp.Name()
+
+	// Ensure the temp file is cleaned up on any error path.
+	success := false
+	defer func() {
+		if !success {
+			_ = os.Remove(tmpName)
+		}
+	}()
+
+	// Restrict permissions to owner-read/write only (0600).
+	if err := tmp.Chmod(0600); err != nil {
+		tmp.Close()
+		return fmt.Errorf("failed to set cache file permissions: %v", err)
+	}
+
+	encoder := json.NewEncoder(tmp)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(data); err != nil {
+		tmp.Close()
 		return fmt.Errorf("failed to encode data to cache file: %v", err)
 	}
 
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("failed to close temp cache file: %v", err)
+	}
+
+	if err := os.Rename(tmpName, filePath); err != nil {
+		return fmt.Errorf("failed to commit cache file: %v", err)
+	}
+
+	success = true
 	return nil
 }
 

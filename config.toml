@@ -32,3 +32,37 @@ http_port = 80
 auto_redirect = true
 domain = "yourdomain.com"
 hsts_max_age = 31536000  # 1 year in seconds
+
+# Optional: OAuth2 / OpenID Connect login. When enabled, a "Sign in with
+# OAuth2" button appears on the login page. The access token is presented to
+# IMAP and SMTP using the XOAUTH2 or OAUTHBEARER SASL mechanism. Password login
+# keeps working when this is disabled.
+[oauth2]
+enabled = false
+client_id = "lilmail"
+client_secret = "your-oauth2-client-secret"      # leave empty for public PKCE clients
+auth_url = "https://auth.example.com/application/o/authorize/"
+token_url = "https://auth.example.com/application/o/token/"
+# Optional. Used to look up the user's email. If omitted, the email is read
+# from the id_token (request the "openid email" scopes).
+userinfo_url = "https://auth.example.com/application/o/userinfo/"
+redirect_url = "https://yourdomain.com/auth/oauth/callback"
+scopes = ["openid", "email", "profile"]
+mechanism = "xoauth2"     # "xoauth2" or "oauthbearer"
+email_claim = "email"     # claim holding the email address
+use_pkce = true           # PKCE (S256); recommended
+
+# Optional: Phase-6 real-time notifications. Everything below is OPT-IN and
+# DEFAULT-DISABLED. With enabled = false (the default) the application behaves
+# exactly as before — no extra goroutines, no SSE route, no JS changes.
+#
+# To activate:
+#   1. Set enabled = true.
+#   2. Reload / restart the server.
+#   3. Open LilMail in a browser and grant the Notifications permission when
+#      prompted; new-mail browser toasts will then appear while the tab is open.
+#
+# [notifications]
+# enabled = false   # master switch — must be true to activate anything
+# idle    = true    # IMAP IDLE watcher (recommended; falls back to NOOP poll)
+# desktop = false   # native OS toast via gen2brain/beeep (local/desktop runs)
