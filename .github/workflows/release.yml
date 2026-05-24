@@ -29,9 +29,9 @@ jobs:
         # Create lilmail directory for each platform
         mkdir -p builds/lilmail
 
-        # Copy config and templates to the common lilmail directory
+        # Copy config to the bundle (templates and frontend assets are embedded
+        # in the binary via embed.FS, so they don't need to ship alongside it)
         cp config.toml builds/lilmail/
-        cp -r templates builds/lilmail/
 
         # Linux build
         GOOS=linux GOARCH=amd64 go build -o builds/lilmail/lilmail
