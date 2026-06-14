@@ -103,7 +103,7 @@ func (h *AuthHandler) HandleOAuthCallback(c *fiber.Ctx) error {
 	}
 	defer client.Close()
 
-	encToken, err := api.EncryptOAuthToken(tok, h.config.Encryption.Key)
+	encToken, err := api.EncryptJSON(tok, h.config.Encryption.Key)
 	if err != nil {
 		return h.oauthError(c, "Failed to secure token")
 	}
@@ -158,8 +158,8 @@ func (h *AuthHandler) validOAuthToken(c *fiber.Ctx) (username, accessToken strin
 		return "", "", fmt.Errorf("no oauth token in session")
 	}
 
-	tok, err := api.DecryptOAuthToken(enc, h.config.Encryption.Key)
-	if err != nil {
+	var tok api.OAuthToken
+	if err := api.DecryptJSON(enc, &tok, h.config.Encryption.Key); err != nil {
 		return "", "", fmt.Errorf("failed to decrypt oauth token: %v", err)
 	}
 
@@ -168,8 +168,8 @@ func (h *AuthHandler) validOAuthToken(c *fiber.Ctx) (username, accessToken strin
 		if rerr != nil {
 			return "", "", fmt.Errorf("failed to refresh oauth token: %v", rerr)
 		}
-		tok = newTok
-		if encNew, eerr := api.EncryptOAuthToken(tok, h.config.Encryption.Key); eerr == nil {
+		tok = *newTok
+		if encNew, eerr := api.EncryptJSON(&tok, h.config.Encryption.Key); eerr == nil {
 			sess.Set("oauth_token", encNew)
 			_ = sess.Save()
 		}

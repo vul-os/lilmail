@@ -247,13 +247,6 @@ func main() {
 		protected.Post("/calendar/rsvp", webCalendarHandler.HandleRSVP)
 	}
 
-	// HTMX routes (partial template renders)
-	htmx := protected.Group("/htmx")
-	{
-		htmx.Get("/email/:id", webEmailHandler.HandleEmailView)
-		htmx.Get("/folder/:name/emails", webEmailHandler.HandleFolderEmails)
-	}
-
 	// Health check endpoint
 	app.Get("/health", func(c *fiber.Ctx) error {
 		return c.SendString("OK")

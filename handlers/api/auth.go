@@ -64,74 +64,9 @@ func ValidateToken(tokenString, secret string) (*Claims, error) {
 	return claims, nil
 }
 
-// EncryptCredentials encrypts the email and password
-func EncryptCredentials(email, password, key string) (string, error) {
-	creds := Credentials{
-		Email:    email,
-		Password: password,
-	}
-
-	plaintext, err := json.Marshal(creds)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal credentials: %v", err)
-	}
-
-	block, err := aes.NewCipher([]byte(key))
-	if err != nil {
-		return "", fmt.Errorf("failed to create cipher: %v", err)
-	}
-
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", fmt.Errorf("failed to create GCM: %v", err)
-	}
-
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return "", fmt.Errorf("failed to create nonce: %v", err)
-	}
-
-	ciphertext := gcm.Seal(nonce, nonce, plaintext, nil)
-	return base64.StdEncoding.EncodeToString(ciphertext), nil
-}
-
-// DecryptCredentials decrypts the stored credentials
-func DecryptCredentials(encryptedStr, key string) (*Credentials, error) {
-	ciphertext, err := base64.StdEncoding.DecodeString(encryptedStr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode credentials: %v", err)
-	}
-
-	block, err := aes.NewCipher([]byte(key))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create cipher: %v", err)
-	}
-
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create GCM: %v", err)
-	}
-
-	nonceSize := gcm.NonceSize()
-	if len(ciphertext) < nonceSize {
-		return nil, fmt.Errorf("ciphertext too short")
-	}
-
-	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
-	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt: %v", err)
-	}
-
-	var creds Credentials
-	if err := json.Unmarshal(plaintext, &creds); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal credentials: %v", err)
-	}
-
-	return &creds, nil
-}
-
-// encryptBytes encrypts arbitrary bytes with AES-GCM, returning base64.
+// encryptBytes encrypts arbitrary bytes with AES-256-GCM, returning base64.
+// Nonce is prepended to the ciphertext before encoding; the on-wire format is
+// base64(nonce || ciphertext).
 func encryptBytes(plaintext []byte, key string) (string, error) {
 	block, err := aes.NewCipher([]byte(key))
 	if err != nil {
@@ -178,26 +113,29 @@ func decryptBytes(encryptedStr, key string) ([]byte, error) {
 	return gcm.Open(nil, nonce, ct, nil)
 }
 
-// EncryptOAuthToken serializes and encrypts an OAuth token for session storage.
-func EncryptOAuthToken(tok *OAuthToken, key string) (string, error) {
-	data, err := json.Marshal(tok)
+// EncryptJSON JSON-marshals v and encrypts the result with AES-256-GCM.
+// The returned string is the sole public encrypt primitive; it replaces the
+// former EncryptCredentials / EncryptOAuthToken pair.
+func EncryptJSON(v any, key string) (string, error) {
+	data, err := json.Marshal(v)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal token: %v", err)
+		return "", fmt.Errorf("failed to marshal value: %v", err)
 	}
 	return encryptBytes(data, key)
 }
 
-// DecryptOAuthToken reverses EncryptOAuthToken.
-func DecryptOAuthToken(encryptedStr, key string) (*OAuthToken, error) {
-	data, err := decryptBytes(encryptedStr, key)
+// DecryptJSON reverses EncryptJSON: it decrypts the blob and JSON-unmarshals
+// the result into v (which must be a pointer). It replaces the former
+// DecryptCredentials / DecryptOAuthToken pair.
+func DecryptJSON(enc string, v any, key string) error {
+	data, err := decryptBytes(enc, key)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	var tok OAuthToken
-	if err := json.Unmarshal(data, &tok); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal token: %v", err)
+	if err := json.Unmarshal(data, v); err != nil {
+		return fmt.Errorf("failed to unmarshal value: %v", err)
 	}
-	return &tok, nil
+	return nil
 }
 
 // GetSessionToken safely retrieves JWT token from session

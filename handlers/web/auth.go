@@ -105,7 +105,7 @@ func (h *AuthHandler) HandleLogin(c *fiber.Ctx) error {
 		})
 	}
 
-	encryptedCreds, err := api.EncryptCredentials(email, password, h.config.Encryption.Key)
+	encryptedCreds, err := api.EncryptJSON(&api.Credentials{Email: email, Password: password}, h.config.Encryption.Key)
 	if err != nil {
 		return c.Status(500).Render("login", fiber.Map{
 			"Error": "Failed to secure credentials",
@@ -250,8 +250,8 @@ func (h *AuthHandler) CreateIMAPClient(c *fiber.Ctx) (*api.Client, error) {
 	}
 
 	// Decrypt credentials
-	creds, err := api.DecryptCredentials(encryptedStr, h.config.Encryption.Key)
-	if err != nil {
+	var creds api.Credentials
+	if err := api.DecryptJSON(encryptedStr, &creds, h.config.Encryption.Key); err != nil {
 		return nil, fmt.Errorf("failed to decrypt credentials: %v", err)
 	}
 
@@ -319,8 +319,8 @@ func (h *AuthHandler) CreateSMTPClient(c *fiber.Ctx) (*api.SMTPClient, error) {
 	}
 
 	// Decrypt credentials
-	creds, err := api.DecryptCredentials(encryptedStr, h.config.Encryption.Key)
-	if err != nil {
+	var creds api.Credentials
+	if err := api.DecryptJSON(encryptedStr, &creds, h.config.Encryption.Key); err != nil {
 		return nil, fmt.Errorf("failed to decrypt credentials: %v", err)
 	}
 
