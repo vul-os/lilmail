@@ -1,102 +1,84 @@
 <!-- calendar-week.html — week-view calendar, rendered inside layouts/main.html -->
-<div class="flex h-[calc(100vh-3.5rem)] overflow-hidden"
+<div class="cal-shell"
      x-data="{ showCreateModal: false, allDay: false }">
 
     <!-- Mobile sidebar backdrop -->
     <div x-show="$store.ui && $store.ui.sidebarOpen"
          x-cloak
-         class="lg:hidden fixed inset-0 top-14 z-40 bg-black/40"
+         class="sidebar-backdrop"
          @click="$store.ui.sidebarOpen = false">
     </div>
 
     <!-- ===== LEFT SIDEBAR ===== -->
-    <aside class="flex-shrink-0 flex flex-col w-56 bg-white border-r border-gray-200
-                  fixed lg:static top-14 bottom-0 left-0 z-50
-                  transition-transform duration-250 ease-out
-                  -translate-x-full lg:translate-x-0"
-           :class="{ 'translate-x-0 shadow-xl': $store.ui && $store.ui.sidebarOpen }">
+    <aside class="sidebar"
+           :class="{ 'is-open': $store.ui && $store.ui.sidebarOpen }">
 
-        <div class="p-4 flex-shrink-0">
-            <button @click="showCreateModal = true"
-                    class="w-full flex items-center justify-center gap-2 px-4 py-2.5
-                           bg-blue-600 hover:bg-blue-700 text-white rounded-2xl shadow-sm
-                           text-sm font-medium transition-colors">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div class="sidebar__compose">
+            <button class="btn-compose" @click="showCreateModal = true">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
                 </svg>
                 New Event
             </button>
         </div>
 
-        <nav class="flex-1 px-2 pb-4 space-y-0.5">
-            <a href="/calendar"
-               class="flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-100">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <nav class="sidebar__nav">
+            <a href="/calendar" class="nav-item">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
                 </svg>
-                Month view
+                <span class="nav-item__label">Month view</span>
             </a>
-            <a href="/calendar/week"
-               class="flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium bg-blue-50 text-blue-700">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <a href="/calendar/week" class="nav-item is-active">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M4 6h16M4 10h16M4 14h16M4 18h16"/>
                 </svg>
-                Week view
+                <span class="nav-item__label">Week view</span>
             </a>
-            <a href="/inbox"
-               class="flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-100">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <a href="/inbox" class="nav-item">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
                 </svg>
-                Back to Mail
+                <span class="nav-item__label">Back to Mail</span>
             </a>
         </nav>
     </aside>
 
     <!-- ===== MAIN CONTENT ===== -->
-    <div class="flex-1 flex flex-col overflow-hidden min-w-0">
+    <div class="cal-main">
 
-        <!-- Week navigation toolbar -->
-        <div class="flex items-center justify-between px-5 py-3 border-b border-gray-200 bg-white flex-shrink-0">
-            <div class="flex items-center gap-3">
-                <a href="/calendar/week?date={{.PrevWeek}}"
-                   class="p-1.5 rounded-full hover:bg-gray-100 text-gray-500 transition-colors">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <!-- Toolbar -->
+        <div class="cal-toolbar">
+            <div class="cal-nav">
+                <a href="/calendar/week?date={{.PrevWeek}}" class="cal-nav__btn">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
                     </svg>
                 </a>
-                <h2 class="text-base font-semibold text-gray-900">{{.Title}}</h2>
-                <a href="/calendar/week?date={{.NextWeek}}"
-                   class="p-1.5 rounded-full hover:bg-gray-100 text-gray-500 transition-colors">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <h2 class="cal-nav__title">{{.Title}}</h2>
+                <a href="/calendar/week?date={{.NextWeek}}" class="cal-nav__btn">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
                     </svg>
                 </a>
             </div>
-            <div class="flex items-center gap-2">
-                <a href="/calendar/week"
-                   class="text-xs font-medium px-3 py-1.5 border border-gray-300 rounded-full text-gray-700 hover:bg-gray-50">
-                    This week
-                </a>
-                <a href="/calendar"
-                   class="text-xs font-medium px-3 py-1.5 border border-gray-300 rounded-full text-gray-700 hover:bg-gray-50">
-                    Month
-                </a>
+            <div class="cal-actions">
+                <a href="/calendar/week" class="cal-action-btn">This week</a>
+                <a href="/calendar" class="cal-action-btn">Month</a>
             </div>
         </div>
 
         <!-- Day column headers -->
-        <div class="grid grid-cols-7 text-center border-b border-gray-200 bg-white flex-shrink-0">
+        <div class="week-grid-inner" style="flex-shrink:0;min-height:auto;border-bottom:1px solid var(--c-border-soft);">
             {{range .Days}}
             {{$isToday := and (eq .Date.Year $.Today.Year) (eq .Date.YearDay $.Today.YearDay)}}
-            <div class="py-2 text-xs font-medium {{if $isToday}}text-blue-600{{else}}text-gray-500{{end}}">
-                <div>{{.Date.Format "Mon"}}</div>
-                <div class="mt-0.5">
-                    <span class="inline-flex items-center justify-center w-6 h-6
-                                 {{if $isToday}}bg-blue-600 text-white rounded-full font-bold{{else}}text-gray-700{{end}}">
+            <div class="week-col-header">
+                <div class="week-col-header__day">{{.Date.Format "Mon"}}</div>
+                <div>
+                    <span class="week-col-header__num {{if $isToday}}week-col-header__num--today{{end}}">
                         {{.Date.Day}}
                     </span>
                 </div>
@@ -105,29 +87,25 @@
         </div>
 
         <!-- Day columns with events -->
-        <div class="flex-1 overflow-y-auto">
-            <div class="grid grid-cols-7 h-full min-h-[600px]">
+        <div class="week-grid">
+            <div class="week-grid-inner">
                 {{range .Days}}
                 {{$isToday := and (eq .Date.Year $.Today.Year) (eq .Date.YearDay $.Today.YearDay)}}
-                <div class="border-r border-gray-100 p-1.5 flex flex-col gap-0.5 min-h-[600px]
-                             {{if $isToday}}bg-blue-50/30{{end}}">
-                    {{if .Events}}
+                <div class="week-col {{if $isToday}}week-col--today{{end}}">
                     {{range .Events}}
                     <a href="/calendar/event/{{.UID}}"
                        hx-get="/calendar/event/{{.UID}}"
                        hx-target="#cal-event-detail-week"
                        hx-swap="innerHTML"
-                       class="block text-xs px-2 py-1 rounded bg-blue-100 text-blue-800
-                              hover:bg-blue-200 transition-colors leading-snug cursor-pointer">
-                        <div class="font-medium truncate">{{.Summary}}</div>
+                       class="week-event">
+                        <div class="week-event__title">{{.Summary}}</div>
                         {{if not .AllDay}}
-                        <div class="text-blue-600 opacity-80">{{.Start.Format "15:04"}}–{{.End.Format "15:04"}}</div>
+                        <div class="week-event__time">{{.Start.Format "15:04"}}–{{.End.Format "15:04"}}</div>
                         {{end}}
                         {{if .Location}}
-                        <div class="truncate opacity-70">{{.Location}}</div>
+                        <div class="week-event__loc">{{.Location}}</div>
                         {{end}}
                     </a>
-                    {{end}}
                     {{end}}
                 </div>
                 {{end}}
@@ -136,15 +114,10 @@
     </div>
 
     <!-- Event detail panel -->
-    <div id="cal-event-detail-week"
-         class="w-0 overflow-hidden border-l border-gray-200 bg-white flex-shrink-0 transition-all duration-200
-                [&:not(:empty)]:w-72">
-    </div>
+    <div id="cal-event-detail-week" class="event-panel"></div>
 
     <!-- ===== CREATE EVENT MODAL ===== -->
-    <div x-show="showCreateModal"
-         x-cloak
-         class="fixed bottom-4 right-4 z-50 w-96 bg-white rounded-xl shadow-2xl ring-1 ring-black/10 flex flex-col"
+    <div x-show="showCreateModal" x-cloak class="modal-card"
          x-transition:enter="transition ease-out duration-200"
          x-transition:enter-start="opacity-0 translate-y-4"
          x-transition:enter-end="opacity-100 translate-y-0"
@@ -152,58 +125,45 @@
          x-transition:leave-start="opacity-100 translate-y-0"
          x-transition:leave-end="opacity-0 translate-y-4">
 
-        <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-gray-50 rounded-t-xl">
-            <span class="text-sm font-semibold text-gray-800">New Event</span>
-            <button @click="showCreateModal = false" class="p-1 rounded-full hover:bg-gray-200 text-gray-500">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div class="modal-card__header">
+            <span class="modal-card__title">New Event</span>
+            <button class="modal-card__close" @click="showCreateModal = false">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                 </svg>
             </button>
         </div>
 
-        <form method="POST" action="/calendar/event" class="p-4 flex flex-col gap-3">
-            <input type="text" name="summary" placeholder="Event title *" required
-                   class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300">
+        <form method="POST" action="/calendar/event" class="modal-card__body">
+            <input type="text" name="summary" placeholder="Event title *" required class="field-input">
 
-            <label class="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
-                <input type="checkbox" name="all_day" value="on" x-model="allDay" class="rounded">
+            <label class="field-check">
+                <input type="checkbox" name="all_day" value="on" x-model="allDay">
                 All day
             </label>
 
             <div x-show="allDay">
-                <label class="block text-xs text-gray-500 mb-1">Date</label>
-                <input type="date" name="start_date"
-                       class="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300">
+                <label class="field-label">Date</label>
+                <input type="date" name="start_date" class="field-input">
             </div>
 
-            <div x-show="!allDay" class="flex gap-2">
-                <div class="flex-1">
-                    <label class="block text-xs text-gray-500 mb-1">Start</label>
-                    <input type="datetime-local" name="start"
-                           class="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300">
+            <div x-show="!allDay" style="display:flex;gap:8px;">
+                <div style="flex:1;">
+                    <label class="field-label">Start</label>
+                    <input type="datetime-local" name="start" class="field-input">
                 </div>
-                <div class="flex-1">
-                    <label class="block text-xs text-gray-500 mb-1">End</label>
-                    <input type="datetime-local" name="end"
-                           class="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300">
+                <div style="flex:1;">
+                    <label class="field-label">End</label>
+                    <input type="datetime-local" name="end" class="field-input">
                 </div>
             </div>
 
-            <input type="text" name="location" placeholder="Location"
-                   class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300">
+            <input type="text" name="location" placeholder="Location" class="field-input">
+            <textarea name="description" rows="2" placeholder="Description" class="field-input" style="resize:none;"></textarea>
 
-            <textarea name="description" rows="2" placeholder="Description"
-                      class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none"></textarea>
-
-            <div class="flex justify-end gap-2">
-                <button type="button" @click="showCreateModal = false"
-                        class="px-4 py-2 text-xs text-gray-600 hover:bg-gray-100 rounded-lg">
-                    Cancel
-                </button>
-                <button type="submit"
-                        class="px-4 py-2 text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg">
-                    Create
-                </button>
+            <div class="modal-card__footer" style="padding:0;border:none;">
+                <button type="button" class="btn-sm-cancel" @click="showCreateModal = false">Cancel</button>
+                <button type="submit" class="btn-sm-primary">Create</button>
             </div>
         </form>
     </div>

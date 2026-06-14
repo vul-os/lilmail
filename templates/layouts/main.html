@@ -3,212 +3,151 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{if .Title}}{{.Title}} - LilMail{{else}}LilMail{{end}}</title>
-
-    <!-- Stylesheets -->
-    <script src="/assets/vendor/tailwind.js"></script>
-    <style type="text/css">
-        [x-cloak] { display: none !important; }
-
-        /* Custom scrollbar */
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: #f1f5f9; }
-        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-
-        /* Email content styles */
-        .email-content img { max-width: 100%; height: auto; }
-        .email-content blockquote {
-            border-left: 3px solid #e5e7eb;
-            padding-left: 1rem;
-            margin: 1rem 0;
-            color: #4b5563;
-        }
-
-        /* HTMX loading bar */
-        #htmx-loading-bar {
-            position: fixed; top: 0; left: 0; height: 2px;
-            background: #3b82f6; width: 0; z-index: 9999;
-            transition: width 0.3s ease;
-        }
-    </style>
-
+    <title>{{if .Title}}{{.Title}} — LilMail{{else}}LilMail{{end}}</title>
+    <link rel="stylesheet" href="/assets/css/mail.css">
     <!-- HTMX -->
     <script src="/assets/vendor/htmx.min.js"></script>
     <!-- Alpine.js -->
     <script defer src="/assets/vendor/alpine.min.js"></script>
 </head>
-<body class="bg-gray-100 min-h-screen">
+<body>
 
-    <div id="htmx-loading-bar"></div>
+<div id="htmx-loading-bar"></div>
 
-    {{if .Username}}
-    <!-- TOP BAR -->
-    <header class="fixed top-0 left-0 right-0 z-30 h-14 bg-white border-b border-gray-200 flex items-center px-3 gap-2 shadow-sm"
-            x-data>
-        <!-- Hamburger (mobile) -->
-        <button
-            class="lg:hidden p-2 rounded-md text-gray-500 hover:bg-gray-100 flex-shrink-0"
+{{if .Username}}
+<!-- TOP BAR -->
+<header class="topbar" x-data>
+    <!-- Hamburger (mobile) -->
+    <button class="topbar__hamburger"
             @click="$store.ui.sidebarOpen = !$store.ui.sidebarOpen"
-            aria-label="Toggle sidebar"
-        >
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+            aria-label="Toggle sidebar">
+        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+        </svg>
+    </button>
+
+    <!-- Logo -->
+    <a href="/inbox" class="topbar__logo">
+        <div class="topbar__logo-mark">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
             </svg>
-        </button>
-
-        <!-- Logo -->
-        <a href="/inbox" class="flex items-center gap-2 flex-shrink-0 mr-2">
-            <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-                <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
-                </svg>
-            </div>
-            <span class="text-lg font-semibold text-gray-800 hidden sm:block">LilMail</span>
-        </a>
-
-        <!-- Search box -->
-        <div class="flex-1 max-w-2xl mx-auto">
-            <div class="relative">
-                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <svg class="h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0"/>
-                    </svg>
-                </div>
-                <input type="search" placeholder="Search mail"
-                    class="w-full pl-9 pr-4 py-1.5 text-sm bg-gray-100 border border-transparent rounded-full
-                           focus:outline-none focus:bg-white focus:border-blue-300 focus:ring-1 focus:ring-blue-300 transition-colors"
-                    aria-label="Search mail">
-            </div>
         </div>
+        <span class="topbar__logo-name">LilMail</span>
+    </a>
 
-        <!-- Account / Logout -->
-        <div class="flex items-center gap-2 flex-shrink-0">
-            <span class="hidden md:block text-sm text-gray-600 max-w-[160px] truncate">{{.Username}}</span>
-            <a href="/logout"
-               class="text-sm font-medium text-red-500 hover:text-red-700 px-3 py-1.5 rounded-full hover:bg-red-50 transition-colors whitespace-nowrap">
-                Logout
-            </a>
+    <!-- Search -->
+    <div class="topbar__search">
+        <svg class="topbar__search-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0"/>
+        </svg>
+        <input type="search" placeholder="Search mail"
+               class="topbar__search-input"
+               aria-label="Search mail">
+    </div>
+
+    <!-- Account -->
+    <div class="topbar__account">
+        <span class="topbar__username">{{.Username}}</span>
+        <a href="/logout" class="topbar__logout">Sign out</a>
+    </div>
+</header>
+{{end}}
+
+<!-- MAIN CONTENT -->
+<div class="{{if .Username}}app-body{{end}}"
+     x-data="{
+         showEmailViewer: false,
+         showComposeModal: false,
+         toasts: [],
+         addToast(toast) {
+             const id = Date.now();
+             this.toasts.push({ id, ...toast });
+             setTimeout(() => this.removeToast(id), 5000);
+         },
+         removeToast(id) {
+             this.toasts = this.toasts.filter(t => t.id !== id);
+         }
+     }"
+     @show-toast.window="addToast($event.detail)"
+>
+    {{if .Error}}
+    <div class="global-banner">
+        <div class="alert alert--error">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            {{.Error}}
         </div>
-    </header>
+    </div>
     {{end}}
 
-    <!-- MAIN CONTENT -->
-    <main class="{{if .Username}}pt-14{{end}}"
-        x-data="{
-            showEmailViewer: false,
-            showComposeModal: false,
-            toasts: [],
-            addToast(toast) {
-                const id = Date.now();
-                this.toasts.push({ id, ...toast });
-                setTimeout(() => this.removeToast(id), 5000);
-            },
-            removeToast(id) {
-                this.toasts = this.toasts.filter(t => t.id !== id);
-            }
-        }"
-        @show-toast.window="addToast($event.detail)"
-    >
-        {{if .Error}}
-        <div class="max-w-4xl mx-auto mt-4 px-4">
-            <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">{{.Error}}</div>
+    {{if .Success}}
+    <div class="global-banner">
+        <div class="alert alert--success">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+            </svg>
+            {{.Success}}
         </div>
-        {{end}}
+    </div>
+    {{end}}
 
-        {{if .Success}}
-        <div class="max-w-4xl mx-auto mt-4 px-4">
-            <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded">{{.Success}}</div>
-        </div>
-        {{end}}
+    {{embed}}
+</div>
 
-        {{embed}}
-    </main>
-
-    {{if notificationsEnabled}}
-    {{if .Username}}
-    <script>
-        // Phase-6: SSE new-mail notifications.
-        // Only emitted when notifications.enabled = true in config.toml.
-        (function() {
-            function startSSE() {
-                if (!window.EventSource) return; // browser doesn't support SSE
-
-                var es = new EventSource('/events');
-
-                es.addEventListener('open', function() {
-                    console.log('[lilmail] SSE connected');
-                });
-
-                es.addEventListener('message', function(e) {
-                    try {
-                        var data = JSON.parse(e.data);
-                    } catch(err) { return; }
-
-                    if (Notification.permission === 'granted') {
-                        new Notification('New mail from ' + (data.from || 'unknown'), {
-                            body: data.subject || '(no subject)',
-                            icon: '/assets/icon.png'
-                        });
-                    }
-                });
-
-                es.addEventListener('error', function() {
-                    // EventSource automatically reconnects; nothing extra needed.
-                    console.log('[lilmail] SSE error — will retry');
-                });
-            }
-
-            // Request notification permission then open the SSE stream.
-            if (typeof Notification !== 'undefined') {
+{{if notificationsEnabled}}
+{{if .Username}}
+<script>
+    (function() {
+        function startSSE() {
+            if (!window.EventSource) return;
+            var es = new EventSource('/events');
+            es.addEventListener('message', function(e) {
+                try { var data = JSON.parse(e.data); } catch(err) { return; }
                 if (Notification.permission === 'granted') {
-                    startSSE();
-                } else if (Notification.permission !== 'denied') {
-                    Notification.requestPermission().then(function(perm) {
-                        if (perm === 'granted') {
-                            startSSE();
-                        }
+                    new Notification('New mail from ' + (data.from || 'unknown'), {
+                        body: data.subject || '(no subject)',
+                        icon: '/assets/icon.png'
                     });
                 }
-            } else {
-                // Env has no Notification API (e.g. old browser); still start SSE
-                // so the server side watcher can drive desktop toasts if enabled.
+            });
+        }
+        if (typeof Notification !== 'undefined') {
+            if (Notification.permission === 'granted') {
                 startSSE();
+            } else if (Notification.permission !== 'denied') {
+                Notification.requestPermission().then(function(p) { if (p === 'granted') startSSE(); });
             }
-        })();
-    </script>
-    {{end}}
-    {{end}}
+        } else {
+            startSSE();
+        }
+    })();
+</script>
+{{end}}
+{{end}}
 
-    <script>
-        // Alpine store for cross-component UI state
-        document.addEventListener('alpine:init', function() {
-            Alpine.store('ui', {
-                sidebarOpen: false
-            });
+<script>
+    document.addEventListener('alpine:init', function() {
+        Alpine.store('ui', { sidebarOpen: false });
+    });
+
+    document.body.addEventListener('htmx:configRequest', function(evt) {
+        const token = '{{.Token}}';
+        if (token) evt.detail.headers['Authorization'] = 'Bearer ' + token;
+    });
+
+    (function() {
+        var bar = document.getElementById('htmx-loading-bar');
+        if (!bar) return;
+        document.addEventListener('htmx:beforeRequest', function() { bar.style.width = '50%'; });
+        document.addEventListener('htmx:afterRequest', function() {
+            bar.style.width = '100%';
+            setTimeout(function() { bar.style.width = '0'; }, 300);
         });
-
-        // Add Bearer token to every HTMX request
-        document.body.addEventListener('htmx:configRequest', function(evt) {
-            const token = '{{.Token}}';
-            if (token) {
-                evt.detail.headers['Authorization'] = 'Bearer ' + token;
-            }
-        });
-
-        // HTMX loading bar
-        (function() {
-            var bar = document.getElementById('htmx-loading-bar');
-            if (!bar) return;
-            document.addEventListener('htmx:beforeRequest', function() {
-                bar.style.width = '45%';
-            });
-            document.addEventListener('htmx:afterRequest', function() {
-                bar.style.width = '100%';
-                setTimeout(function() { bar.style.width = '0'; }, 350);
-            });
-        })();
-    </script>
+    })();
+</script>
 </body>
 </html>

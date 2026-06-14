@@ -5,11 +5,8 @@
     {{$latest := .Latest}}
     {{$unread := true}}
     {{range $latest.Flags}}{{if eq . "\\Seen"}}{{$unread = false}}{{end}}{{end}}
-    <!-- Thread conversation row -->
-    <div x-data="{ open: false }"
-         class="border-b border-gray-100">
-        <!-- Thread summary row -->
-        <div class="relative group flex items-start gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors"
+    <div x-data="{ open: false }" style="border-bottom:1px solid var(--c-border-soft)">
+        <div class="email-row{{if $unread}} is-unread{{end}}"
              @click="if({{$thread.Count}} > 1) { open = !open } else {
                  showEmailViewer = true;
                  htmx.ajax('GET', '/api/email/{{$latest.ID}}',
@@ -21,62 +18,51 @@
                           headers:{'X-Folder':'{{$.CurrentFolder}}','Authorization':'Bearer {{$.Token}}'}});
                  }
              }">
-            {{if $unread}}
-            <span class="absolute left-1.5 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-blue-500"></span>
-            {{end}}
-            <div class="flex-shrink-0 mt-0.5 w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center
-                        text-xs font-semibold text-blue-700 select-none uppercase">
-                {{initial $latest.FromName $latest.From}}
-            </div>
-            <div class="flex-1 min-w-0">
-                <div class="flex items-baseline justify-between gap-1 mb-0.5">
-                    <span class="text-sm truncate {{if $unread}}font-semibold text-gray-900{{else}}text-gray-600{{end}}">
+            {{if $unread}}<span class="email-row__unread-dot"></span>{{end}}
+            <div class="avatar">{{initial $latest.FromName $latest.From}}</div>
+            <div class="email-row__body">
+                <div class="email-row__top">
+                    <span class="email-row__from">
                         {{if $latest.FromName}}{{$latest.FromName}}{{else}}{{$latest.From}}{{end}}
                     </span>
-                    <div class="flex items-center gap-1.5 flex-shrink-0">
+                    <div class="email-row__meta">
                         {{if gt $thread.Count 1}}
-                        <span class="text-xs font-semibold bg-gray-100 text-gray-500 rounded-full px-1.5 min-w-[1.25rem] text-center">{{$thread.Count}}</span>
+                        <span class="email-row__count">{{$thread.Count}}</span>
                         {{end}}
-                        <span class="text-xs {{if $unread}}text-blue-600 font-medium{{else}}text-gray-400{{end}}">
-                            {{formatDate $latest.Date}}
-                        </span>
+                        <span class="email-row__date">{{formatDate $latest.Date}}</span>
                     </div>
                 </div>
-                <div class="text-xs truncate mb-0.5 {{if $unread}}font-semibold text-gray-800{{else}}text-gray-500{{end}}">
-                    {{$thread.Root.Subject}}
-                </div>
-                <div class="text-xs text-gray-400 truncate">{{$latest.Preview}}</div>
+                <div class="email-row__subject">{{$thread.Root.Subject}}</div>
+                <div class="email-row__preview">{{$latest.Preview}}</div>
             </div>
             {{if $latest.HasAttachments}}
-            <div class="flex-shrink-0 mt-1 text-gray-300 group-hover:text-gray-400">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div class="email-row__attach">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
                 </svg>
             </div>
             {{end}}
             {{if gt $thread.Count 1}}
-            <div class="flex-shrink-0 mt-1.5 text-gray-400 transition-transform"
-                 :class="open ? 'rotate-180' : ''">
-                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div class="email-row__chevron" :class="{ 'is-open': open }">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
                 </svg>
             </div>
             {{end}}
         </div>
-        <!-- Expanded thread messages -->
+
         {{if gt $thread.Count 1}}
-        <div x-show="open"
-             x-cloak
+        <div x-show="open" x-cloak
              x-transition:enter="transition ease-out duration-150"
              x-transition:enter-start="opacity-0 -translate-y-1"
              x-transition:enter-end="opacity-100 translate-y-0"
-             class="pl-12 border-t border-gray-50 bg-gray-50/60">
+             class="thread-messages">
             {{range $thread.Messages}}
             {{$m := .}}
             {{$mUnread := true}}
             {{range $m.Flags}}{{if eq . "\\Seen"}}{{$mUnread = false}}{{end}}{{end}}
-            <div class="group flex items-start gap-3 px-4 py-2.5 cursor-pointer hover:bg-white transition-colors border-b border-gray-100 last:border-b-0"
+            <div class="thread-msg"
                  hx-get="/api/email/{{$m.ID}}"
                  hx-target="#email-viewer-pane"
                  hx-swap="innerHTML"
@@ -88,18 +74,15 @@
                                  {target:'#email-viewer-pane-mobile', swap:'innerHTML',
                                   headers:{'X-Folder':'{{$.CurrentFolder}}','Authorization':'Bearer {{$.Token}}'}});
                          }">
-                <div class="flex-shrink-0 mt-0.5 w-6 h-6 rounded-full bg-blue-50 flex items-center justify-center
-                            text-xs font-semibold text-blue-600 select-none uppercase">
-                    {{initial $m.FromName $m.From}}
-                </div>
-                <div class="flex-1 min-w-0">
-                    <div class="flex items-baseline justify-between gap-1">
-                        <span class="text-xs truncate {{if $mUnread}}font-semibold text-gray-900{{else}}text-gray-500{{end}}">
+                <div class="avatar avatar--sm">{{initial $m.FromName $m.From}}</div>
+                <div class="thread-msg__body">
+                    <div class="thread-msg__top">
+                        <span class="thread-msg__from">
                             {{if $m.FromName}}{{$m.FromName}}{{else}}{{$m.From}}{{end}}
                         </span>
-                        <span class="text-xs flex-shrink-0 text-gray-400">{{formatDate $m.Date}}</span>
+                        <span class="thread-msg__date">{{formatDate $m.Date}}</span>
                     </div>
-                    <div class="text-xs text-gray-400 truncate">{{$m.Preview}}</div>
+                    <div class="thread-msg__preview">{{$m.Preview}}</div>
                 </div>
             </div>
             {{end}}
@@ -107,12 +90,12 @@
         {{end}}
     </div>
     {{end}}
+
 {{else if .Emails}}
     {{range .Emails}}
     {{$unread := true}}
     {{range .Flags}}{{if eq . "\\Seen"}}{{$unread = false}}{{end}}{{end}}
-    <div class="relative group flex items-start gap-3 px-4 py-3 cursor-pointer
-                border-b border-gray-100 hover:bg-gray-50 transition-colors"
+    <div class="email-row{{if $unread}} is-unread{{end}}"
          hx-get="/api/email/{{.ID}}"
          hx-target="#email-viewer-pane"
          hx-swap="innerHTML"
@@ -124,30 +107,21 @@
                          {target:'#email-viewer-pane-mobile', swap:'innerHTML',
                           headers:{'X-Folder':'{{$.CurrentFolder}}','Authorization':'Bearer {{$.Token}}'}});
                  }">
-        {{if $unread}}
-        <span class="absolute left-1.5 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-blue-500"></span>
-        {{end}}
-        <div class="flex-shrink-0 mt-0.5 w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center
-                    text-xs font-semibold text-blue-700 select-none uppercase">
-            {{initial .FromName .From}}
-        </div>
-        <div class="flex-1 min-w-0">
-            <div class="flex items-baseline justify-between gap-1 mb-0.5">
-                <span class="text-sm truncate {{if $unread}}font-semibold text-gray-900{{else}}text-gray-600{{end}}">
+        {{if $unread}}<span class="email-row__unread-dot"></span>{{end}}
+        <div class="avatar">{{initial .FromName .From}}</div>
+        <div class="email-row__body">
+            <div class="email-row__top">
+                <span class="email-row__from">
                     {{if .FromName}}{{.FromName}}{{else}}{{.From}}{{end}}
                 </span>
-                <span class="text-xs flex-shrink-0 {{if $unread}}text-blue-600 font-medium{{else}}text-gray-400{{end}}">
-                    {{formatDate .Date}}
-                </span>
+                <span class="email-row__date">{{formatDate .Date}}</span>
             </div>
-            <div class="text-xs truncate mb-0.5 {{if $unread}}font-semibold text-gray-800{{else}}text-gray-500{{end}}">
-                {{.Subject}}
-            </div>
-            <div class="text-xs text-gray-400 truncate">{{.Preview}}</div>
+            <div class="email-row__subject">{{.Subject}}</div>
+            <div class="email-row__preview">{{.Preview}}</div>
         </div>
         {{if .HasAttachments}}
-        <div class="flex-shrink-0 mt-1 text-gray-300 group-hover:text-gray-400">
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div class="email-row__attach">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                     d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
             </svg>
@@ -155,13 +129,14 @@
         {{end}}
     </div>
     {{end}}
+
 {{else}}
-    <div class="flex flex-col items-center justify-center h-64 text-center px-4">
-        <svg class="w-12 h-12 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <div class="empty-state">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                 d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
         </svg>
-        <p class="mt-3 text-sm font-medium text-gray-500">No messages</p>
-        <p class="text-xs text-gray-400 mt-0.5">This folder is empty.</p>
+        <p class="empty-state__title">No messages</p>
+        <p class="empty-state__sub">This folder is empty.</p>
     </div>
 {{end}}
