@@ -220,26 +220,6 @@ func GetSessionToken(c *fiber.Ctx, store *session.Store) (string, error) {
 	return tokenStr, nil
 }
 
-// GetCredentials safely retrieves and decrypts credentials from session
-func GetCredentials(c *fiber.Ctx, store *session.Store, encryptionKey string) (*Credentials, error) {
-	sess, err := store.Get(c)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get session: %v", err)
-	}
-
-	encryptedCreds := sess.Get("credentials")
-	if encryptedCreds == nil {
-		return nil, fmt.Errorf("no credentials found in session")
-	}
-
-	encryptedStr, ok := encryptedCreds.(string)
-	if !ok {
-		return nil, fmt.Errorf("invalid credentials format")
-	}
-
-	return DecryptCredentials(encryptedStr, encryptionKey)
-}
-
 // ValidateSession checks if the current session is valid
 func ValidateSession(c *fiber.Ctx, store *session.Store) (*session.Session, error) {
 	sess, err := store.Get(c)
@@ -253,15 +233,6 @@ func ValidateSession(c *fiber.Ctx, store *session.Store) (*session.Session, erro
 	}
 
 	return sess, nil
-}
-
-// RefreshSession extends the session lifetime
-func RefreshSession(sess *session.Session) error {
-	if sess == nil {
-		return fmt.Errorf("invalid session")
-	}
-	sess.SetExpiry(24 * 60 * 60 * time.Second)
-	return sess.Save()
 }
 
 // SessionMiddleware checks if the user is authenticated
@@ -290,22 +261,3 @@ func SessionMiddleware(store *session.Store) fiber.Handler {
 	}
 }
 
-// GetSessionUser safely retrieves username from context
-func GetSessionUser(c *fiber.Ctx) string {
-	if username := c.Locals("username"); username != nil {
-		if usernameStr, ok := username.(string); ok {
-			return usernameStr
-		}
-	}
-	return ""
-}
-
-// GetSessionEmail safely retrieves email from context
-func GetSessionEmail(c *fiber.Ctx) string {
-	if email := c.Locals("email"); email != nil {
-		if emailStr, ok := email.(string); ok {
-			return emailStr
-		}
-	}
-	return ""
-}

@@ -71,17 +71,3 @@ func LoadCache(filePath string, data interface{}) error {
 	return nil
 }
 
-// CheckCacheFile checks if the cache file exists. Returns true if the file exists, false otherwise.
-func CheckCacheFile(filePath string) bool {
-	_, err := os.Stat(filePath)
-	return !os.IsNotExist(err)
-}
-
-// ClearCache deletes the cache file to force a reload.
-func ClearCache(filePath string) error {
-	err := os.Remove(filePath)
-	if err != nil {
-		return fmt.Errorf("failed to remove cache file: %v", err)
-	}
-	return nil
-}

@@ -96,7 +96,7 @@ func (c *Client) WatchInbox(stop <-chan struct{}, onNewMail func(email models.Em
 
 // fetchEnvelopes fetches lightweight envelopes (From, Subject, Date) for
 // messages fromSeq..toSeq in the currently selected mailbox.
-func fetchEnvelopes(raw *imapClient.Client, fromSeq, toSeq uint32) ([]models.Email, error) {
+func (c *Client) fetchEnvelopes(raw *imapClient.Client, fromSeq, toSeq uint32) ([]models.Email, error) {
 	seqSet := new(imap.SeqSet)
 	seqSet.AddRange(fromSeq, toSeq)
 
@@ -132,9 +132,4 @@ func fetchEnvelopes(raw *imapClient.Client, fromSeq, toSeq uint32) ([]models.Ema
 		return emails, err
 	}
 	return emails, nil
-}
-
-// fetchEnvelopes is a method wrapper so WatchInbox can call it as a method.
-func (c *Client) fetchEnvelopes(raw *imapClient.Client, fromSeq, toSeq uint32) ([]models.Email, error) {
-	return fetchEnvelopes(raw, fromSeq, toSeq)
 }

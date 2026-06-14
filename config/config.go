@@ -10,6 +10,11 @@ import (
 type ServerConfig struct {
 	Port            int  `toml:"port"`
 	UsernameIsEmail bool `toml:"username_is_email"`
+	// FrameAncestors, when set, allows LilMail to be embedded as an iframe by the
+	// listed origins (space-separated, CSP frame-ancestors syntax). This is what
+	// lets a host shell such as Vula OS embed LilMail as its built-in Mail app.
+	// When empty, the default same-origin-only framing policy applies.
+	FrameAncestors string `toml:"frame_ancestors"`
 }
 
 type IMAPConfig struct {
@@ -192,21 +197,33 @@ func (c *Config) ValidateSSL() error {
 	return nil
 }
 
-// GetSecurityHeaders returns a map of security headers based on the configuration
+// GetSecurityHeaders returns a map of security headers based on the configuration.
+//
+// The baseline hardening headers (content-type, XSS, referrer, and the framing
+// policy) are emitted unconditionally so they apply whether or not TLS is
+// terminated here — LilMail commonly runs plain HTTP behind a host shell or
+// reverse proxy. HSTS is the only SSL-gated header (it is meaningless without
+// TLS).
 func (c *Config) GetSecurityHeaders() map[string]string {
 	headers := make(map[string]string)
 
-	if c.SSL.Enabled {
-		// Add HSTS header if SSL is enabled
-		if c.SSL.Domain != "" {
-			headers["Strict-Transport-Security"] = fmt.Sprintf("max-age=%d; includeSubDomains", c.SSL.HSTSMaxAge)
-		}
+	// HSTS only makes sense when TLS is terminated by LilMail itself.
+	if c.SSL.Enabled && c.SSL.Domain != "" {
+		headers["Strict-Transport-Security"] = fmt.Sprintf("max-age=%d; includeSubDomains", c.SSL.HSTSMaxAge)
+	}
 
-		// Add other security headers
-		headers["X-Content-Type-Options"] = "nosniff"
+	headers["X-Content-Type-Options"] = "nosniff"
+	headers["X-XSS-Protection"] = "1; mode=block"
+	headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+
+	// Framing policy. When a host shell (e.g. Vula OS) is allowed to embed
+	// LilMail, express it via CSP frame-ancestors and omit the legacy
+	// X-Frame-Options header (which has no allow-list form). Otherwise keep
+	// the strict same-origin default.
+	if c.Server.FrameAncestors != "" {
+		headers["Content-Security-Policy"] = "frame-ancestors " + c.Server.FrameAncestors
+	} else {
 		headers["X-Frame-Options"] = "SAMEORIGIN"
-		headers["X-XSS-Protection"] = "1; mode=block"
-		headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
 	}
 
 	return headers

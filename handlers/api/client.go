@@ -103,11 +103,6 @@ func (c *Client) FetchFolders() ([]*MailboxInfo, error) {
 	return mailboxes, nil
 }
 
-// SelectFolder selects a mailbox/folder
-func (c *Client) SelectFolder(folderName string, readOnly bool) (*imap.MailboxStatus, error) {
-	return c.client.Select(folderName, readOnly)
-}
-
 type MailboxInfo struct {
 	Attributes  []string `json:"attributes"`
 	Delimiter   string   `json:"delimiter"`

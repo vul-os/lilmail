@@ -9,7 +9,6 @@ import (
 	"io"
 	"io/ioutil"
 	"lilmail/models"
-	"log"
 	"mime"
 	"mime/multipart"
 	"mime/quotedprintable"
@@ -17,8 +16,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-
-	"golang.org/x/net/html"
 
 	"github.com/emersion/go-imap"
 )
@@ -246,16 +243,6 @@ func (c *Client) DeleteMessage(folderName, uid string) error {
 	}
 
 	return nil
-}
-
-// MarkMessageAsRead marks a message as read
-func (c *Client) MarkMessageAsRead(folderName, uid string) error {
-	return c.setMessageFlag(folderName, uid, imap.SeenFlag, true)
-}
-
-// MarkMessageAsUnread marks a message as unread
-func (c *Client) MarkMessageAsUnread(folderName, uid string) error {
-	return c.setMessageFlag(folderName, uid, imap.SeenFlag, false)
 }
 
 // setMessageFlag is a helper function to set or remove flags
@@ -561,9 +548,6 @@ func (c *Client) processMessage(msg *imap.Message, folderName string) (models.Em
 			return email, fmt.Errorf("error reading body: %v", err)
 		}
 
-		// Debug
-		log.Printf("Initial body length: %d", len(body))
-
 		// Parse the message
 		m, err := mail.ReadMessage(bytes.NewReader(body))
 		if err != nil {
@@ -575,11 +559,8 @@ func (c *Client) processMessage(msg *imap.Message, folderName string) (models.Em
 			email.References = reMessageID.FindAllString(refsHdr, -1)
 		}
 
-		// Debug content type
-		contentType := m.Header.Get("Content-Type")
-		log.Printf("Content-Type: %s", contentType)
-
 		// Handle multipart messages
+		contentType := m.Header.Get("Content-Type")
 		mediaType, params, err := mime.ParseMediaType(contentType)
 		if err == nil && strings.HasPrefix(mediaType, "multipart/") {
 			mr := multipart.NewReader(m.Body, params["boundary"])
@@ -589,31 +570,21 @@ func (c *Client) processMessage(msg *imap.Message, folderName string) (models.Em
 					break
 				}
 				if err != nil {
-					log.Printf("Error getting next part: %v", err)
 					continue
 				}
-
-				// Debug part content type
-				log.Printf("Part Content-Type: %s", p.Header.Get("Content-Type"))
 
 				// Read the part
 				partData, err := ioutil.ReadAll(p)
 				if err != nil {
-					log.Printf("Error reading part: %v", err)
 					continue
 				}
-
-				// Debug part length
-				log.Printf("Part length: %d", len(partData))
 
 				partType := p.Header.Get("Content-Type")
 				switch {
 				case strings.Contains(partType, "text/plain"):
 					email.Body = string(partData)
-					log.Printf("Found plain text: %d bytes", len(email.Body))
 				case strings.Contains(partType, "text/html"):
 					email.HTML = template.HTML(partData)
-					log.Printf("Found HTML: %d bytes", len(string(email.HTML)))
 				}
 			}
 		} else {
@@ -621,7 +592,6 @@ func (c *Client) processMessage(msg *imap.Message, folderName string) (models.Em
 			bodyData, err := ioutil.ReadAll(m.Body)
 			if err == nil {
 				email.Body = string(bodyData)
-				log.Printf("Non-multipart body: %d bytes", len(email.Body))
 			}
 		}
 
@@ -634,9 +604,6 @@ func (c *Client) processMessage(msg *imap.Message, folderName string) (models.Em
 		}
 	}
 
-	// Debug final state
-	log.Printf("Final state - Body: %d bytes, HTML: %d bytes, Preview: %d bytes",
-		len(email.Body), len(string(email.HTML)), len(email.Preview))
 	// Attachment metadata (content is fetched on demand by FetchAttachment).
 	attachments := c.processAttachments(msg, folderName)
 	email.Attachments = attachments
@@ -664,23 +631,6 @@ func stripHTML(html string) string {
 	return strings.TrimSpace(builder.String())
 }
 
-func cleanPlainTextBody(body string) string {
-	body = strings.TrimSpace(body)
-	lines := strings.Split(body, "\n")
-	var cleanedLines []string
-
-	headerPattern := regexp.MustCompile(`^(From|To|Subject|Date|Message-ID|MIME-Version|Content-Type|Content-Transfer-Encoding):`)
-
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if !headerPattern.MatchString(line) {
-			cleanedLines = append(cleanedLines, line)
-		}
-	}
-
-	return strings.Join(cleanedLines, "\n")
-}
-
 func createPreview(text string) string {
 	// Normalize whitespace
 	text = strings.Join(strings.Fields(text), " ")
@@ -696,75 +646,3 @@ func createPreview(text string) string {
 	return text
 }
 
-func html2text(htmlStr string) string {
-	// Simple HTML to text conversion
-	text := strings.NewReplacer(
-		"<br>", "\n",
-		"<br/>", "\n",
-		"<br />", "\n",
-		"<p>", "\n",
-		"</p>", "\n",
-		"&nbsp;", " ",
-	).Replace(htmlStr)
-
-	// Remove remaining HTML tags
-	text = regexp.MustCompile(`<[^>]*>`).ReplaceAllString(text, "")
-
-	// Decode HTML entities
-	text = html.UnescapeString(text)
-
-	// Clean up whitespace
-	text = strings.TrimSpace(text)
-	text = regexp.MustCompile(`\s+`).ReplaceAllString(text, " ")
-
-	return text
-}
-
-// Clean up the getMessageBody method as well
-func (c *Client) getMessageBody(msg *imap.Message, wantHTML bool) string {
-	if msg.BodyStructure == nil {
-		return ""
-	}
-
-	var findSection func(bs *imap.BodyStructure, partNum []int) (string, bool)
-	findSection = func(bs *imap.BodyStructure, partNum []int) (string, bool) {
-		if bs == nil {
-			return "", false
-		}
-
-		isDesiredPart := strings.ToLower(bs.MIMEType) == "text" &&
-			((wantHTML && strings.ToLower(bs.MIMESubType) == "html") ||
-				(!wantHTML && strings.ToLower(bs.MIMESubType) == "plain"))
-
-		if isDesiredPart {
-			section := &imap.BodySectionName{}
-			if len(partNum) > 0 {
-				section.Specifier = imap.PartSpecifier(strings.Join(strings.Fields(fmt.Sprint(partNum)), "."))
-			}
-
-			r := msg.GetBody(section)
-			if r == nil {
-				return "", false
-			}
-
-			body, err := io.ReadAll(r)
-			if err != nil {
-				return "", false
-			}
-
-			return string(body), true
-		}
-
-		for i, part := range bs.Parts {
-			newPartNum := append(partNum, i+1)
-			if body, found := findSection(part, newPartNum); found {
-				return body, true
-			}
-		}
-
-		return "", false
-	}
-
-	body, _ := findSection(msg.BodyStructure, nil)
-	return body
-}

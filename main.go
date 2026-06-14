@@ -164,6 +164,14 @@ func main() {
 	app.Use(recover.New()) // Recover from panics
 	app.Use(logger.New())  // Request logging
 
+	// Apply security headers on every response.
+	app.Use(func(c *fiber.Ctx) error {
+		for h, v := range config.GetSecurityHeaders() {
+			c.Set(h, v)
+		}
+		return c.Next()
+	})
+
 	// Serve embedded assets
 	assetsSub, err := fs.Sub(assetsFS, "assets")
 	if err != nil {

@@ -53,9 +53,6 @@ func (c *SMTPClient) SetInsecureSkipVerify(skip bool) {
 
 // SendMail sends an email using SMTP
 func (c *SMTPClient) SendMail(to, subject, body string) error {
-	// Debug print
-	fmt.Printf("Connecting to %s:%d as %s\n", c.server, c.port, c.email)
-
 	// Connect to the server
 	addr := fmt.Sprintf("%s:%d", c.server, c.port)
 	client, err := smtp.Dial(addr)
