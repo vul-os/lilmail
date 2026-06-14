@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"lilmail/config"
+	"lilmail/handlers/ai"
 	"lilmail/handlers/api"
 	"lilmail/handlers/web"
 	"lilmail/storage"
@@ -223,6 +224,10 @@ func main() {
 		// Composition routes
 		apiRoutes.Post("/compose", webEmailHandler.HandleComposeEmail)
 	}
+
+	// AI mail-assistant routes — registered always (gated internally on config.AI.Enabled).
+	// When disabled, all /api/ai/* routes return 404 {"error":"ai_disabled"}.
+	ai.RegisterRoutes(apiRoutes, config.AI)
 
 	// Notifications routes — registered only when notifications.enabled = true.
 	// With enabled = false (the default) this block is never entered, so no

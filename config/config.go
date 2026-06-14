@@ -79,6 +79,39 @@ type CalDAVConfig struct {
 	Password string `toml:"password"` // used when auth = "basic"
 }
 
+// AIConfig configures the mail-AI assistant endpoints.
+//
+// LilMail is a standalone mail client; all LLM inference is delegated to a
+// configurable completion endpoint rather than performed locally. When running
+// embedded inside Vulos OS, the default endpoint points at the OS airouter's
+// /api/ai/chat (POST, SSE), which handles provider routing, metering, and
+// rate-limiting. For standalone use, point at any OpenAI-compatible SSE
+// completion endpoint.
+//
+//	[ai]
+//	enabled  = true
+//	endpoint = "http://localhost:8080/api/ai/chat"
+//	api_key  = ""      # Bearer token — leave empty when calling local airouter
+//	model    = ""      # forwarded to the endpoint; leave empty to use endpoint default
+type AIConfig struct {
+	// Enabled is the master switch. When false, all /api/ai/* routes return
+	// 404 {"error":"ai_disabled"}. Default: false (opt-in).
+	Enabled bool `toml:"enabled"`
+
+	// Endpoint is the URL of the OpenAI-compatible SSE chat-completion API.
+	// Defaults to the Vulos OS airouter URL so LilMail works out of the box
+	// when embedded in Vulos; override for standalone or BYO use.
+	Endpoint string `toml:"endpoint"`
+
+	// APIKey is sent as "Authorization: Bearer <key>" when non-empty.
+	// Leave empty when calling the local Vulos airouter (it uses session auth).
+	APIKey string `toml:"api_key"`
+
+	// Model is the model slug forwarded to the completion endpoint.
+	// Leave empty to use the endpoint's configured default.
+	Model string `toml:"model"`
+}
+
 // NotificationsConfig configures Phase-6 real-time notifications.
 // Everything is opt-in and default-disabled: with Enabled = false (the
 // default) the application behaves exactly as without this feature — no extra
@@ -105,6 +138,7 @@ type Config struct {
 	OAuth2        OAuth2Config        `toml:"oauth2"`
 	CalDAV        CalDAVConfig        `toml:"caldav"`
 	Notifications NotificationsConfig `toml:"notifications"`
+	AI            AIConfig            `toml:"ai"`
 }
 
 func LoadConfig(filepath string) (*Config, error) {
@@ -137,6 +171,15 @@ func LoadConfig(filepath string) (*Config, error) {
 	config.Notifications.Enabled = false
 	config.Notifications.Idle = true
 	config.Notifications.Desktop = false
+
+	// Default AI configuration.
+	// Enabled defaults to false (explicit opt-in required).
+	// The default endpoint is the Vulos OS airouter so LilMail works without
+	// extra configuration when embedded in a Vulos installation.
+	config.AI.Enabled = false
+	config.AI.Endpoint = "http://localhost:8080/api/ai/chat"
+	config.AI.APIKey = ""
+	config.AI.Model = ""
 
 	// Load config file
 	_, err := toml.DecodeFile(filepath, &config)

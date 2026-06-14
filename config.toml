@@ -70,3 +70,22 @@ use_pkce = true           # PKCE (S256); recommended
 # enabled = false   # master switch — must be true to activate anything
 # idle    = true    # IMAP IDLE watcher (recommended; falls back to NOOP poll)
 # desktop = false   # native OS toast via gen2brain/beeep (local/desktop runs)
+
+# Optional: Mail AI assistant. Routes:
+#   POST /api/ai/compose         — smart compose / continue / rewrite
+#   POST /api/ai/summarize       — thread summary + key points + action items
+#   POST /api/ai/reply           — 3 reply suggestions (concise / detailed / decline)
+#   POST /api/ai/extract-actions — action items with optional due dates
+#   POST /api/ai/phishing        — phishing / suspicious / clean classification
+#
+# All routes are gated on [ai] enabled. When false they return 404 {"error":"ai_disabled"}.
+#
+# The default endpoint is the Vulos OS airouter (/api/ai/chat) — no extra
+# configuration needed when LilMail is embedded in a Vulos installation.
+# For standalone use, point at any OpenAI-compatible SSE chat-completion API.
+#
+# [ai]
+# enabled  = false
+# endpoint = "http://localhost:8080/api/ai/chat"  # Vulos OS airouter (default)
+# api_key  = ""    # Bearer token — leave empty for local Vulos airouter
+# model    = ""    # model slug forwarded to endpoint; empty = endpoint default
