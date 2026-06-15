@@ -12,7 +12,7 @@ type ServerConfig struct {
 	UsernameIsEmail bool `toml:"username_is_email"`
 	// FrameAncestors, when set, allows LilMail to be embedded as an iframe by the
 	// listed origins (space-separated, CSP frame-ancestors syntax). This is what
-	// lets a host shell such as Vula OS embed LilMail as its built-in Mail app.
+	// lets a host shell such as Vulos OS embed LilMail as its built-in Mail app.
 	// When empty, the default same-origin-only framing policy applies.
 	FrameAncestors string `toml:"frame_ancestors"`
 }
@@ -277,7 +277,7 @@ func (c *Config) GetSecurityHeaders() map[string]string {
 	connectSrc := "'self'"
 	csp := "default-src 'self'; script-src " + scriptSrc + "; style-src 'self' 'unsafe-inline'; img-src " + imgSrc + "; connect-src " + connectSrc + "; object-src 'none'; base-uri 'self';"
 
-	// Framing policy. When a host shell (e.g. Vula OS) is allowed to embed
+	// Framing policy. When a host shell (e.g. Vulos OS) is allowed to embed
 	// LilMail, express it via CSP frame-ancestors and omit the legacy
 	// X-Frame-Options header (which has no allow-list form). Otherwise keep
 	// the strict same-origin default.

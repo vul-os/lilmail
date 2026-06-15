@@ -9,9 +9,9 @@ we're going.
 > the "runs on 64 MB of RAM, no external services" promise. Power-user features
 > are welcome as long as they don't compromise that.
 >
-> 🎨 **Look & feel:** the UI feels like **Gmail** (layout, density, docked
-> compose, calendar) while **keeping LilMail's existing Tailwind/Alpine theme**.
-> Target: feature parity with **Thunderbird**.
+> 🎨 **Look & feel:** Gmail-inspired layout and density (sticky top bar,
+> collapsible sidebar, docked compose, calendar), hand-written CSS with dark
+> mode. Target: feature parity with **Thunderbird**.
 >
 > 📋 The concrete, checkbox-level breakdown lives in **[TASKS.md](TASKS.md)**.
 
@@ -35,7 +35,7 @@ we're going.
 - Full-email-as-username support (`username_is_email`)
 
 **Authentication**
-- **OAuth2 / OpenID Connect login** with **XOAUTH2** and **OAUTHBEARER** SASL for
+- **OAuth2 / OpenID Connect** with **XOAUTH2** and **OAUTHBEARER** SASL for
   both IMAP and SMTP — authorization-code flow, **PKCE**, automatic
   refresh-token handling — alongside classic password login
 
@@ -49,13 +49,23 @@ we're going.
   `0600` files; atomic cache writes
 - SMTP TLS certificate verification (opt-out only via `insecure_skip_verify`)
 - Request `BodyLimit` + attachment size guard
+- Full **Content-Security-Policy** (script-src, frame-ancestors) + `SameSite=Lax`
+  session cookie; email HTML rendered in a sandboxed `<iframe>` with no scripts
+  (srcdoc XSS closed)
 
-**UI/UX — Gmail-inspired, responsive**
+**UI/UX — Gmail-inspired, responsive, dark mode**
 - Responsive app shell: sticky top bar + collapsible sidebar / mobile drawer
 - Gmail-like message list (density, unread emphasis, hover actions)
 - Docked compose (bottom-right; full-screen on mobile)
 - Message viewer renders HTML mail in a **sandboxed iframe** (no scripts / no
   same-origin) with plain-text fallback
+- Hand-written CSS design system (dark mode, no CDN dependency)
+
+**AI mail assistant** (opt-in via `[ai].enabled`)
+- Compose / summarize / reply suggestions / action-item extraction / phishing
+  detection — delegates to a configurable OpenAI-compatible SSE endpoint
+- Default endpoint targets the Vulos OS airouter; fully standalone with any
+  provider
 
 **Conversation threading**
 - **JWZ algorithm** (`References` / `In-Reply-To` / `Message-ID`) grouping
@@ -73,10 +83,14 @@ we're going.
 - **SSE** stream → **Web Notifications API** (OS notifications while a tab is open)
 - Opt-in **native desktop** toasts via `gen2brain/beeep` for local runs
 
+**Vulos OS embed**
+- `[server] frame_ancestors` config injects into `Content-Security-Policy:
+  frame-ancestors` so the Vulos shell can embed LilMail as an iframe
+
 **Packaging & distribution**
-- **Self-contained binary** — templates and vendored HTMX/Alpine/Tailwind are
+- **Self-contained binary** — templates and vendored HTMX/Alpine.js are
   embedded via `embed.FS`; runs fully offline with only `config.toml`
-- Unit tests (SASL/MIME/attachment-ID/threading) + **CI** workflow
+- Unit tests (SASL/MIME/attachment-ID/threading/AI/config) + **CI** workflow
 - Semantic-versioned **release pipeline** (GitHub Actions on `v*` tags)
 
 ---
@@ -90,7 +104,11 @@ we're going.
 - 🔜 **CardDAV contacts** — address book + recipient autocomplete in the composer.
 - 🔜 **Web Push (VAPID + Service Worker)** — background notifications even when no
   tab is open (the IMAP IDLE → SSE foundation already exists; `TODO(webpush)` is
-  marked in `handlers/web/notifications.go`).
+  marked in `handlers/web/notifications.go`). Deferred from Phase 6.
+- 🔜 **iTIP / RSVP** — full iCalendar Transport-Independent Interoperability
+  Protocol support: send REPLY messages for meeting invites, handle
+  REQUEST/CANCEL/COUNTER. The basic RSVP affordance (`.ics` detection) is
+  already shipped; the actual email sending and CalDAV write-back are deferred.
 - 🔜 **Nix package + NixOS module** for declarative, reproducible self-hosting.
 
 ## 💭 Later / exploratory

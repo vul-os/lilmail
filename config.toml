@@ -1,9 +1,9 @@
 [server]
 port = 3000
 username_is_email = true
-# Allow a host shell (e.g. Vula OS) to embed LilMail as an iframe. Space-separated
+# Allow a host shell (e.g. Vulos OS) to embed LilMail as an iframe. Space-separated
 # list of origins in CSP frame-ancestors syntax. Leave empty for same-origin only.
-# Example for the Vula OS shell:  frame_ancestors = "'self' http://localhost:8080"
+# Example for the Vulos OS shell:  frame_ancestors = "'self' http://localhost:8080"
 frame_ancestors = ""
 
 [imap]

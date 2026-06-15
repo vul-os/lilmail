@@ -3,11 +3,11 @@
 Working backlog derived from [ROADMAP.md](ROADMAP.md). Checked items are done;
 phases are executed in order. Each task must leave `go build ./...`,
 `go vet ./...`, and `gofmt -l` clean, and must preserve the existing
-Tailwind/Alpine theme.
+existing design system (hand-written CSS + Alpine.js).
 
-Stack reminder: Go + Fiber, server-rendered Go templates + HTMX + Alpine +
-Tailwind (CDN), file-based cache, no external DB. Mail via `emersion/go-imap`
-and `net/smtp`.
+Stack reminder: Go + Fiber, server-rendered Go templates + HTMX + Alpine.js +
+hand-written CSS (dark mode; `assets/css/mail.css`), file-based cache, no
+external DB. Mail via `emersion/go-imap` and `net/smtp`.
 
 ---
 
@@ -17,7 +17,7 @@ and `net/smtp`.
       refresh-token handling
 - [x] Attachment download (metadata from BODYSTRUCTURE; on-demand part fetch +
       base64/quoted-printable decode; `GET /api/attachment/:id`)
-- [x] MIT license; polished README (Vula OS); ROADMAP
+- [x] MIT license; polished README (Vulos OS); ROADMAP
 - [x] Hardened release pipeline (`name`, permissions, setup-go@v5 / Go 1.23 /
       action-gh-release@v2)
 
@@ -104,7 +104,7 @@ and `net/smtp`.
 
 ## Phase 5 — Self-contained & CI 📦 (run LAST so it captures all assets)
 
-- [x] **5.1** Embed `templates/` (and vendored HTMX/Alpine/Tailwind + any
+- [x] **5.1** Embed `templates/` (and vendored HTMX/Alpine.js + CSS +
       notification Service Worker / JS) via `embed.FS`; serve assets locally so
       the binary runs offline.
 - [x] **5.2** Add a `ci.yml` workflow: `go build` + `go vet` + `go test ./...`
@@ -119,6 +119,6 @@ and `net/smtp`.
 - Touch only the files your task names; don't refactor unrelated code.
 - Always finish with: `gofmt -w` your files, then `go build ./... && go vet ./...`.
 - Preserve existing routes, session model, and the OAuth2/password auth split.
-- Keep the current visual theme; "Gmail-inspired" means layout/interaction, not
-  a color-scheme replacement.
+- Keep the current visual theme (`assets/css/mail.css`); "Gmail-inspired" means
+  layout/interaction, not a color-scheme replacement.
 - When adding a dependency, run `go mod tidy` and confirm the build.

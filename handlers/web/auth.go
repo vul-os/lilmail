@@ -67,7 +67,6 @@ func (h *AuthHandler) HandleLogin(c *fiber.Ctx) error {
 	} else {
 		username = api.GetUsernameFromEmail(email)
 	}
-	log.Println("Username:", username)
 	if username == "" {
 		return c.Status(400).Render("login", fiber.Map{
 			"Error": "Invalid email format",
@@ -128,7 +127,7 @@ func (h *AuthHandler) HandleLogin(c *fiber.Ctx) error {
 	}
 
 	if err := h.fetchInitialData(client, userCacheFolder); err != nil {
-		fmt.Printf("Error fetching initial data for user %s: %v\n", username, err)
+		log.Printf("auth: fetchInitialData for %s: %v", username, err)
 	}
 
 	return c.Redirect("/inbox")
@@ -147,7 +146,7 @@ func (h *AuthHandler) HandleLogout(c *fiber.Ctx) error {
 		if ok {
 			userCacheFolder := filepath.Join(h.config.Cache.Folder, api.SanitizeUsername(userStr))
 			if err := h.clearUserCache(userCacheFolder); err != nil {
-				fmt.Printf("Error clearing cache for user %s: %v\n", userStr, err)
+				log.Printf("auth: clearUserCache for %s: %v", userStr, err)
 			}
 		}
 	}

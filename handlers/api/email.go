@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/ioutil"
 	"lilmail/models"
+	"log"
 	"mime"
 	"mime/multipart"
 	"mime/quotedprintable"
@@ -78,7 +79,7 @@ func (c *Client) FetchMessages(folderName string, limit uint32) ([]models.Email,
 	for msg := range messages {
 		email, err := c.processListMessage(msg, folderName)
 		if err != nil {
-			fmt.Printf("Error processing message %d: %v\n", msg.Uid, err)
+			log.Printf("email: processListMessage uid=%d: %v", msg.Uid, err)
 			continue
 		}
 		emails = append(emails, email)

@@ -320,9 +320,6 @@ func (h *EmailHandler) HandleFolderEmails(c *fiber.Ctx) error {
 		})
 	}
 
-	// Add debug logging
-	log.Printf("Folder: %s, Emails count: %d", folderName, len(emails))
-
 	// Build JWZ threads for the HTMX partial.
 	userStr := ""
 	if u, ok := username.(string); ok {

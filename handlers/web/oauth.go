@@ -4,6 +4,7 @@ package web
 import (
 	"fmt"
 	"lilmail/handlers/api"
+	"log"
 	"path/filepath"
 	"time"
 
@@ -130,7 +131,7 @@ func (h *AuthHandler) HandleOAuthCallback(c *fiber.Ctx) error {
 	userCacheFolder := filepath.Join(h.config.Cache.Folder, api.SanitizeUsername(username))
 	if err := h.ensureUserCacheFolder(userCacheFolder); err == nil {
 		if err := h.fetchInitialData(client, userCacheFolder); err != nil {
-			fmt.Printf("Error fetching initial data for user %s: %v\n", username, err)
+			log.Printf("oauth: fetchInitialData for %s: %v", username, err)
 		}
 	}
 
