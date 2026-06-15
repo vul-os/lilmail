@@ -96,8 +96,8 @@ browser — see the [Roadmap](ROADMAP.md).
 git clone https://github.com/exolutionza/lilmail.git
 cd lilmail
 
-# Configure (see below)
-cp config.toml my-config.toml   # then edit
+# Configure — copy the example and fill in your mail server details + secrets
+cp config.toml.example config.toml   # then edit
 
 # Run
 go run main.go
@@ -147,6 +147,7 @@ key = "a-32-character-encryption-key!!"   # must be exactly 32 bytes
 | `[server]` | `port` | HTTP port (default `3000`) |
 | | `username_is_email` | Use the full email as the IMAP/SMTP login username (default `true`) |
 | | `frame_ancestors` | Space-separated CSP `frame-ancestors` origins; leave empty for same-origin only (see [Vulos OS embed](#-vulos-os-embed)) |
+| | `secure_cookies` | Set the `Secure` flag on session cookies — enable when serving over HTTPS (default `false`) |
 | `[imap]` | `server`, `port`, `tls` | IMAP host, port (usually `993`), and TLS |
 | `[smtp]` | `server`, `port`, `use_starttls` | SMTP host, port (`587` STARTTLS / `465` TLS) |
 | | `insecure_skip_verify` | Skip TLS certificate verification — for self-signed certs only (default `false`) |

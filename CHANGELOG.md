@@ -7,7 +7,49 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
-## [Unreleased] — v1.5.0
+## [Unreleased] — v1.6.0
+
+### Added
+
+- **Mark-as-unread** — the "Mark as unread" dropdown item in the email viewer
+  now fires a real `PATCH /api/email/:id/unread` request that removes `\Seen`
+  via `IMAP UID STORE`.  The email list refreshes automatically.
+- **Search** — the top-bar search box is wired to `GET /api/search?q=…` which
+  performs an `IMAP UID SEARCH TEXT` query and returns a live email-list partial.
+  Results appear while typing (500 ms debounce + native search event).
+- **Reply/Forward threading** — compose now sends `In-Reply-To` and `References`
+  headers when replying so clients thread the conversation correctly (RFC 2822
+  §3.6.4). The reply button populates hidden `in_reply_to` and `references`
+  form fields automatically.
+- **CC/BCC** — compose modal has collapsible CC and BCC fields; both are
+  submitted to the SMTP send path and wired as proper `RCPT TO` envelopes
+  (BCC is envelope-only, not added to headers).
+- **SMTP implicit TLS (port 465)** — `SMTPClient` now honours
+  `smtp.use_starttls = false` by using `tls.Dial` (implicit TLS) instead of
+  the plain-TCP + STARTTLS upgrade path.  Default remains STARTTLS (port 587).
+- **Sent-folder discovery** — `SaveToSent` now uses `IMAP LIST` to discover
+  the real Sent folder by the `\Sent` special-use attribute before falling back
+  to common name guesses.
+- **Real iTIP RSVP** — `POST /calendar/rsvp` now builds a `METHOD:REPLY`
+  iCalendar payload and delivers it to the event organiser via the session
+  SMTP client (RFC 5546).  No more fake-success stub.
+- **`[server] secure_cookies`** config key — set to `true` in
+  TLS-terminated deployments to add the `Secure` flag to session cookies.
+  Defaults to `false` for plain-HTTP local dev.
+- **Shared bbolt handle** — `EmailHandler` now opens one bbolt thread-cache
+  file per user and reuses it across requests; previously a new file handle was
+  opened (and locked) on every inbox load.
+- Handler tests for `handlers/web/` covering threading, `MailOptions`, and
+  mark-unread wiring.
+
+### Changed
+
+- `config.toml` renamed to `config.toml.example` (added to `.gitignore`) so
+  placeholder secrets are never committed.  Copy it to `config.toml` to run.
+- `strings.Title` (deprecated) replaced by a local `titleCase` helper.
+- `io/ioutil` (deprecated) replaced with `io`/`os` equivalents throughout.
+- `SMTPClient` constructors take an explicit `useStartTLS bool` parameter
+  (previously always STARTTLS).
 
 ### Security
 

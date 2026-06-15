@@ -6,9 +6,11 @@
 //
 // Usage:
 //
-//	threads, err := BuildThreads(boltPath, folder, emails)
+//	store, err := OpenThreadStore(boltPath)
+//	defer store.Close()
+//	threads, err := store.BuildThreads(folder, emails)
 //
-// If the DB is missing, corrupt, or otherwise unusable the function falls back
+// If the DB is missing, corrupt, or otherwise unusable BuildThreads falls back
 // to threading just the in-memory emails.
 package api
 
@@ -17,6 +19,7 @@ import (
 	"fmt"
 	"lilmail/models"
 	"log"
+	"sync"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
@@ -35,27 +38,44 @@ type msgMeta struct {
 	Flags      []string  `json:"flags,omitempty"`
 }
 
+// ThreadStore is a long-lived bbolt handle shared across requests for a single
+// user.  bbolt allows multiple concurrent readers but only one writer at a
+// time; the embedded mutex serialises the writes while reads use bbolt's own
+// concurrent-read support.
+type ThreadStore struct {
+	db   *bolt.DB
+	mu   sync.Mutex // guards writes (bolt.Update calls)
+	path string
+}
+
+// OpenThreadStore opens (or creates) the bbolt database at boltPath and
+// returns a ThreadStore that can be reused for many requests.  The caller must
+// call Close() when done (typically at server shutdown or user logout).
+func OpenThreadStore(boltPath string) (*ThreadStore, error) {
+	db, err := bolt.Open(boltPath, 0600, &bolt.Options{Timeout: 2 * time.Second})
+	if err != nil {
+		return nil, fmt.Errorf("threadstore: open %s: %w", boltPath, err)
+	}
+	return &ThreadStore{db: db, path: boltPath}, nil
+}
+
+// Close releases the bbolt file handle.
+func (s *ThreadStore) Close() error {
+	return s.db.Close()
+}
+
 // BuildThreads upserts emails into the bolt store, loads all cached headers for
 // the folder, runs ThreadMessages over the union, and returns threads.
-//
-// boltPath is the full filesystem path to the .db file (e.g.
-// filepath.Join(userCacheFolder, "threads.db")).  folder is the IMAP folder
-// name used as the bucket name.
+// folder is the IMAP folder name used as the bucket name.
 //
 // On any DB error the function logs the error and falls back to threading
 // only the supplied in-memory emails.
-func BuildThreads(boltPath, folder string, emails []models.Email) ([]models.Thread, error) {
-	db, err := bolt.Open(boltPath, 0600, &bolt.Options{Timeout: 2 * time.Second})
-	if err != nil {
-		log.Printf("threadstore: open %s: %v — falling back to in-memory threading", boltPath, err)
-		return ThreadMessages(emails), nil
-	}
-	defer db.Close()
-
+func (s *ThreadStore) BuildThreads(folder string, emails []models.Email) ([]models.Thread, error) {
 	bucket := []byte(folder)
 
 	// ---- upsert current emails ------------------------------------------
-	if upsertErr := db.Update(func(tx *bolt.Tx) error {
+	s.mu.Lock()
+	upsertErr := s.db.Update(func(tx *bolt.Tx) error {
 		b, err := tx.CreateBucketIfNotExists(bucket)
 		if err != nil {
 			return fmt.Errorf("create bucket: %w", err)
@@ -84,8 +104,11 @@ func BuildThreads(boltPath, folder string, emails []models.Email) ([]models.Thre
 			_ = b.Put([]byte(uid), raw)
 		}
 		return nil
-	}); upsertErr != nil {
-		log.Printf("threadstore: upsert %s/%s: %v", boltPath, folder, upsertErr)
+	})
+	s.mu.Unlock()
+
+	if upsertErr != nil {
+		log.Printf("threadstore: upsert %s/%s: %v", s.path, folder, upsertErr)
 		// Still attempt to read whatever was previously stored.
 	}
 
@@ -101,7 +124,7 @@ func BuildThreads(boltPath, folder string, emails []models.Email) ([]models.Thre
 	// Seed with in-memory emails first (they have the most fields populated).
 	union = append(union, emails...)
 
-	readErr := db.View(func(tx *bolt.Tx) error {
+	readErr := s.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(bucket)
 		if b == nil {
 			return nil
@@ -131,9 +154,27 @@ func BuildThreads(boltPath, folder string, emails []models.Email) ([]models.Thre
 		})
 	})
 	if readErr != nil {
-		log.Printf("threadstore: read %s/%s: %v — using in-memory only", boltPath, folder, readErr)
+		log.Printf("threadstore: read %s/%s: %v — using in-memory only", s.path, folder, readErr)
 		return ThreadMessages(emails), nil
 	}
 
 	return ThreadMessages(union), nil
+}
+
+// BuildThreads is a package-level convenience wrapper that opens a fresh bolt
+// handle per call.  It is retained for backwards compatibility with callers
+// that have not yet migrated to a shared ThreadStore.
+//
+// Deprecated: prefer OpenThreadStore + (*ThreadStore).BuildThreads to avoid
+// opening the single-writer bbolt file on every request.
+func BuildThreads(boltPath, folder string, emails []models.Email) ([]models.Thread, error) {
+	db, err := bolt.Open(boltPath, 0600, &bolt.Options{Timeout: 2 * time.Second})
+	if err != nil {
+		log.Printf("threadstore: open %s: %v — falling back to in-memory threading", boltPath, err)
+		return ThreadMessages(emails), nil
+	}
+	defer db.Close()
+
+	ts := &ThreadStore{db: db, path: boltPath}
+	return ts.BuildThreads(folder, emails)
 }

@@ -44,7 +44,13 @@
         </svg>
         <input type="search" placeholder="Search mail"
                class="topbar__search-input"
-               aria-label="Search mail">
+               aria-label="Search mail"
+               name="q"
+               hx-get="/api/search"
+               hx-trigger="search, keyup changed delay:500ms"
+               hx-target="#email-list-inner"
+               hx-swap="innerHTML"
+               hx-include="[name='q']">
     </div>
 
     <!-- Account -->

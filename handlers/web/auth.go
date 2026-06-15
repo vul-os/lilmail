@@ -299,7 +299,7 @@ func (h *AuthHandler) CreateSMTPClient(c *fiber.Ctx) (*api.SMTPClient, error) {
 			return nil, err
 		}
 		email, _ := sess.Get("email").(string)
-		client := api.NewSMTPClientOAuth(smtpServer, smtpPort, email, token, h.config.OAuth2.Mechanism)
+		client := api.NewSMTPClientOAuth(smtpServer, smtpPort, email, token, h.config.OAuth2.Mechanism, h.config.SMTP.UseSTARTTLS)
 		if client == nil {
 			return nil, fmt.Errorf("failed to create SMTP client")
 		}
@@ -323,7 +323,7 @@ func (h *AuthHandler) CreateSMTPClient(c *fiber.Ctx) (*api.SMTPClient, error) {
 		return nil, fmt.Errorf("failed to decrypt credentials: %v", err)
 	}
 
-	client := api.NewSMTPClient(smtpServer, smtpPort, creds.Email, creds.Password)
+	client := api.NewSMTPClient(smtpServer, smtpPort, creds.Email, creds.Password, h.config.SMTP.UseSTARTTLS)
 	if client == nil {
 		return nil, fmt.Errorf("failed to create SMTP client")
 	}

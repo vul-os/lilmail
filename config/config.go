@@ -15,6 +15,11 @@ type ServerConfig struct {
 	// lets a host shell such as Vulos OS embed LilMail as its built-in Mail app.
 	// When empty, the default same-origin-only framing policy applies.
 	FrameAncestors string `toml:"frame_ancestors"`
+	// SecureCookies sets the Secure flag on the session cookie. Enable this when
+	// LilMail is served over HTTPS (either directly via [ssl] or behind a TLS
+	// reverse proxy). Defaults to false so plain-HTTP local dev works out of the
+	// box; set to true in any internet-facing deployment.
+	SecureCookies bool `toml:"secure_cookies"`
 }
 
 type IMAPConfig struct {

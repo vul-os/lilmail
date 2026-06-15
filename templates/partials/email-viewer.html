@@ -45,29 +45,41 @@
              data-subject="{{.Email.Subject}}"
              data-date="{{formatDate .Email.Date}}"
              data-body="{{.Email.Body}}"
+             data-messageid="{{.Email.MessageID}}"
+             data-inreplyto="{{.Email.InReplyTo}}"
+             data-references="{{join .Email.References " "}}"
              x-data="{
                  quoted() {
                      const d = $root.dataset;
                      const lines = (d.body || '').split('\n').map(l => '> ' + l).join('\n');
                      return '\n\nOn ' + d.date + ', ' + d.fromname + ' wrote:\n' + lines;
                  },
-                 fill(to, subject, body) {
+                 fill(to, subject, body, inReplyTo, refs) {
                      showComposeModal = true;
                      $nextTick(() => {
                          const t = document.getElementById('compose-to');
                          const s = document.getElementById('compose-subject');
                          const b = document.getElementById('compose-body');
+                         const irt = document.getElementById('compose-in-reply-to');
+                         const rfr = document.getElementById('compose-references');
                          if (t) t.value = to;
                          if (s) s.value = subject;
                          if (b) { b.value = body; b.focus(); }
+                         if (irt) irt.value = inReplyTo || '';
+                         if (rfr) rfr.value = refs || '';
                      });
                  }
              }">
             <button class="btn-action"
                     @click="const d = $root.dataset;
+                            const mid = d.messageid || '';
+                            const existingRefs = d.references || '';
+                            const newRefs = (existingRefs ? existingRefs + ' ' : '') + mid;
                             fill(d.from,
                                  /^re:/i.test(d.subject) ? d.subject : 'Re: ' + d.subject,
-                                 quoted())">
+                                 quoted(),
+                                 mid,
+                                 newRefs.trim())">
                 <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/>
@@ -79,7 +91,9 @@
                     @click="const d = $root.dataset;
                             fill('',
                                  /^fwd:/i.test(d.subject) ? d.subject : 'Fwd: ' + d.subject,
-                                 '\n\n---------- Forwarded message ----------\nFrom: ' + d.fromname + '\nDate: ' + d.date + '\nSubject: ' + d.subject + '\n\n' + (d.body || ''))">
+                                 '\n\n---------- Forwarded message ----------\nFrom: ' + d.fromname + '\nDate: ' + d.date + '\nSubject: ' + d.subject + '\n\n' + (d.body || ''),
+                                 '',
+                                 '')">
                 <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"/>
                 </svg>
@@ -95,7 +109,11 @@
                     </svg>
                 </button>
                 <div class="dropdown__menu" x-show="open" x-cloak @click.away="open = false">
-                    <button class="dropdown__item">
+                    <button class="dropdown__item"
+                            hx-patch="/api/email/{{.Email.ID}}/unread"
+                            hx-swap="none"
+                            hx-headers='{"X-Folder": "{{.CurrentFolder}}"}'
+                            hx-on::after-request="open = false; htmx.ajax('GET', '/api/folder/{{.CurrentFolder | urlEncode}}/emails', {target:'#email-list-inner', swap:'innerHTML'})">
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
@@ -135,9 +153,9 @@
                 <div x-show="!rsvpDone" class="cal-banner__actions">
                     <button class="btn-rsvp btn-rsvp--accept"
                             hx-post="/calendar/rsvp"
-                            hx-vals='{"status":"accepted","uid":""}'
+                            hx-vals='{"status":"accepted","uid":"{{$.Email.ID}}","organizer":"{{$.Email.From}}"}'
                             hx-swap="none"
-                            hx-on::after-request="rsvpDone = true; rsvpMsg = 'Accepted'">
+                            hx-on::after-request="if(event.detail.successful){rsvpDone=true;rsvpMsg='Accepted'}else{rsvpMsg='Error sending RSVP';rsvpDone=true}">
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
                         </svg>
@@ -145,9 +163,9 @@
                     </button>
                     <button class="btn-rsvp btn-rsvp--tentative"
                             hx-post="/calendar/rsvp"
-                            hx-vals='{"status":"tentative","uid":""}'
+                            hx-vals='{"status":"tentative","uid":"{{$.Email.ID}}","organizer":"{{$.Email.From}}"}'
                             hx-swap="none"
-                            hx-on::after-request="rsvpDone = true; rsvpMsg = 'Tentative'">
+                            hx-on::after-request="if(event.detail.successful){rsvpDone=true;rsvpMsg='Tentative'}else{rsvpMsg='Error sending RSVP';rsvpDone=true}">
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
@@ -156,9 +174,9 @@
                     </button>
                     <button class="btn-rsvp btn-rsvp--decline"
                             hx-post="/calendar/rsvp"
-                            hx-vals='{"status":"declined","uid":""}'
+                            hx-vals='{"status":"declined","uid":"{{$.Email.ID}}","organizer":"{{$.Email.From}}"}'
                             hx-swap="none"
-                            hx-on::after-request="rsvpDone = true; rsvpMsg = 'Declined'">
+                            hx-on::after-request="if(event.detail.successful){rsvpDone=true;rsvpMsg='Declined'}else{rsvpMsg='Error sending RSVP';rsvpDone=true}">
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                         </svg>

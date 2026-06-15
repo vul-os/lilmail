@@ -88,11 +88,31 @@
             >
                 <div class="compose-field">
                     <label for="compose-to" class="compose-field__label">To</label>
-                    <input type="email" name="to" id="compose-to" required
+                    <input type="text" name="to" id="compose-to" required
                            placeholder="Recipients"
                            :disabled="loading"
                            class="compose-field__input">
                 </div>
+
+                <div class="compose-field" x-data="{ showCcBcc: false }">
+                    <label class="compose-field__label" style="cursor:pointer" @click="showCcBcc = !showCcBcc">
+                        CC/BCC <span x-text="showCcBcc ? '▲' : '▼'" style="font-size:9px"></span>
+                    </label>
+                    <div x-show="showCcBcc" x-cloak style="display:flex;flex-direction:column;gap:2px;flex:1">
+                        <input type="text" name="cc" id="compose-cc"
+                               placeholder="CC"
+                               :disabled="loading"
+                               class="compose-field__input">
+                        <input type="text" name="bcc" id="compose-bcc"
+                               placeholder="BCC"
+                               :disabled="loading"
+                               class="compose-field__input">
+                    </div>
+                </div>
+
+                <!-- Hidden threading headers — filled by the Reply/Forward buttons -->
+                <input type="hidden" name="in_reply_to" id="compose-in-reply-to">
+                <input type="hidden" name="references" id="compose-references">
 
                 <div class="compose-field">
                     <label for="compose-subject" class="compose-field__label">Subj</label>

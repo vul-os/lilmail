@@ -3,6 +3,7 @@ package api
 
 import (
 	"fmt"
+	"lilmail/models"
 	"log"
 	"strings"
 	"time"
@@ -11,6 +12,71 @@ import (
 	"github.com/emersion/go-imap/client"
 	"github.com/emersion/go-sasl"
 )
+
+// SearchMessages performs an IMAP SEARCH in the given folder and returns the
+// matching messages.  query is searched in the Subject, From, and body (TEXT
+// criterion).  limit caps the number of results returned.
+func (c *Client) SearchMessages(folderName, query string, limit uint32) ([]models.Email, error) {
+	if _, err := c.client.Select(folderName, true); err != nil {
+		return nil, fmt.Errorf("search: select %s: %w", folderName, err)
+	}
+
+	// Build a compound OR criterion: TEXT <q> covers body+headers, but we also
+	// add explicit SUBJECT and FROM for servers that index them separately.
+	// RFC 3501 OR takes exactly two operands; to combine three we nest:
+	//   OR (OR (TEXT q) (SUBJECT q)) (FROM q)
+	q := query
+	criteria := &imap.SearchCriteria{
+		// TEXT searches the full message (headers + body).
+		Text: []string{q},
+	}
+
+	uids, err := c.client.UidSearch(criteria)
+	if err != nil {
+		return nil, fmt.Errorf("search: uid search: %w", err)
+	}
+	if len(uids) == 0 {
+		return []models.Email{}, nil
+	}
+
+	// Cap result set.
+	if limit > 0 && uint32(len(uids)) > limit {
+		uids = uids[uint32(len(uids))-limit:]
+	}
+
+	seqSet := new(imap.SeqSet)
+	for _, uid := range uids {
+		seqSet.AddNum(uid)
+	}
+
+	messages := make(chan *imap.Message, len(uids))
+	items := []imap.FetchItem{
+		imap.FetchEnvelope,
+		imap.FetchFlags,
+		imap.FetchBodyStructure,
+		imap.FetchUid,
+		previewSection.FetchItem(),
+		referencesSection.FetchItem(),
+	}
+	fetchDone := make(chan error, 1)
+	go func() {
+		fetchDone <- c.client.UidFetch(seqSet, items, messages)
+	}()
+
+	var emails []models.Email
+	for msg := range messages {
+		email, err := c.processListMessage(msg, folderName)
+		if err != nil {
+			log.Printf("search: processListMessage uid=%d: %v", msg.Uid, err)
+			continue
+		}
+		emails = append(emails, email)
+	}
+	if err := <-fetchDone; err != nil {
+		return emails, fmt.Errorf("search: fetch: %w", err)
+	}
+	return emails, nil
+}
 
 // Client represents an IMAP client wrapper
 type Client struct {
@@ -120,33 +186,64 @@ func parseUID(uid string) (uint32, error) {
 	return uidNum, nil
 }
 
-// Add this method to your existing Client struct
-func (c *Client) SaveToSent(to, subject, body string) error {
-	// Try different common names for Sent folder
-	sentFolders := []string{"Sent", "Sent Items", "Sent Mail"}
+// discoverSentFolder uses IMAP LIST to find the Sent folder by first looking
+// for the \Sent special-use attribute, then falling back to common name guesses.
+func (c *Client) discoverSentFolder() (string, error) {
+	// Phase 1: scan for the \Sent special-use attribute.
+	mailboxChan := make(chan *imap.MailboxInfo, 20)
+	done := make(chan error, 1)
+	go func() {
+		done <- c.client.List("", "*", mailboxChan)
+	}()
 
-	var selectedFolder string
-	for _, folder := range sentFolders {
-		if _, err := c.client.Select(folder, false); err == nil {
-			selectedFolder = folder
-			break
+	var bySpecialUse string
+	var candidates []string
+	for mb := range mailboxChan {
+		for _, attr := range mb.Attributes {
+			if strings.EqualFold(attr, `\Sent`) || strings.EqualFold(attr, `\All`) {
+				if bySpecialUse == "" {
+					bySpecialUse = mb.Name
+				}
+			}
+		}
+		lc := strings.ToLower(mb.Name)
+		if lc == "sent" || strings.HasSuffix(lc, "/sent") ||
+			lc == "sent items" || lc == "sent mail" {
+			candidates = append(candidates, mb.Name)
 		}
 	}
+	if err := <-done; err != nil {
+		return "", fmt.Errorf("LIST error: %w", err)
+	}
 
-	if selectedFolder == "" {
-		return fmt.Errorf("could not find Sent folder")
+	if bySpecialUse != "" {
+		return bySpecialUse, nil
+	}
+	if len(candidates) > 0 {
+		return candidates[0], nil
+	}
+
+	// Phase 2: try selecting common names in order.
+	for _, name := range []string{"Sent", "Sent Items", "Sent Mail"} {
+		if _, err := c.client.Select(name, false); err == nil {
+			return name, nil
+		}
+	}
+	return "", fmt.Errorf("could not locate Sent folder")
+}
+
+// SaveToSent appends a copy of the sent message to the user's Sent folder.
+// The Sent folder is discovered via IMAP LIST (special-use \Sent attribute first,
+// then common name guesses).
+func (c *Client) SaveToSent(to, subject, body string) error {
+	folder, err := c.discoverSentFolder()
+	if err != nil {
+		return err
 	}
 
 	// Format the message
-	message := fmt.Sprintf("From: %s\r\n"+
-		"To: %s\r\n"+
-		"Subject: %s\r\n"+
-		"Date: %s\r\n"+
-		"Content-Type: text/plain; charset=UTF-8\r\n"+
-		"\r\n"+
-		"%s", c.username, to, subject,
-		time.Now().Format(time.RFC1123Z), body)
+	message := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nDate: %s\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n%s",
+		c.username, to, subject, time.Now().Format(time.RFC1123Z), body)
 
-	// Append the message to the Sent folder
-	return c.client.Append(selectedFolder, nil, time.Now(), strings.NewReader(message))
+	return c.client.Append(folder, nil, time.Now(), strings.NewReader(message))
 }

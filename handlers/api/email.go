@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"lilmail/models"
 	"log"
 	"mime"
@@ -132,14 +131,14 @@ func (c *Client) processListMessage(msg *imap.Message, folderName string) (model
 
 	// References is not in the envelope — extract from the header section.
 	if r := msg.GetBody(referencesSection); r != nil {
-		if raw, err := ioutil.ReadAll(r); err == nil {
+		if raw, err := io.ReadAll(r); err == nil {
 			email.References = reMessageID.FindAllString(string(raw), -1)
 		}
 	}
 
 	// Build preview from the partial TEXT section if available.
 	if r := msg.GetBody(previewSection); r != nil {
-		if raw, err := ioutil.ReadAll(r); err == nil && len(raw) > 0 {
+		if raw, err := io.ReadAll(r); err == nil && len(raw) > 0 {
 			text := string(raw)
 			// Strip any residual MIME headers that appear before the actual body.
 			if idx := strings.Index(text, "\r\n\r\n"); idx >= 0 {
@@ -245,8 +244,9 @@ func (c *Client) DeleteMessage(folderName, uid string) error {
 	return nil
 }
 
-// setMessageFlag is a helper function to set or remove flags
-func (c *Client) setMessageFlag(folderName, uid string, flag string, add bool) error {
+// SetMessageFlag sets or removes the given IMAP flag on a message identified
+// by its UID in folderName.  add=true adds the flag; add=false removes it.
+func (c *Client) SetMessageFlag(folderName, uid string, flag string, add bool) error {
 	uidNum, err := parseUID(uid)
 	if err != nil {
 		return fmt.Errorf("invalid UID: %v", err)
@@ -538,12 +538,11 @@ func (c *Client) processMessage(msg *imap.Message, folderName string) (models.Em
 	}
 
 	// Process body
-	// Process body
 	var section imap.BodySectionName
 	r := msg.GetBody(&section)
 	if r != nil {
 		// Read the body
-		body, err := ioutil.ReadAll(r)
+		body, err := io.ReadAll(r)
 		if err != nil {
 			return email, fmt.Errorf("error reading body: %v", err)
 		}
@@ -574,7 +573,7 @@ func (c *Client) processMessage(msg *imap.Message, folderName string) (models.Em
 				}
 
 				// Read the part
-				partData, err := ioutil.ReadAll(p)
+				partData, err := io.ReadAll(p)
 				if err != nil {
 					continue
 				}
@@ -589,7 +588,7 @@ func (c *Client) processMessage(msg *imap.Message, folderName string) (models.Em
 			}
 		} else {
 			// Handle non-multipart messages
-			bodyData, err := ioutil.ReadAll(m.Body)
+			bodyData, err := io.ReadAll(m.Body)
 			if err == nil {
 				email.Body = string(bodyData)
 			}

@@ -5,6 +5,9 @@ username_is_email = true
 # list of origins in CSP frame-ancestors syntax. Leave empty for same-origin only.
 # Example for the Vulos OS shell:  frame_ancestors = "'self' http://localhost:8080"
 frame_ancestors = ""
+# Set to true when serving over HTTPS (direct [ssl] or TLS reverse proxy) to
+# add the Secure flag to session cookies. Default false for local HTTP dev.
+secure_cookies = false
 
 [imap]
 server = "mail.example.com"

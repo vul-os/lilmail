@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/filesystem"
@@ -23,6 +24,25 @@ import (
 	"github.com/gofiber/template/html/v2"
 )
 
+// titleCase converts the first letter of each word to upper-case.
+// It is used as a template function and replaces the deprecated strings.Title.
+func titleCase(s string) string {
+	var b strings.Builder
+	upper := true
+	for _, r := range s {
+		if unicode.IsSpace(r) {
+			upper = true
+			b.WriteRune(r)
+		} else if upper {
+			b.WriteRune(unicode.ToUpper(r))
+			upper = false
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 //go:embed all:templates
 var templatesFS embed.FS
 
@@ -30,22 +50,6 @@ var templatesFS embed.FS
 var assetsFS embed.FS
 
 var store *session.Store
-
-func init() {
-	// Create file storage
-	storage, err := storage.NewFileStorage("./sessions")
-	if err != nil {
-		log.Fatal("Failed to initialize session storage:", err)
-	}
-
-	store = session.New(session.Config{
-		Storage:        storage,
-		Expiration:     24 * time.Hour,
-		CookieSecure:   false, // Set to true in production with HTTPS
-		CookieHTTPOnly: true,
-		CookieSameSite: "Lax", // Prevents CSRF via cross-site form submissions
-	})
-}
 
 // Helper function to determine if request is an API request
 func isAPIRequest(c *fiber.Ctx) bool {
@@ -70,6 +74,21 @@ func main() {
 		log.Fatal("Failed to load config:", err)
 	}
 
+	// Initialize session store now that we have the config (CookieSecure needs it).
+	{
+		fileStorage, err := storage.NewFileStorage("./sessions")
+		if err != nil {
+			log.Fatal("Failed to initialize session storage:", err)
+		}
+		store = session.New(session.Config{
+			Storage:        fileStorage,
+			Expiration:     24 * time.Hour,
+			CookieSecure:   config.Server.SecureCookies, // true in TLS-terminated deployments
+			CookieHTTPOnly: true,
+			CookieSameSite: "Lax", // Prevents CSRF via cross-site form submissions
+		})
+	}
+
 	// Initialize template engine with embedded filesystem
 	tplSub, err := fs.Sub(templatesFS, "templates")
 	if err != nil {
@@ -82,7 +101,7 @@ func main() {
 	engine.AddFunc("join", strings.Join)
 	engine.AddFunc("lower", strings.ToLower)
 	engine.AddFunc("upper", strings.ToUpper)
-	engine.AddFunc("title", strings.Title)
+	engine.AddFunc("title", titleCase)
 	engine.AddFunc("trim", strings.TrimSpace)
 	engine.AddFunc("hasPrefix", strings.HasPrefix)
 	engine.AddFunc("urlEncode", url.QueryEscape)
@@ -224,6 +243,12 @@ func main() {
 
 		// Composition routes
 		apiRoutes.Post("/compose", webEmailHandler.HandleComposeEmail)
+
+		// Mark-as-unread: removes the \Seen flag from a message.
+		apiRoutes.Patch("/email/:id/unread", webEmailHandler.HandleMarkUnread)
+
+		// Search: IMAP SEARCH returning an email-list partial.
+		apiRoutes.Get("/search", webEmailHandler.HandleSearch)
 	}
 
 	// AI mail-assistant routes — registered always (gated internally on config.AI.Enabled).

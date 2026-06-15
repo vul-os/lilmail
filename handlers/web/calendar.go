@@ -13,6 +13,7 @@ import (
 	"lilmail/models"
 	"log"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -269,25 +270,86 @@ func (h *CalendarHandler) HandleCreateEvent(c *fiber.Ctx) error {
 	return c.Redirect(fmt.Sprintf("/calendar?year=%d&month=%d", startTime.Year(), int(startTime.Month())))
 }
 
-// HandleRSVP is a best-effort RSVP stub.  Full iTIP handling is out of scope;
-// this handler accepts the POST and shows a toast/confirmation.
+// HandleRSVP sends an iTIP REPLY email to the event organiser.  It builds a
+// minimal METHOD:REPLY iCalendar body and delivers it via the session's SMTP
+// client, giving real RSVP semantics (RFC 5546).
 func (h *CalendarHandler) HandleRSVP(c *fiber.Ctx) error {
-	status := c.FormValue("status") // "accepted", "declined", "tentative"
-	uid := c.FormValue("uid")
-	log.Printf("calendar: RSVP uid=%q status=%q (no-op stub — iTIP not implemented)", uid, status)
-	// Return a simple JSON response suitable for an HTMX swap.
-	label := map[string]string{
-		"accepted":  "Accepted",
-		"declined":  "Declined",
-		"tentative": "Tentative",
-	}[status]
-	if label == "" {
-		label = "Noted"
+	status := c.FormValue("status")    // "accepted", "declined", "tentative"
+	uid := c.FormValue("uid")          // iCalendar UID of the event
+	organizer := c.FormValue("organizer") // MAILTO: of the organiser
+
+	if uid == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "uid is required"})
 	}
-	return c.JSON(fiber.Map{
-		"ok":      true,
-		"message": label + " (RSVP recorded locally; iTIP delivery not implemented)",
-	})
+
+	partstat := map[string]string{
+		"accepted":  "ACCEPTED",
+		"declined":  "DECLINED",
+		"tentative": "TENTATIVE",
+	}[status]
+	if partstat == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "status must be accepted, declined, or tentative"})
+	}
+
+	// Derive attendee email from session.
+	sess, err := h.store.Get(c)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "session error"})
+	}
+	attendeeEmail, _ := sess.Get("email").(string)
+	if attendeeEmail == "" {
+		return c.Status(401).JSON(fiber.Map{"error": "not authenticated"})
+	}
+
+	// Build a minimal METHOD:REPLY iCalendar payload.
+	now := time.Now().UTC().Format("20060102T150405Z")
+	ics := strings.Join([]string{
+		"BEGIN:VCALENDAR",
+		"VERSION:2.0",
+		"PRODID:-//LilMail//LilMail//EN",
+		"METHOD:REPLY",
+		"BEGIN:VEVENT",
+		"UID:" + uid,
+		"DTSTAMP:" + now,
+		"ATTENDEE;PARTSTAT=" + partstat + ":MAILTO:" + attendeeEmail,
+		"END:VEVENT",
+		"END:VCALENDAR",
+	}, "\r\n")
+
+	// Determine recipient: use the submitted organizer, or default to sender.
+	to := organizer
+	if to == "" {
+		to = attendeeEmail // fallback — CalDAV server may handle routing
+	}
+	// Strip MAILTO: prefix if present.
+	to = strings.TrimPrefix(to, "MAILTO:")
+	to = strings.TrimPrefix(to, "mailto:")
+
+	subject := map[string]string{
+		"ACCEPTED":  "Accepted",
+		"DECLINED":  "Declined",
+		"TENTATIVE": "Tentative",
+	}[partstat] + ": " + uid
+
+	smtpClient, err := h.auth.CreateSMTPClient(c)
+	if err != nil {
+		log.Printf("calendar: RSVP smtp client: %v", err)
+		return c.Status(500).JSON(fiber.Map{"error": "failed to connect to mail server"})
+	}
+
+	opts := &api.MailOptions{}
+	if err := smtpClient.SendMail(to, subject, ics, opts); err != nil {
+		log.Printf("calendar: RSVP send: %v", err)
+		return c.Status(500).JSON(fiber.Map{"error": "failed to send RSVP: " + err.Error()})
+	}
+
+	label := map[string]string{
+		"ACCEPTED":  "Accepted",
+		"DECLINED":  "Declined",
+		"TENTATIVE": "Tentative",
+	}[partstat]
+	log.Printf("calendar: RSVP uid=%q partstat=%s sent to %s", uid, partstat, to)
+	return c.JSON(fiber.Map{"ok": true, "message": label})
 }
 
 // ─── Month grid helpers ────────────────────────────────────────────────────

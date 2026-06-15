@@ -95,20 +95,27 @@ we're going.
 
 ---
 
+## ✅ Recently shipped (v1.6.0)
+
+- **Mark-as-unread** — real `IMAP UID STORE -FLAGS \Seen` via new route
+  `PATCH /api/email/:id/unread`; list refreshes automatically.
+- **Search** — `IMAP UID SEARCH TEXT` via `GET /api/search?q=…`; top-bar
+  search box wired with hx-get, 500 ms debounce.
+- **Reply/Forward threading** — `In-Reply-To` and `References` headers wired
+  from the reply button through the SMTP send path.
+- **CC/BCC** — collapsible CC/BCC fields in compose modal; full envelope support.
+- **SMTP implicit TLS (port 465)** — `use_starttls = false` now uses `tls.Dial`.
+- **Sent-folder discovery** — `\Sent` special-use attribute via `IMAP LIST`.
+- **Real iTIP RSVP** — `METHOD:REPLY` iCalendar sent to organiser via SMTP.
+- **`[server] secure_cookies`** config key for TLS-terminated deployments.
+- **Shared bbolt handle** per user (no per-request file open).
+
 ## 🔜 Next up
 
-- 🔜 **Search** — server-side `IMAP SEARCH`; later an optional local full-text
-  index over the cache for fast offline search.
-- 🔜 **Rich compose** — HTML editor, file-upload attachments, drafts, and
-  reply/forward with proper quoting (wire up the existing Reply/Forward buttons).
+- 🔜 **Rich compose** — HTML editor, file-upload attachments, drafts.
 - 🔜 **CardDAV contacts** — address book + recipient autocomplete in the composer.
 - 🔜 **Web Push (VAPID + Service Worker)** — background notifications even when no
-  tab is open (the IMAP IDLE → SSE foundation already exists; `TODO(webpush)` is
-  marked in `handlers/web/notifications.go`). Deferred from Phase 6.
-- 🔜 **iTIP / RSVP** — full iCalendar Transport-Independent Interoperability
-  Protocol support: send REPLY messages for meeting invites, handle
-  REQUEST/CANCEL/COUNTER. The basic RSVP affordance (`.ics` detection) is
-  already shipped; the actual email sending and CalDAV write-back are deferred.
+  tab is open (the IMAP IDLE → SSE foundation already exists).
 - 🔜 **Nix package + NixOS module** for declarative, reproducible self-hosting.
 
 ## 💭 Later / exploratory

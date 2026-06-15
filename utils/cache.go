@@ -3,7 +3,6 @@ package utils
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 )
@@ -57,7 +56,7 @@ func SaveCache(filePath string, data interface{}) error {
 // LoadCache loads data from the specified cache file.
 func LoadCache(filePath string, data interface{}) error {
 	// Read the file
-	fileContent, err := ioutil.ReadFile(filePath)
+	fileContent, err := os.ReadFile(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to read cache file: %v", err)
 	}

@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"math/rand"
+	"net"
 	"net/smtp"
 	"os"
 	"strings"
@@ -20,28 +21,33 @@ type SMTPClient struct {
 	token              string
 	mechanism          string // "xoauth2" or "oauthbearer"
 	insecureSkipVerify bool   // if true, skip TLS certificate verification
+	useStartTLS        bool   // true = STARTTLS (port 587); false = implicit TLS (port 465)
 }
 
-// NewSMTPClient creates a new SMTP client using password authentication
-func NewSMTPClient(server string, port int, email, password string) *SMTPClient {
+// NewSMTPClient creates a new SMTP client using password authentication.
+// useStartTLS controls the connection mode: true → plaintext + STARTTLS
+// (port 587), false → implicit TLS from the start (port 465).
+func NewSMTPClient(server string, port int, email, password string, useStartTLS bool) *SMTPClient {
 	return &SMTPClient{
-		server:   server,
-		port:     port,
-		email:    email,
-		password: password,
+		server:      server,
+		port:        port,
+		email:       email,
+		password:    password,
+		useStartTLS: useStartTLS,
 	}
 }
 
 // NewSMTPClientOAuth creates a new SMTP client authenticated with an OAuth2
 // access token (XOAUTH2 or OAUTHBEARER).
-func NewSMTPClientOAuth(server string, port int, email, token, mechanism string) *SMTPClient {
+func NewSMTPClientOAuth(server string, port int, email, token, mechanism string, useStartTLS bool) *SMTPClient {
 	return &SMTPClient{
-		server:    server,
-		port:      port,
-		email:     email,
-		token:     token,
-		mechanism: mechanism,
-		useOAuth:  true,
+		server:      server,
+		port:        port,
+		email:       email,
+		token:       token,
+		mechanism:   mechanism,
+		useOAuth:    true,
+		useStartTLS: useStartTLS,
 	}
 }
 
@@ -51,35 +57,68 @@ func (c *SMTPClient) SetInsecureSkipVerify(skip bool) {
 	c.insecureSkipVerify = skip
 }
 
-// SendMail sends an email using SMTP
-func (c *SMTPClient) SendMail(to, subject, body string) error {
-	// Connect to the server
+// MailOptions carries optional RFC 2822 header fields for a message.
+type MailOptions struct {
+	// Cc is a comma-separated list of CC recipients.
+	Cc string
+	// Bcc is a comma-separated list of BCC recipients (added as RCPT TO, not in headers).
+	Bcc string
+	// InReplyTo is the Message-ID of the message being replied to.
+	InReplyTo string
+	// References is the full References header value for threading.
+	References string
+}
+
+// SendMail sends an email using SMTP.  Extra recipients and threading headers
+// can be provided via opts (pass nil or &MailOptions{} for a plain send).
+func (c *SMTPClient) SendMail(to, subject, body string, opts *MailOptions) error {
+	if opts == nil {
+		opts = &MailOptions{}
+	}
+
 	addr := fmt.Sprintf("%s:%d", c.server, c.port)
-	client, err := smtp.Dial(addr)
-	if err != nil {
-		return fmt.Errorf("dial failed: %v", err)
+	tlsCfg := &tls.Config{
+		ServerName:         c.server,
+		InsecureSkipVerify: c.insecureSkipVerify, //nolint:gosec // operator-controlled
+	}
+
+	var client *smtp.Client
+	var err error
+
+	if c.useStartTLS {
+		// Plain TCP → STARTTLS upgrade.
+		client, err = smtp.Dial(addr)
+		if err != nil {
+			return fmt.Errorf("dial failed: %v", err)
+		}
+		domain := GetDomainFromEmail(c.email)
+		if err := client.Hello(domain); err != nil {
+			client.Close()
+			return fmt.Errorf("hello failed: %v", err)
+		}
+		if err = client.StartTLS(tlsCfg); err != nil {
+			client.Close()
+			return fmt.Errorf("starttls failed: %v", err)
+		}
+	} else {
+		// Implicit TLS (port 465).
+		conn, err := tls.Dial("tcp", addr, tlsCfg)
+		if err != nil {
+			return fmt.Errorf("tls dial failed: %v", err)
+		}
+		host, _, _ := net.SplitHostPort(addr)
+		client, err = smtp.NewClient(conn, host)
+		if err != nil {
+			conn.Close()
+			return fmt.Errorf("smtp client init failed: %v", err)
+		}
 	}
 	defer client.Close()
 
-	// Send EHLO with domain from email
 	domain := GetDomainFromEmail(c.email)
-	if err := client.Hello(domain); err != nil {
-		return fmt.Errorf("hello failed: %v", err)
-	}
-
-	// Start TLS — verify against the server name by default; allow opt-out for
-	// self-signed certs via SetInsecureSkipVerify(true).
-	tlsConfig := &tls.Config{
-		ServerName:         c.server,
-		InsecureSkipVerify: c.insecureSkipVerify, //nolint:gosec // value is explicitly set by operator
-	}
-	if err = client.StartTLS(tlsConfig); err != nil {
-		return fmt.Errorf("starttls failed: %v", err)
-	}
-
 	username := GetUsernameFromEmail(c.email)
 
-	// Authenticate after TLS, choosing the mechanism based on credentials.
+	// Authenticate.
 	var auth smtp.Auth
 	if c.useOAuth {
 		switch strings.ToLower(c.mechanism) {
@@ -95,55 +134,82 @@ func (c *SMTPClient) SendMail(to, subject, body string) error {
 		return fmt.Errorf("auth failed: %v", err)
 	}
 
-	// Set sender
+	// Set sender.
 	if err = client.Mail(c.email); err != nil {
 		return fmt.Errorf("mail from failed: %v", err)
 	}
 
-	// Set recipient
-	if err = client.Rcpt(to); err != nil {
-		return fmt.Errorf("rcpt to failed: %v", err)
+	// Primary recipients.
+	for _, rcpt := range splitAddresses(to) {
+		if err = client.Rcpt(rcpt); err != nil {
+			return fmt.Errorf("rcpt to %q failed: %v", rcpt, err)
+		}
+	}
+	// CC recipients (visible in headers).
+	for _, rcpt := range splitAddresses(opts.Cc) {
+		if err = client.Rcpt(rcpt); err != nil {
+			return fmt.Errorf("rcpt cc %q failed: %v", rcpt, err)
+		}
+	}
+	// BCC recipients (RCPT TO only — not added to message headers).
+	for _, rcpt := range splitAddresses(opts.Bcc) {
+		if err = client.Rcpt(rcpt); err != nil {
+			return fmt.Errorf("rcpt bcc %q failed: %v", rcpt, err)
+		}
 	}
 
-	// Send the email body
+	// Write DATA section.
 	writer, err := client.Data()
 	if err != nil {
 		return fmt.Errorf("data failed: %v", err)
 	}
 
-	// Get current time in RFC822 format
 	now := time.Now().Format(time.RFC822Z)
+	msgID := fmt.Sprintf("<%s@%s>", generateMessageID(), domain)
 
-	// Construct proper email headers and body
-	msg := fmt.Sprintf("Date: %s\r\n"+
-		"From: %s <%s>\r\n"+
-		"To: %s\r\n"+
-		"Subject: %s\r\n"+
-		"MIME-Version: 1.0\r\n"+
-		"Content-Type: text/plain; charset=\"utf-8\"\r\n"+
-		"Message-ID: <%s@%s>\r\n"+
-		"\r\n"+
-		"%s",
-		now,
-		username,
-		c.email,
-		to,
-		subject,
-		generateMessageID(), // You'll need to implement this
-		domain,
-		body)
+	var hdr strings.Builder
+	hdr.WriteString("Date: " + now + "\r\n")
+	hdr.WriteString("From: " + username + " <" + c.email + ">\r\n")
+	hdr.WriteString("To: " + to + "\r\n")
+	if opts.Cc != "" {
+		hdr.WriteString("Cc: " + opts.Cc + "\r\n")
+	}
+	hdr.WriteString("Subject: " + subject + "\r\n")
+	hdr.WriteString("MIME-Version: 1.0\r\n")
+	hdr.WriteString("Content-Type: text/plain; charset=\"utf-8\"\r\n")
+	hdr.WriteString("Message-ID: " + msgID + "\r\n")
+	if opts.InReplyTo != "" {
+		hdr.WriteString("In-Reply-To: " + opts.InReplyTo + "\r\n")
+	}
+	if opts.References != "" {
+		hdr.WriteString("References: " + opts.References + "\r\n")
+	}
+	hdr.WriteString("\r\n")
+	hdr.WriteString(body)
 
-	_, err = writer.Write([]byte(msg))
-	if err != nil {
+	if _, err = writer.Write([]byte(hdr.String())); err != nil {
 		return fmt.Errorf("write failed: %v", err)
 	}
-
-	err = writer.Close()
-	if err != nil {
+	if err = writer.Close(); err != nil {
 		return fmt.Errorf("close failed: %v", err)
 	}
-
 	return client.Quit()
+}
+
+// splitAddresses splits a comma-separated address list into individual entries,
+// trimming whitespace and skipping empty strings.
+func splitAddresses(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var result []string
+	for _, a := range strings.Split(s, ",") {
+		a = strings.TrimSpace(a)
+		if a != "" {
+			result = append(result, a)
+		}
+	}
+	return result
 }
 
 // generateMessageID creates a unique Message-ID for the email
