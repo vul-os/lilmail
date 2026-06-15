@@ -259,15 +259,35 @@ func (c *Config) GetSecurityHeaders() map[string]string {
 	headers["X-XSS-Protection"] = "1; mode=block"
 	headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
 
+	// Content-Security-Policy — combines the framing policy with a strict
+	// script-src so that injected HTML (e.g. from a broken srcdoc attribute)
+	// cannot execute scripts in the LilMail origin.
+	//
+	// 'self'            — allow scripts/styles loaded from the same origin
+	// 'unsafe-inline'   — needed for Alpine.js x-data / x-on inline handlers
+	//                     and the small inline <style> blocks in the layout.
+	//                     HTMX+Alpine rely heavily on inline JS attributes, so
+	//                     removing this would require a nonce/hash approach.
+	// blob:             — allows HTMX to use blob: object-URLs when needed.
+	//
+	// Email HTML bodies are sandboxed inside <iframe sandbox> (no allow-scripts)
+	// so they never reach this CSP; this policy is the outer-page defence.
+	scriptSrc := "'self' 'unsafe-inline'"
+	imgSrc := "'self' data: blob:"
+	connectSrc := "'self'"
+	csp := "default-src 'self'; script-src " + scriptSrc + "; style-src 'self' 'unsafe-inline'; img-src " + imgSrc + "; connect-src " + connectSrc + "; object-src 'none'; base-uri 'self';"
+
 	// Framing policy. When a host shell (e.g. Vula OS) is allowed to embed
 	// LilMail, express it via CSP frame-ancestors and omit the legacy
 	// X-Frame-Options header (which has no allow-list form). Otherwise keep
 	// the strict same-origin default.
 	if c.Server.FrameAncestors != "" {
-		headers["Content-Security-Policy"] = "frame-ancestors " + c.Server.FrameAncestors
+		csp += " frame-ancestors " + c.Server.FrameAncestors
 	} else {
 		headers["X-Frame-Options"] = "SAMEORIGIN"
+		csp += " frame-ancestors 'self'"
 	}
+	headers["Content-Security-Policy"] = csp
 
 	return headers
 }

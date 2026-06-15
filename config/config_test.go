@@ -21,9 +21,17 @@ func TestGetSecurityHeaders_FrameAncestorsSet(t *testing.T) {
 	if !hasCsp {
 		t.Fatal("expected Content-Security-Policy header to be present")
 	}
-	want := "frame-ancestors " + ancestors
-	if csp != want {
-		t.Errorf("Content-Security-Policy = %q; want %q", csp, want)
+	// CSP must include both the full policy directives AND the frame-ancestors.
+	for _, want := range []string{
+		"default-src 'self'",
+		"script-src 'self'",
+		"object-src 'none'",
+		"base-uri 'self'",
+		"frame-ancestors " + ancestors,
+	} {
+		if !containsStr(csp, want) {
+			t.Errorf("Content-Security-Policy = %q; missing expected directive %q", csp, want)
+		}
 	}
 
 	if _, hasXFO := h["X-Frame-Options"]; hasXFO {
@@ -42,9 +50,35 @@ func TestGetSecurityHeaders_FrameAncestorsEmpty(t *testing.T) {
 		t.Errorf("X-Frame-Options = %q; want %q", xfo, "SAMEORIGIN")
 	}
 
-	if _, hasCsp := h["Content-Security-Policy"]; hasCsp {
-		t.Error("expected Content-Security-Policy to be absent when FrameAncestors is empty")
+	// CSP must now always be present (with script-src protection) even when
+	// FrameAncestors is empty; the frame-ancestors directive defaults to 'self'.
+	csp, hasCsp := h["Content-Security-Policy"]
+	if !hasCsp {
+		t.Fatal("expected Content-Security-Policy to be present")
 	}
+	for _, want := range []string{
+		"default-src 'self'",
+		"object-src 'none'",
+		"frame-ancestors 'self'",
+	} {
+		if !containsStr(csp, want) {
+			t.Errorf("Content-Security-Policy = %q; missing expected directive %q", csp, want)
+		}
+	}
+}
+
+// containsStr is a test helper that checks whether s contains substr.
+func containsStr(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstr(s, substr))
+}
+
+func containsSubstr(s, substr string) bool {
+	for i := 0; i+len(substr) <= len(s); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
 
 func TestGetSecurityHeaders_XContentTypeOptionsAlwaysPresent(t *testing.T) {

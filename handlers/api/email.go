@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
-	"html/template"
 	"io"
 	"io/ioutil"
 	"lilmail/models"
@@ -584,7 +583,7 @@ func (c *Client) processMessage(msg *imap.Message, folderName string) (models.Em
 				case strings.Contains(partType, "text/plain"):
 					email.Body = string(partData)
 				case strings.Contains(partType, "text/html"):
-					email.HTML = template.HTML(partData)
+					email.HTML = string(partData)
 				}
 			}
 		} else {

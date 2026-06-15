@@ -43,6 +43,7 @@ func init() {
 		Expiration:     24 * time.Hour,
 		CookieSecure:   false, // Set to true in production with HTTPS
 		CookieHTTPOnly: true,
+		CookieSameSite: "Lax", // Prevents CSRF via cross-site form submissions
 	})
 }
 

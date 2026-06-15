@@ -1,22 +1,21 @@
 package models
 
 import (
-	"html/template"
 	"time"
 )
 
 type Email struct {
-	ID             string        `json:"id"`
-	From           string        `json:"from"`
-	FromName       string        `json:"fromName,omitempty"`
-	To             string        `json:"to"`
-	ToNames        []string      `json:"toNames,omitempty"`
-	Cc             string        `json:"cc,omitempty"`
-	Subject        string        `json:"subject"`
-	Preview        string        `json:"preview"`
-	Body           string        `json:"body"` // Plain text
-	HTML           template.HTML // Not string
-	Date           time.Time     `json:"date"`
+	ID             string   `json:"id"`
+	From           string   `json:"from"`
+	FromName       string   `json:"fromName,omitempty"`
+	To             string   `json:"to"`
+	ToNames        []string `json:"toNames,omitempty"`
+	Cc             string   `json:"cc,omitempty"`
+	Subject        string   `json:"subject"`
+	Preview        string   `json:"preview"`
+	Body           string   `json:"body"` // Plain text
+	HTML           string   `json:"html,omitempty"` // Raw HTML body; auto-escaped by html/template
+	Date           time.Time `json:"date"`
 	HasAttachments bool          `json:"hasAttachments"`
 	Flags          []string      `json:"flags,omitempty"`
 	Attachments    []Attachment  `json:"attachments,omitempty"`
