@@ -7,6 +7,83 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
+## [Unreleased] — 1.8.0
+
+### Added
+
+- **Web Push / VAPID** — full background push notifications, no open tab required.
+  - ECDH P-256 VAPID key pair auto-generated on first start, persisted to
+    `vapid_key_file` (default `vapid.json`, mode `0600`).
+  - New config keys: `[notifications] webpush = false` (master switch) and
+    `vapid_key_file = "vapid.json"`.
+  - Server routes (registered only when `webpush = true`):
+    - `GET /api/push/vapid-public` — public endpoint returning the base64url
+      VAPID public key for use as `PushManager.subscribe({ applicationServerKey })`.
+    - `POST /api/push/subscribe` — upserts a browser `PushSubscription` JSON blob
+      for the authenticated user (stored in per-user bbolt `push.db`).
+    - `DELETE /api/push/subscribe` — removes a subscription by endpoint URL.
+  - `PushStore` (`handlers/web/pushstore.go`) — bbolt-backed per-user subscription
+    store; upsert, delete, list-all; isolates subscriptions by username.
+  - `LoadOrGenerateVAPIDKeys` (`handlers/web/vapid.go`) — loads or generates the
+    VAPID key pair; gracefully regenerates on corrupt file.
+  - `SendPush` (`handlers/web/push.go`) — fan-out delivery via
+    `SherClockHolmes/webpush-go`; expired (HTTP 410) subscriptions auto-removed;
+    called from `NotificationHub.Broadcast` in a background goroutine.
+  - Service worker **`/sw.js`** — served at root scope with `Cache-Control: no-cache`
+    and `Service-Worker-Allowed: /`; handles `push` (shows notification),
+    `notificationclick` (focuses existing LilMail tab or opens new one), and
+    `pushsubscriptionchange` (re-subscribes and POSTs new subscription).
+  - Client-side `window.lilmailPush` API — `enable()`, `disable()`, `isSupported()`,
+    `isSubscribed()` — injected into every page when `webpush = true`.
+  - **Settings page** (`GET /settings`, template `templates/settings.html`) — always
+    registered; shows Web Push toggle when `webpush = true`; account management
+    when `accounts.enabled = true`.
+  - Settings gear icon (⚙) in the top bar linking to `/settings`.
+  - New template funcs: `webPushEnabled()`, `accountsEnabled()`.
+  - Tests: `handlers/web/push_test.go` covers key generation, load, corrupt-file
+    recovery, PushStore CRUD (save, delete, upsert, multi-user isolation,
+    multiple subscriptions), and push payload JSON correctness + size guard.
+
+- **Multiple accounts / account switcher** — add and switch between IMAP/SMTP
+  accounts without logging out.
+  - New config section `[accounts]` with `enabled` (master switch, default `false`)
+    and `store_file` (bbolt path, default `accounts.db`).
+  - `AccountStore` (`handlers/web/accountstore.go`) — per-primary-user bbolt store
+    for additional mail accounts; each entry stores email, label, colour badge,
+    IMAP/SMTP host/port, and the AES-256-GCM–encrypted password (same key as
+    session credentials). CRUD: `Save`, `Delete`, `List`.
+  - `AccountsHandler` (`handlers/web/accounts.go`) — HTTP handlers:
+    - `GET /api/accounts` — lists additional accounts (passwords stripped from response).
+    - `POST /api/accounts` — validates credentials against IMAP, encrypts password,
+      stores in `AccountStore`. Defaults IMAP/SMTP to global config when not specified.
+    - `DELETE /api/accounts/:email` — removes an account.
+    - `POST /api/accounts/:email/switch` — replaces the session identity with the
+      target account (re-validates credentials); saves the previous identity as an
+      additional account under the new owner so switching back works immediately.
+    - `GET /settings` — renders the settings page.
+  - All account routes gated on `[accounts] enabled = true`.
+  - Tests: `handlers/web/accountstore_test.go` covers CRUD, upsert, multi-owner
+    isolation, empty list, and persistence across re-opens.
+
+### Changed
+
+- `NewNotificationHub` signature gains two optional parameters (`vapidKeys *VAPIDKeys`,
+  `pushStore *PushStore`) — both `nil` when `webpush = false`; no behaviour change
+  for existing SSE-only configurations.
+- `NotificationsConfig` gains `WebPush bool` and `VAPIDKeyFile string` fields;
+  defaults: `false` / `"vapid.json"`.
+- `Config` gains `Accounts AccountsConfig` field.
+- `tmpl_smoke_test.go` registers `webPushEnabled` and `accountsEnabled` stubs so
+  the template smoke test stays green.
+- `config.toml.example` documents all new config keys.
+
+### Dependencies
+
+- Added `github.com/SherClockHolmes/webpush-go v1.4.0` for VAPID key generation
+  and RFC 8291/8292 push message encryption.
+
+---
+
 ## [1.7.0] — 2026-06-15
 
 ### Added

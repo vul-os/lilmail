@@ -27,6 +27,8 @@ func TestTemplatesParse(t *testing.T) {
 	engine.AddFunc("initial", func(name, email string) string { return "?" })
 	engine.AddFunc("caldavEnabled", func() bool { return false })
 	engine.AddFunc("notificationsEnabled", func() bool { return false })
+	engine.AddFunc("webPushEnabled", func() bool { return false })
+	engine.AddFunc("accountsEnabled", func() bool { return false })
 	if err := engine.Load(); err != nil {
 		t.Fatalf("template parse error: %v", err)
 	}

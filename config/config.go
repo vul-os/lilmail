@@ -139,13 +139,29 @@ type AIConfig struct {
 // goroutines, no SSE route, no JS injected into pages.
 //
 //	[notifications]
-//	enabled = false          # master switch — MUST be true to activate anything
-//	idle    = true           # start an IMAP IDLE watcher when enabled
-//	desktop = false          # native OS toast via gen2brain/beeep (local runs)
+//	enabled      = false          # master switch — MUST be true to activate anything
+//	idle         = true           # start an IMAP IDLE watcher when enabled
+//	desktop      = false          # native OS toast via gen2brain/beeep (local runs)
+//	webpush      = false          # VAPID Web Push (background, even with no open tab)
+//	vapid_key_file = "vapid.json" # path to persisted VAPID key-pair (auto-generated)
 type NotificationsConfig struct {
-	Enabled bool `toml:"enabled"` // master switch; default false
-	Idle    bool `toml:"idle"`    // IMAP IDLE watcher; default true when Enabled
-	Desktop bool `toml:"desktop"` // native OS toasts via beeep; default false
+	Enabled      bool   `toml:"enabled"`        // master switch; default false
+	Idle         bool   `toml:"idle"`            // IMAP IDLE watcher; default true when Enabled
+	Desktop      bool   `toml:"desktop"`         // native OS toasts via beeep; default false
+	WebPush      bool   `toml:"webpush"`         // VAPID Web Push; default false
+	VAPIDKeyFile string `toml:"vapid_key_file"`  // path to JSON key file; auto-generated
+}
+
+// AccountsConfig configures multi-account support.
+// When enabled, users can add additional IMAP/SMTP accounts from the Settings
+// page; a unified inbox view shows mail from all accounts.
+//
+//	[accounts]
+//	enabled      = false          # master switch
+//	store_file   = "accounts.db"  # bbolt database that persists extra accounts
+type AccountsConfig struct {
+	Enabled   bool   `toml:"enabled"`    // master switch; default false
+	StoreFile string `toml:"store_file"` // bbolt path; default accounts.db
 }
 
 type Config struct {
@@ -161,6 +177,7 @@ type Config struct {
 	CardDAV       CardDAVContactsConfig  `toml:"carddav"`
 	Notifications NotificationsConfig    `toml:"notifications"`
 	AI            AIConfig               `toml:"ai"`
+	Accounts      AccountsConfig         `toml:"accounts"`
 }
 
 func LoadConfig(filepath string) (*Config, error) {
@@ -193,6 +210,12 @@ func LoadConfig(filepath string) (*Config, error) {
 	config.Notifications.Enabled = false
 	config.Notifications.Idle = true
 	config.Notifications.Desktop = false
+	config.Notifications.WebPush = false
+	config.Notifications.VAPIDKeyFile = "vapid.json"
+
+	// Default Accounts configuration.
+	config.Accounts.Enabled = false
+	config.Accounts.StoreFile = "accounts.db"
 
 	// Default AI configuration.
 	// Enabled defaults to false (explicit opt-in required).

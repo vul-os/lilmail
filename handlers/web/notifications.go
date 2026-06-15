@@ -53,21 +53,27 @@ type userState struct {
 
 // NotificationHub manages SSE subscriptions and per-user IMAP IDLE watchers.
 type NotificationHub struct {
-	mu     sync.Mutex
-	users  map[string]*userState
-	config *config.Config
-	store  *session.Store
-	auth   *AuthHandler
+	mu        sync.Mutex
+	users     map[string]*userState
+	config    *config.Config
+	store     *session.Store
+	auth      *AuthHandler
+	// Optional Web Push fields — nil when webpush is disabled.
+	vapidKeys *VAPIDKeys
+	pushStore *PushStore
 }
 
 // NewNotificationHub creates a hub ready to accept SSE subscribers.
 // auth must be non-nil; store and cfg are forwarded to the watcher goroutine.
-func NewNotificationHub(store *session.Store, cfg *config.Config, auth *AuthHandler) *NotificationHub {
+// vapidKeys and pushStore may be nil when Web Push is disabled.
+func NewNotificationHub(store *session.Store, cfg *config.Config, auth *AuthHandler, vapidKeys *VAPIDKeys, pushStore *PushStore) *NotificationHub {
 	return &NotificationHub{
-		users:  make(map[string]*userState),
-		config: cfg,
-		store:  store,
-		auth:   auth,
+		users:     make(map[string]*userState),
+		config:    cfg,
+		store:     store,
+		auth:      auth,
+		vapidKeys: vapidKeys,
+		pushStore: pushStore,
 	}
 }
 
@@ -149,6 +155,11 @@ func (h *NotificationHub) Broadcast(username string, ev MailEvent) {
 	// Native desktop notification (opt-in).
 	if h.config.Notifications.Desktop {
 		notifyDesktop("New mail from "+ev.From, ev.Subject)
+	}
+
+	// Web Push (opt-in, background — works even when no browser tab is open).
+	if h.config.Notifications.WebPush && h.vapidKeys != nil && h.pushStore != nil {
+		go SendPush(username, ev, h.vapidKeys, h.pushStore)
 	}
 }
 

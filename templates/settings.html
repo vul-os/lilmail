@@ -1,0 +1,260 @@
+{{/* templates/settings.html — Settings page (Web Push + Multi-account) */}}
+<div class="settings-page">
+    <div class="settings-container">
+        <h1 class="settings-title">Settings</h1>
+
+        {{/* ── Notifications panel ───────────────────────────────────── */}}
+        {{if webPushEnabled}}
+        <section class="settings-section">
+            <h2 class="settings-section__title">Push Notifications</h2>
+            <p class="settings-section__desc">
+                Receive notifications even when LilMail is not open in a browser tab.
+                Requires permission from your browser.
+            </p>
+
+            <div x-data="pushPanel()" x-init="init()" class="push-panel">
+                <div class="push-panel__status" x-text="statusText"></div>
+
+                <button class="btn-primary" x-show="!subscribed && supported"
+                        @click="enable()" x-text="enabling ? 'Enabling…' : 'Enable push notifications'"
+                        :disabled="enabling">
+                </button>
+
+                <button class="btn-secondary" x-show="subscribed"
+                        @click="disable()">
+                    Disable push notifications
+                </button>
+
+                <p class="push-panel__unsupported" x-show="!supported" x-cloak>
+                    Web Push is not supported by your browser or requires HTTPS.
+                </p>
+            </div>
+        </section>
+        {{end}}
+
+        {{/* ── Accounts panel ────────────────────────────────────────── */}}
+        {{if accountsEnabled}}
+        <section class="settings-section">
+            <h2 class="settings-section__title">Additional Accounts</h2>
+            <p class="settings-section__desc">
+                Add extra IMAP/SMTP mail accounts. You can switch between them
+                from this page.
+            </p>
+
+            {{/* Existing accounts list */}}
+            <div id="accounts-list">
+                {{if .Accounts}}
+                <table class="accounts-table">
+                    <thead>
+                        <tr>
+                            <th>Account</th>
+                            <th>IMAP server</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {{range .Accounts}}
+                    <tr class="accounts-table__row">
+                        <td>
+                            {{if .Color}}<span class="account-dot" style="background:{{.Color}}"></span>{{end}}
+                            <strong>{{.Label}}</strong><br>
+                            <small>{{.Email}}</small>
+                        </td>
+                        <td>{{.IMAPServer}}</td>
+                        <td class="accounts-table__actions">
+                            <form method="POST" action="/api/accounts/{{urlEncode .Email}}/switch"
+                                  style="display:inline">
+                                <button type="submit" class="btn-action">Switch</button>
+                            </form>
+                            <button class="btn-action btn-action--danger"
+                                    hx-delete="/api/accounts/{{urlEncode .Email}}"
+                                    hx-target="#accounts-list"
+                                    hx-swap="outerHTML"
+                                    hx-confirm="Remove account {{.Email}}?">
+                                Remove
+                            </button>
+                        </td>
+                    </tr>
+                    {{end}}
+                    </tbody>
+                </table>
+                {{else}}
+                <p class="settings-empty">No additional accounts. Add one below.</p>
+                {{end}}
+            </div>
+
+            {{/* Add account form — uses Alpine to POST JSON */}}
+            <div x-data="addAccountForm()" style="margin-top:12px">
+                <button class="btn-secondary" @click="open = !open"
+                        x-text="open ? 'Cancel' : 'Add account'">
+                    Add account
+                </button>
+
+                <div x-show="open" x-cloak style="margin-top:12px">
+                    <form class="add-account-form" @submit.prevent="submit()">
+                        <div class="form-row">
+                            <label class="form-label">Email address</label>
+                            <input type="email" x-model="form.email" class="form-input" required
+                                   placeholder="alice@example.com">
+                        </div>
+                        <div class="form-row">
+                            <label class="form-label">Password</label>
+                            <input type="password" x-model="form.password" class="form-input" required>
+                        </div>
+                        <div class="form-row">
+                            <label class="form-label">Label (optional)</label>
+                            <input type="text" x-model="form.label" class="form-input"
+                                   placeholder="Work, Personal, …">
+                        </div>
+                        <div class="form-row">
+                            <label class="form-label">Badge colour (optional)</label>
+                            <input type="color" x-model="form.color" class="form-input form-input--color" value="#4285F4">
+                        </div>
+                        <details class="add-account-advanced">
+                            <summary>Advanced (server overrides)</summary>
+                            <div class="form-row">
+                                <label class="form-label">IMAP server</label>
+                                <input type="text" x-model="form.imap_server" class="form-input"
+                                       placeholder="(use default)">
+                            </div>
+                            <div class="form-row">
+                                <label class="form-label">IMAP port</label>
+                                <input type="number" x-model.number="form.imap_port" class="form-input"
+                                       placeholder="993">
+                            </div>
+                            <div class="form-row">
+                                <label class="form-label">SMTP server</label>
+                                <input type="text" x-model="form.smtp_server" class="form-input"
+                                       placeholder="(use default)">
+                            </div>
+                            <div class="form-row">
+                                <label class="form-label">SMTP port</label>
+                                <input type="number" x-model.number="form.smtp_port" class="form-input"
+                                       placeholder="587">
+                            </div>
+                        </details>
+                        <div x-show="errorMsg" x-cloak class="alert alert--error" style="margin-top:10px;font-size:13px" x-text="errorMsg"></div>
+                        <div class="form-actions">
+                            <button type="submit" class="btn-send" :disabled="loading"
+                                    x-text="loading ? 'Adding…' : 'Add account'">
+                                Add account
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </section>
+        {{else}}
+        <section class="settings-section">
+            <h2 class="settings-section__title">Additional Accounts</h2>
+            <p class="settings-section__desc">
+                Multi-account support is disabled. Set
+                <code>[accounts] enabled = true</code> in <code>config.toml</code>
+                to enable it.
+            </p>
+        </section>
+        {{end}}
+
+        <div class="settings-back">
+            <a href="/inbox" class="btn-secondary">← Back to inbox</a>
+        </div>
+    </div>
+</div>
+
+{{if webPushEnabled}}
+<script>
+function pushPanel() {
+    return {
+        supported: false,
+        subscribed: false,
+        enabling: false,
+        statusText: 'Checking…',
+
+        init() {
+            if (!window.lilmailPush) { this.supported = false; this.statusText = ''; return; }
+            this.supported = window.lilmailPush.isSupported();
+            if (!this.supported) {
+                this.statusText = 'Web Push is not supported in this browser.';
+                return;
+            }
+            window.lilmailPush.isSubscribed().then((sub) => {
+                this.subscribed = sub;
+                this.statusText = sub
+                    ? 'Push notifications are enabled.'
+                    : 'Push notifications are not enabled.';
+            });
+        },
+
+        enable() {
+            this.enabling = true;
+            window.lilmailPush.enable()
+                .then(() => {
+                    this.subscribed = true;
+                    this.statusText = 'Push notifications are enabled.';
+                })
+                .catch((err) => {
+                    this.statusText = 'Could not enable: ' + err.message;
+                })
+                .finally(() => { this.enabling = false; });
+        },
+
+        disable() {
+            window.lilmailPush.disable()
+                .then(() => {
+                    this.subscribed = false;
+                    this.statusText = 'Push notifications are disabled.';
+                })
+                .catch((err) => {
+                    this.statusText = 'Error: ' + err.message;
+                });
+        }
+    };
+}
+</script>
+{{end}}
+
+{{if accountsEnabled}}
+<script>
+function addAccountForm() {
+    return {
+        open: false,
+        loading: false,
+        errorMsg: '',
+        form: {
+            email: '',
+            password: '',
+            label: '',
+            color: '#4285F4',
+            imap_server: '',
+            imap_port: 0,
+            smtp_server: '',
+            smtp_port: 0,
+        },
+        submit() {
+            this.loading = true;
+            this.errorMsg = '';
+            var token = document.getElementById('app-token') ? document.getElementById('app-token').dataset.token : '';
+            fetch('/api/accounts', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + token,
+                },
+                body: JSON.stringify(this.form),
+            }).then(function(r) {
+                return r.json().then(function(data) { return { ok: r.ok, data: data }; });
+            }).then((res) => {
+                if (!res.ok) {
+                    this.errorMsg = res.data.error || 'Unknown error';
+                } else {
+                    // Reload page to refresh accounts list.
+                    window.location.reload();
+                }
+            }).catch((err) => {
+                this.errorMsg = 'Request failed: ' + err.message;
+            }).finally(() => { this.loading = false; });
+        }
+    };
+}
+</script>
+{{end}}

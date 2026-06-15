@@ -56,6 +56,13 @@
     <!-- Account -->
     <div class="topbar__account">
         <span class="topbar__username">{{.Username}}</span>
+        <a href="/settings" class="topbar__settings" title="Settings">
+            <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+            </svg>
+        </a>
         <a href="/logout" class="topbar__logout">Sign out</a>
     </div>
 </header>
@@ -134,6 +141,115 @@
             startSSE();
         }
     })();
+</script>
+{{end}}
+{{end}}
+
+{{if webPushEnabled}}
+{{if .Username}}
+<script>
+// LilMail Web Push — service worker registration + subscription management.
+// Called from the Settings page "Enable push notifications" button as
+// window.lilmailPush.enable(), or from a prior subscription stored in the SW.
+(function() {
+    'use strict';
+
+    // urlBase64ToUint8Array converts a base64url string to a Uint8Array for
+    // use as the applicationServerKey in PushManager.subscribe().
+    function urlBase64ToUint8Array(base64String) {
+        var padding = '='.repeat((4 - base64String.length % 4) % 4);
+        var base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+        var rawData = atob(base64);
+        var outputArray = new Uint8Array(rawData.length);
+        for (var i = 0; i < rawData.length; ++i) {
+            outputArray[i] = rawData.charCodeAt(i);
+        }
+        return outputArray;
+    }
+
+    // registerAndSubscribe registers the service worker and subscribes for push.
+    // Returns a Promise that resolves with the subscription JSON on success.
+    function registerAndSubscribe() {
+        if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+            return Promise.reject(new Error('Push not supported in this browser'));
+        }
+        return navigator.serviceWorker.register('/sw.js', { scope: '/' })
+            .then(function(reg) {
+                // Fetch VAPID public key.
+                return fetch('/api/push/vapid-public')
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        var key = urlBase64ToUint8Array(data.publicKey);
+                        return reg.pushManager.subscribe({
+                            userVisibleOnly: true,
+                            applicationServerKey: key
+                        });
+                    });
+            })
+            .then(function(sub) {
+                var subJson = sub.toJSON();
+                // POST the subscription to the server.
+                return fetch('/api/push/subscribe', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + (document.getElementById('app-token') ? document.getElementById('app-token').dataset.token : '')
+                    },
+                    body: JSON.stringify(subJson)
+                }).then(function(r) {
+                    if (!r.ok) throw new Error('Server rejected subscription');
+                    return subJson;
+                });
+            });
+    }
+
+    // unsubscribe removes the subscription both from the browser and the server.
+    function unsubscribe() {
+        if (!('serviceWorker' in navigator)) return Promise.resolve();
+        return navigator.serviceWorker.ready
+            .then(function(reg) { return reg.pushManager.getSubscription(); })
+            .then(function(sub) {
+                if (!sub) return;
+                var endpoint = sub.endpoint;
+                return sub.unsubscribe().then(function() {
+                    return fetch('/api/push/subscribe', {
+                        method: 'DELETE',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': 'Bearer ' + (document.getElementById('app-token') ? document.getElementById('app-token').dataset.token : '')
+                        },
+                        body: JSON.stringify({ endpoint: endpoint })
+                    });
+                });
+            });
+    }
+
+    // Expose public API for the Settings page.
+    window.lilmailPush = {
+        enable: function() {
+            return Notification.requestPermission().then(function(perm) {
+                if (perm !== 'granted') throw new Error('Notification permission denied');
+                return registerAndSubscribe();
+            });
+        },
+        disable: unsubscribe,
+        isSupported: function() {
+            return ('serviceWorker' in navigator) && ('PushManager' in window) && ('Notification' in window);
+        },
+        isSubscribed: function() {
+            if (!('serviceWorker' in navigator)) return Promise.resolve(false);
+            return navigator.serviceWorker.ready
+                .then(function(reg) { return reg.pushManager.getSubscription(); })
+                .then(function(sub) { return sub !== null; });
+        }
+    };
+
+    // Auto-register the service worker on page load so push events are received
+    // even without the Settings page (the subscription was already persisted).
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/sw.js', { scope: '/' });
+    }
+})();
 </script>
 {{end}}
 {{end}}

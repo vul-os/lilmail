@@ -36,6 +36,7 @@ server-rendered web UI that runs comfortably on 64 MB of RAM.
 - [Vulos OS embed](#-vulos-os-embed)
 - [Calendar (CalDAV)](#-calendar-caldav)
 - [Notifications](#-notifications)
+- [Multiple accounts](#-multiple-accounts)
 - [Building & releasing](#️-building--releasing)
 - [Roadmap](#️-roadmap)
 - [Contributing](#-contributing)
@@ -302,12 +303,71 @@ desktop = false  # native OS toast via gen2brain/beeep (local/desktop runs only)
 | `enabled` | Master switch — `false` by default; no extra goroutines or routes are created when disabled |
 | `idle` | Start an IMAP IDLE watcher per session to detect new mail in real time (default `true` when enabled) |
 | `desktop` | Show native OS toasts via `gen2brain/beeep` — useful when running the binary as a local desktop app (default `false`) |
+| `webpush` | Enable VAPID Web Push for background notifications (see below; requires HTTPS; default `false`) |
+| `vapid_key_file` | Path to the JSON file where the VAPID key pair is persisted (auto-generated on first start; default `vapid.json`) |
 
 When `enabled = true`, the browser will request the **Web Notifications
 permission** on first login. New-mail notifications (sender + subject) are
-delivered while the tab is open via **Server-Sent Events (SSE)**. There is no
-background push when no tab is open (Web Push / VAPID is not yet implemented —
-tracked in [ROADMAP.md](ROADMAP.md)).
+delivered while the tab is open via **Server-Sent Events (SSE)**.
+
+### Web Push (background notifications)
+
+Set `webpush = true` to receive notifications even when no browser tab is open.
+**Requires HTTPS** (browsers reject push subscriptions over plain HTTP).
+
+```toml
+[notifications]
+enabled       = true
+webpush       = true
+vapid_key_file = "vapid.json"   # auto-generated on first start; keep it safe
+```
+
+On first start LilMail generates an ECDH P-256 VAPID key pair and writes it to
+`vapid_key_file` (default `vapid.json` in the working directory). **Protect this
+file** — anyone with the private key can send push notifications to your users.
+Losing it means existing push subscriptions will no longer work (you'll need to
+ask users to re-subscribe from Settings).
+
+Once running, go to **Settings → Push Notifications** and click "Enable push
+notifications". The browser will ask for permission once; subsequent restarts
+automatically re-register the service worker and resume push delivery.
+
+New config keys exposed as HTTP routes (registered only when `webpush = true`):
+
+| Route | Description |
+| ----- | ----------- |
+| `GET /api/push/vapid-public` | Returns `{"publicKey":"<base64url>"}` — public, no auth |
+| `POST /api/push/subscribe` | Upsert a browser PushSubscription (session auth required) |
+| `DELETE /api/push/subscribe` | Remove a subscription by endpoint (session auth required) |
+
+The service worker `/sw.js` is served at the root scope (not under `/assets/`)
+so it can receive push events for the full origin.
+
+## 👥 Multiple accounts
+
+LilMail supports adding and switching between additional IMAP/SMTP accounts.
+Enable it in `config.toml`:
+
+```toml
+[accounts]
+enabled    = true
+store_file = "accounts.db"   # bbolt database; auto-created on first start
+```
+
+Go to **Settings → Additional Accounts** to add an account. Credentials are
+validated against the IMAP server on add and stored encrypted (AES-256-GCM,
+same key as session credentials) in `store_file`.
+
+| Route | Description |
+| ----- | ----------- |
+| `GET /api/accounts` | List additional accounts (passwords not returned) |
+| `POST /api/accounts` | Add an account (validates IMAP credentials; body: JSON) |
+| `DELETE /api/accounts/:email` | Remove an account |
+| `POST /api/accounts/:email/switch` | Switch the active session to this account |
+
+Switching replaces the session identity; the previous account is saved as an
+additional account under the new identity so you can switch back. A settings
+icon (⚙) in the top bar links to the Settings page from any view.
 
 ## 🏗️ Building & releasing
 

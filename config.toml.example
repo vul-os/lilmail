@@ -63,16 +63,22 @@ use_pkce = true           # PKCE (S256); recommended
 # DEFAULT-DISABLED. With enabled = false (the default) the application behaves
 # exactly as before — no extra goroutines, no SSE route, no JS changes.
 #
-# To activate:
+# SSE + browser notifications (while a tab is open):
 #   1. Set enabled = true.
-#   2. Reload / restart the server.
-#   3. Open LilMail in a browser and grant the Notifications permission when
-#      prompted; new-mail browser toasts will then appear while the tab is open.
+#   2. Restart the server.
+#   3. Open LilMail; grant Notification permission when prompted.
+#
+# Web Push (background, even with no open tab) — requires HTTPS:
+#   4. Set webpush = true.  A VAPID key pair is auto-generated on first start
+#      and persisted to vapid_key_file (default: vapid.json in the working dir).
+#   5. Go to Settings → Push Notifications → "Enable push notifications".
 #
 # [notifications]
-# enabled = false   # master switch — must be true to activate anything
-# idle    = true    # IMAP IDLE watcher (recommended; falls back to NOOP poll)
-# desktop = false   # native OS toast via gen2brain/beeep (local/desktop runs)
+# enabled       = false   # master switch — must be true to activate anything
+# idle          = true    # IMAP IDLE watcher (recommended; falls back to NOOP poll)
+# desktop       = false   # native OS toast via gen2brain/beeep (local/desktop runs)
+# webpush       = false   # VAPID Web Push — background notifications; needs HTTPS
+# vapid_key_file = "vapid.json"  # path for persisted VAPID key pair (auto-generated)
 
 # Optional: CalDAV calendar integration. Routes appear in the sidebar only when enabled.
 #
@@ -110,3 +116,18 @@ use_pkce = true           # PKCE (S256); recommended
 # endpoint = "http://localhost:8080/api/ai/chat"  # Vulos OS airouter (default)
 # api_key  = ""    # Bearer token — leave empty for local Vulos airouter
 # model    = ""    # model slug forwarded to endpoint; empty = endpoint default
+
+# Optional: Multi-account support. When enabled, users can add and switch
+# between multiple IMAP/SMTP accounts from the Settings page (GET /settings).
+# Credentials for each additional account are validated on add and stored
+# encrypted (AES-256-GCM, same key as session credentials) in a bbolt database.
+#
+# Routes added when enabled:
+#   GET    /api/accounts              — list additional accounts (no passwords)
+#   POST   /api/accounts              — add an account (validates IMAP credentials)
+#   DELETE /api/accounts/:email       — remove an account
+#   POST   /api/accounts/:email/switch — switch the active session to this account
+#
+# [accounts]
+# enabled    = false          # master switch; default false
+# store_file = "accounts.db"  # bbolt database for encrypted extra-account creds

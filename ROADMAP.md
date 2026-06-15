@@ -82,6 +82,10 @@ we're going.
 - Server-side **IMAP IDLE** watcher
 - **SSE** stream → **Web Notifications API** (OS notifications while a tab is open)
 - Opt-in **native desktop** toasts via `gen2brain/beeep` for local runs
+- **Web Push / VAPID** — background push delivery (even with no open tab); auto-generated
+  ECDH P-256 VAPID key pair; `/api/push/vapid-public`, `POST/DELETE /api/push/subscribe`;
+  service worker (`/sw.js`) handles `push` + `notificationclick` + `pushsubscriptionchange`
+  events; expired subscriptions (HTTP 410) auto-removed; Settings page toggle
 
 **Vulos OS embed**
 - `[server] frame_ancestors` config injects into `Content-Security-Policy:
@@ -127,15 +131,33 @@ we're going.
 - **CardDAV contacts** (`[carddav]` config) — optional; uses `go-vcard`
   `FN`/`EMAIL` fields from configured address book.
 
+## ✅ Recently shipped (v1.8.0)
+
+- **Web Push (VAPID + Service Worker)** — background push notifications when no
+  tab is open. Auto-generated VAPID key pair; push subscription management
+  (`/api/push/subscribe`); service worker `/sw.js` handles `push`,
+  `notificationclick`, and `pushsubscriptionchange`; Settings page toggle.
+  Opt-in via `[notifications] webpush = true`; degrades gracefully when unconfigured.
+- **Multiple accounts / account switcher** — add extra IMAP/SMTP accounts from
+  the Settings page; credentials validated on add, stored AES-256-GCM encrypted
+  in `accounts.db`; switch active session without logging out; the previous
+  identity is saved as an additional account so switching back works immediately.
+  Opt-in via `[accounts] enabled = true`.
+- **Settings page** (`GET /settings`) — always registered; shows push
+  notification toggle when `webpush = true`, account management when
+  `accounts.enabled = true`; linked from a gear icon in the top bar.
+
 ## 🔜 Next up
 
-- 🔜 **Web Push (VAPID + Service Worker)** — background notifications even when no
-  tab is open (the IMAP IDLE → SSE foundation already exists).
 - 🔜 **Nix package + NixOS module** for declarative, reproducible self-hosting.
 
 ## 💭 Later / exploratory
 
-- 💭 **Multiple accounts** / unified inbox.
+- 💭 **Unified inbox** — show messages from all added accounts in a single view
+  (see multi-account above for the account-switching foundation).
+  Precise remaining scope: the `AccountStore` and session-switch path are done;
+  what's missing is a multiplexed IMAP fetch across accounts on inbox load and
+  a combined thread store that tags messages by source account.
 - 💭 **Filters / rules** and richer server-side flag management.
 - 💭 **PWA / offline** mode and a keyboard-driven UX / theming.
 - 💭 **JMAP** client support ([RFC 8620](https://jmap.io/)) as a modern transport

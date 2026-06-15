@@ -153,6 +153,17 @@ func main() {
 		return config.Notifications.Enabled
 	})
 
+	// webPushEnabled tells templates whether to register the service worker and
+	// expose the "Enable push notifications" button.
+	engine.AddFunc("webPushEnabled", func() bool {
+		return config.Notifications.Enabled && config.Notifications.WebPush
+	})
+
+	// accountsEnabled tells templates whether to show the account-switcher UI.
+	engine.AddFunc("accountsEnabled", func() bool {
+		return config.Accounts.Enabled
+	})
+
 	engine.Reload(false) // embedded — no disk reload needed
 
 	// Initialize Fiber with template engine
@@ -203,6 +214,21 @@ func main() {
 		MaxAge:       int(24 * time.Hour / time.Second),
 		NotFoundFile: "",
 	}))
+
+	// Service worker must be served at the root scope (not under /assets/)
+	// so that it can intercept fetch requests and show push notifications for
+	// the entire origin.  Served with Cache-Control: no-cache so the browser
+	// always picks up updates promptly.
+	app.Get("/sw.js", func(c *fiber.Ctx) error {
+		swBytes, readErr := assetsFS.ReadFile("assets/sw.js")
+		if readErr != nil {
+			return fiber.ErrNotFound
+		}
+		c.Set("Content-Type", "application/javascript; charset=utf-8")
+		c.Set("Cache-Control", "no-cache")
+		c.Set("Service-Worker-Allowed", "/") // Allow SW to control the full origin.
+		return c.Send(swBytes)
+	})
 
 	// Initialize web handlers
 	webAuthHandler := web.NewAuthHandler(store, config)
@@ -266,9 +292,71 @@ func main() {
 	// With enabled = false (the default) this block is never entered, so no
 	// extra goroutines are created and no new routes appear.
 	if config.Notifications.Enabled {
-		hub := web.NewNotificationHub(store, config, webAuthHandler)
+		// Optional VAPID Web Push.
+		var vapidKeys *web.VAPIDKeys
+		var pushStore *web.PushStore
+		if config.Notifications.WebPush {
+			var err error
+			vapidKeys, err = web.LoadOrGenerateVAPIDKeys(config.Notifications.VAPIDKeyFile)
+			if err != nil {
+				log.Printf("webpush: VAPID key init failed (%v) — web push disabled", err)
+			} else {
+				log.Printf("webpush: VAPID public key loaded (%s)", config.Notifications.VAPIDKeyFile)
+				cacheRoot := config.Cache.Folder
+				if cacheRoot == "" {
+					cacheRoot = "."
+				}
+				pushStore = web.NewPushStore(cacheRoot)
+			}
+		}
+
+		hub := web.NewNotificationHub(store, config, webAuthHandler, vapidKeys, pushStore)
 		notifHandler := web.NewNotificationsHandler(hub)
 		protected.Get("/events", notifHandler.HandleSSE)
+
+		// VAPID public key endpoint — public (no session required) so the SW can
+		// fetch it before the user navigates to an authenticated page.
+		if vapidKeys != nil {
+			pushHandler := web.NewPushHandler(vapidKeys, pushStore)
+			app.Get("/api/push/vapid-public", pushHandler.HandleVAPIDPublicKey)
+			protected.Post("/api/push/subscribe", pushHandler.HandleSubscribe)
+			protected.Delete("/api/push/subscribe", pushHandler.HandleUnsubscribe)
+		}
+	}
+
+	// Multi-account routes — registered only when accounts.enabled = true.
+	var acctHandler *web.AccountsHandler
+	if config.Accounts.Enabled {
+		acctStore, err := web.OpenAccountStore(config.Accounts.StoreFile)
+		if err != nil {
+			log.Fatalf("accounts: open store: %v", err)
+		}
+		acctHandler = web.NewAccountsHandler(store, config, webAuthHandler, acctStore)
+
+		protected.Get("/api/accounts", acctHandler.HandleListAccounts)
+		protected.Post("/api/accounts", acctHandler.HandleAddAccount)
+		protected.Delete("/api/accounts/:email", acctHandler.HandleDeleteAccount)
+		protected.Post("/api/accounts/:email/switch", acctHandler.HandleSwitchAccount)
+	}
+	// Settings page — always registered so users can reach it even without extras.
+	// When accounts.enabled = false the settings page shows a placeholder panel.
+	if acctHandler != nil {
+		protected.Get("/settings", acctHandler.HandleSettings)
+	} else {
+		// Minimal settings handler when accounts are disabled.
+		protected.Get("/settings", func(c *fiber.Ctx) error {
+			username, _ := c.Locals("username").(string)
+			email, _ := c.Locals("email").(string)
+			sess, _ := store.Get(c)
+			token, _ := sess.Get("token").(string)
+			return c.Render("settings", fiber.Map{
+				"Title":           "Settings",
+				"Username":        username,
+				"Email":           email,
+				"Token":           token,
+				"AccountsEnabled": false,
+			})
+		})
 	}
 
 	// Calendar routes — registered only when CalDAV is enabled.

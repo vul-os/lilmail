@@ -246,6 +246,15 @@ input, textarea, select { font-family: inherit; }
 }
 .topbar__logout:hover { background: var(--c-danger-soft); }
 
+.topbar__settings {
+  display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px;
+  border-radius: var(--r-sm);
+  color: var(--c-text-2);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.topbar__settings:hover { background: var(--c-surface-alt); color: var(--c-text); }
+
 /* ---------------------------------------------------------
    MAIN LAYOUT WRAPPER
 --------------------------------------------------------- */
@@ -1444,3 +1453,131 @@ input, textarea, select { font-family: inherit; }
 .btn-draft:hover { background: var(--c-surface-alt); color: var(--c-text); }
 .btn-draft:disabled { opacity: 0.45; cursor: not-allowed; }
 .btn-draft svg { flex-shrink: 0; }
+
+/* ---------------------------------------------------------
+   SETTINGS PAGE
+--------------------------------------------------------- */
+.settings-page {
+  padding: 32px 16px;
+  min-height: calc(100vh - var(--topbar-h));
+}
+.settings-container {
+  max-width: 680px;
+  margin: 0 auto;
+}
+.settings-title {
+  font-size: 22px; font-weight: 700;
+  color: var(--c-text);
+  margin-bottom: 28px;
+  letter-spacing: -0.02em;
+}
+.settings-section {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  padding: 24px;
+  margin-bottom: 20px;
+}
+.settings-section__title {
+  font-size: 15px; font-weight: 600;
+  color: var(--c-text);
+  margin-bottom: 6px;
+}
+.settings-section__desc {
+  font-size: 13px; color: var(--c-text-2);
+  margin-bottom: 16px;
+  line-height: 1.6;
+}
+.settings-empty {
+  font-size: 13px; color: var(--c-text-3);
+  font-style: italic;
+  margin-bottom: 12px;
+}
+.settings-back {
+  margin-top: 8px;
+}
+
+/* Push panel */
+.push-panel__status {
+  font-size: 13px; color: var(--c-text-2);
+  margin-bottom: 12px;
+  min-height: 20px;
+}
+.push-panel__unsupported {
+  font-size: 13px; color: var(--c-text-3);
+  margin-top: 8px;
+}
+
+/* Accounts table */
+.accounts-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+.accounts-table th {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--c-border);
+  color: var(--c-text-3);
+  font-weight: 500;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.accounts-table__row td {
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--c-border-soft);
+  vertical-align: middle;
+}
+.accounts-table__row:last-child td { border-bottom: none; }
+.accounts-table__actions { display: flex; gap: 6px; justify-content: flex-end; }
+
+.account-dot {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+/* Add-account form */
+.add-account-details { margin-top: 4px; }
+.add-account-details > summary { margin-bottom: 16px; }
+.add-account-form { padding: 16px; border: 1px solid var(--c-border); border-radius: var(--r-md); margin-top: 4px; }
+.add-account-advanced { margin-top: 12px; font-size: 13px; }
+.add-account-advanced > summary {
+  color: var(--c-text-2); cursor: pointer; margin-bottom: 10px;
+  font-size: 12px; font-weight: 500;
+}
+.form-row { margin-bottom: 12px; }
+.form-label {
+  display: block; font-size: 12px; font-weight: 500;
+  color: var(--c-text-2); margin-bottom: 4px;
+}
+.form-input {
+  width: 100%;
+  padding: 7px 10px;
+  font-size: 13px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+  background: var(--c-surface);
+  color: var(--c-text);
+  outline: none;
+  transition: border-color var(--t-fast), box-shadow var(--t-fast);
+}
+.form-input:focus {
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-accent) 15%, transparent);
+}
+.form-input--color { width: 48px; height: 32px; padding: 2px; cursor: pointer; }
+.form-actions { margin-top: 16px; }
+
+/* Small/danger button variants */
+.btn--small { padding: 4px 10px; font-size: 12px; }
+.btn--danger {
+  background: var(--c-danger-soft);
+  color: var(--c-danger);
+  border: 1px solid transparent;
+}
+.btn--danger:hover { background: #fecaca; }
