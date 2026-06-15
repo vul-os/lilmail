@@ -99,6 +99,3 @@ func parseVCardEntry(card vcard.Card) (name string, emails []string) {
 	return name, emails
 }
 
-// extractVCardReflect is a no-op placeholder to satisfy the reference in
-// recipients.go when CardDAV is not configured; the real work is done above.
-func extractVCardReflect(_ interface{}) (string, []string) { return "", nil }

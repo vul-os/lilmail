@@ -337,10 +337,7 @@ git push origin v1.5.0
 
 ## 🗺️ Roadmap
 
-Search, JMAP, CardDAV, multiple accounts, Web Push (VAPID), RSVP iTIP, and
-more are tracked in **[ROADMAP.md](ROADMAP.md)**. JWZ threading, CalDAV
-calendar, real-time notifications, and the AI assistant are already shipped —
-see the sections above.
+Web Push (VAPID) and multiple accounts are tracked in **[ROADMAP.md](ROADMAP.md)**. Conversation threading, CalDAV calendar, real-time notifications, AI assistant, IMAP search, drafts, HTML rich-text compose, file attachments, recipient autocomplete (with CardDAV), CC/BCC, reply/forward threading headers, and iTIP RSVP are already shipped — see the sections above.
 
 ## 🤝 Contributing
 

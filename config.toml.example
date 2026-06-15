@@ -74,6 +74,24 @@ use_pkce = true           # PKCE (S256); recommended
 # idle    = true    # IMAP IDLE watcher (recommended; falls back to NOOP poll)
 # desktop = false   # native OS toast via gen2brain/beeep (local/desktop runs)
 
+# Optional: CalDAV calendar integration. Routes appear in the sidebar only when enabled.
+#
+# [caldav]
+# enabled  = true
+# url      = "https://cal.example.com/dav/"   # CalDAV endpoint or principal URL
+# auth     = "basic"                           # "basic" or "oauth2"
+# username = "alice@example.com"               # used when auth = "basic"
+# password = "app-password"                    # used when auth = "basic"
+
+# Optional: CardDAV address-book for recipient autocomplete in the compose modal.
+# When enabled, the To/CC autocomplete also queries the configured address book.
+#
+# [carddav]
+# enabled  = false
+# url      = "https://dav.example.com"
+# username = "alice@example.com"
+# password = "secret"
+
 # Optional: Mail AI assistant. Routes:
 #   POST /api/ai/compose         — smart compose / continue / rewrite
 #   POST /api/ai/summarize       — thread summary + key points + action items

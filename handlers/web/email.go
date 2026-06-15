@@ -26,7 +26,7 @@ func recipientsStorePath(cacheFolder, username string) string {
 
 // boltPath returns the path to the per-user bbolt thread-cache database.
 func boltPath(cacheFolder, username string) string {
-	return filepath.Join(cacheFolder, api.SanitizeUsername(username), "threads.db")
+	return recipientsStorePath(cacheFolder, username)
 }
 
 type EmailHandler struct {

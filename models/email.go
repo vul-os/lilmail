@@ -25,13 +25,6 @@ type Email struct {
 	References []string `json:"references,omitempty"`
 }
 
-// type Attachment struct {
-// 	Filename    string
-// 	ContentType string
-// 	Size        int
-// 	Content     []byte
-// }
-
 type Attachment struct {
 	ID          string
 	Filename    string
