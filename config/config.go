@@ -84,6 +84,22 @@ type CalDAVConfig struct {
 	Password string `toml:"password"` // used when auth = "basic"
 }
 
+// CardDAVContactsConfig configures an optional CardDAV address book used for
+// recipient autocomplete in the compose modal. When Enabled is false (the
+// default), autocomplete uses only the recent-recipients bbolt store.
+//
+//	[carddav]
+//	enabled  = true
+//	url      = "https://dav.example.com"
+//	username = "alice@example.com"
+//	password = "secret"
+type CardDAVContactsConfig struct {
+	Enabled  bool   `toml:"enabled"`
+	URL      string `toml:"url"`
+	Username string `toml:"username"`
+	Password string `toml:"password"`
+}
+
 // AIConfig configures the mail-AI assistant endpoints.
 //
 // LilMail is a standalone mail client; all LLM inference is delegated to a
@@ -133,17 +149,18 @@ type NotificationsConfig struct {
 }
 
 type Config struct {
-	Server        ServerConfig        `toml:"server"`
-	IMAP          IMAPConfig          `toml:"imap"`
-	SMTP          SMTPConfig          `toml:"smtp"`
-	JWT           JWTConfig           `toml:"jwt"`
-	Cache         CacheConfig         `toml:"cache"`
-	Encryption    EncryptionConfig    `toml:"encryption"`
-	SSL           SSLConfig           `toml:"ssl"`
-	OAuth2        OAuth2Config        `toml:"oauth2"`
-	CalDAV        CalDAVConfig        `toml:"caldav"`
-	Notifications NotificationsConfig `toml:"notifications"`
-	AI            AIConfig            `toml:"ai"`
+	Server        ServerConfig           `toml:"server"`
+	IMAP          IMAPConfig             `toml:"imap"`
+	SMTP          SMTPConfig             `toml:"smtp"`
+	JWT           JWTConfig              `toml:"jwt"`
+	Cache         CacheConfig            `toml:"cache"`
+	Encryption    EncryptionConfig       `toml:"encryption"`
+	SSL           SSLConfig              `toml:"ssl"`
+	OAuth2        OAuth2Config           `toml:"oauth2"`
+	CalDAV        CalDAVConfig           `toml:"caldav"`
+	CardDAV       CardDAVContactsConfig  `toml:"carddav"`
+	Notifications NotificationsConfig    `toml:"notifications"`
+	AI            AIConfig               `toml:"ai"`
 }
 
 func LoadConfig(filepath string) (*Config, error) {

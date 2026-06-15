@@ -7,6 +7,79 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
+## [Unreleased] — v1.7.0
+
+### Added
+
+- **Drafts** — Save drafts via `POST /api/draft` which appends the message to
+  the IMAP Drafts folder (discovered by `\Drafts` special-use attribute via
+  `IMAP LIST`, with name-guess fallback). The compose modal gains a "Draft"
+  button and auto-saves every 30 s while composing. Clicking a draft in the
+  Drafts folder opens it back into compose (To/CC/Subject/Body/HTML all
+  restored); sending a composed draft deletes the old draft from IMAP via
+  `UID STORE +FLAGS \Deleted` + EXPUNGE. Route: `GET /api/drafts` for the
+  draft list partial; `POST /api/draft` for save; `POST /api/compose` with
+  `draft_uid` for replace-and-send.
+
+- **Attachments in compose** — The compose form uses `enctype=multipart/form-data`
+  and a multi-file `<input type=file>`. The server builds a proper
+  `multipart/mixed` MIME message (body part + one attachment part per file,
+  each base64-encoded with RFC 2045-compliant 76-char line breaks and correct
+  `Content-Type` / `Content-Disposition` headers). The same raw bytes are sent
+  via SMTP and APPENDed to the Sent folder so the Sent copy is complete.
+  Selected filenames are listed in the compose modal before sending.
+
+- **HTML compose** — Compose modal gains a "Rich/Plain" toggle. Rich mode shows
+  a `contenteditable` editor with a lightweight dependency-free formatting
+  toolbar (bold, italic, underline, strikethrough, ordered/unordered lists,
+  link, remove formatting — all via `document.execCommand`). Toggling back to
+  plain copies text from the editor. On send/draft-save the HTML is placed in
+  a `text/html` part and the plain text in `text/plain`; both are wrapped in
+  `multipart/alternative` (plain first per RFC 2046). Existing plain-text
+  compose continues to work unchanged.
+
+- **Recipient autocomplete** — To/CC/BCC inputs now show an inline autocomplete
+  dropdown. Selecting an entry appends it to the comma-separated field.
+  Two data sources:
+  - **Recent recipients** — every address in the To/CC fields of a sent message
+    is recorded (email, display name, send count, last-used time) in the shared
+    per-user bbolt database. Count and recency drive sort order.
+  - **CardDAV contacts** (optional) — when `[carddav] enabled = true` in
+    `config.toml`, LilMail queries the configured address book via a
+    `carddav.AddressBookQuery` and merges matching vCard `FN`/`EMAIL` fields
+    into the suggestions list. Requires no additional dependency — uses the
+    transitive `go-webdav`/`go-vcard` already present.
+  Route: `GET /api/autocomplete?q=<query>` (JSON array of `{email, name}`).
+
+- New config section `[carddav]` (`enabled`, `url`, `username`, `password`) for
+  CardDAV address-book contact queries (independent of the `[caldav]` calendar
+  integration).
+
+- **Central MIME builder** (`handlers/api/mime_builder.go`) — single function
+  `BuildMIMEMessage` produces correct RFC 2822 + MIME messages for all paths
+  (send, draft save, sent-folder copy). Handles plain, alternative, mixed, and
+  mixed-with-alternative combinations. Quoted-printable body encoding.
+
+- **`SendRawMessage`** on `SMTPClient` — takes pre-built message bytes and a
+  list of envelope recipients; share the same SMTP connection logic as
+  `SendMail`.
+
+- **Tests** — `handlers/api/mime_builder_test.go` covers plain, HTML+plain,
+  attachments, mixed+alternative, threading headers, empty body.
+  `handlers/api/recipients_test.go` covers Record/Search, count increment,
+  sort-by-count, limit, name update, persistence, and last-used timestamp.
+
+### Changed
+
+- `Client.SaveToSent` now accepts `rawMessage []byte`; when non-nil the exact
+  bytes are APPENDed (so the Sent copy matches what was actually sent). Falls
+  back to a synthetic plain-text message for backwards compatibility.
+- `HandleComposeEmail` now builds the MIME message via `BuildMIMEMessage` and
+  sends via `SendRawMessage`; the original `SendMail` path is preserved for
+  programmatic callers.
+
+---
+
 ## [Unreleased] — v1.6.0
 
 ### Added

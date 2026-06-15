@@ -244,6 +244,13 @@ func main() {
 		// Composition routes
 		apiRoutes.Post("/compose", webEmailHandler.HandleComposeEmail)
 
+		// Drafts
+		apiRoutes.Post("/draft", webEmailHandler.HandleSaveDraft)
+		apiRoutes.Get("/drafts", webEmailHandler.HandleListDrafts)
+
+		// Recipient autocomplete (recent senders + optional CardDAV)
+		apiRoutes.Get("/autocomplete", webEmailHandler.HandleAutocomplete)
+
 		// Mark-as-unread: removes the \Seen flag from a message.
 		apiRoutes.Patch("/email/:id/unread", webEmailHandler.HandleMarkUnread)
 

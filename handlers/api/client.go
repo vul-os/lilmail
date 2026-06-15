@@ -235,15 +235,22 @@ func (c *Client) discoverSentFolder() (string, error) {
 // SaveToSent appends a copy of the sent message to the user's Sent folder.
 // The Sent folder is discovered via IMAP LIST (special-use \Sent attribute first,
 // then common name guesses).
-func (c *Client) SaveToSent(to, subject, body string) error {
+//
+// rawMessage should be the complete RFC 2822 message bytes (same bytes sent via
+// SMTP). When rawMessage is nil, a minimal plain-text message is synthesised
+// from to/subject/body for backwards compatibility.
+func (c *Client) SaveToSent(to, subject, body string, rawMessage []byte) error {
 	folder, err := c.discoverSentFolder()
 	if err != nil {
 		return err
 	}
 
-	// Format the message
-	message := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nDate: %s\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n%s",
-		c.username, to, subject, time.Now().Format(time.RFC1123Z), body)
+	if rawMessage == nil {
+		// Fallback: build a minimal plain-text message.
+		msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nDate: %s\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n%s",
+			c.username, to, subject, time.Now().Format(time.RFC1123Z), body)
+		rawMessage = []byte(msg)
+	}
 
-	return c.client.Append(folder, nil, time.Now(), strings.NewReader(message))
+	return c.client.Append(folder, []string{`\Seen`}, time.Now(), strings.NewReader(string(rawMessage)))
 }

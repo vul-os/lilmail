@@ -275,6 +275,17 @@ func (h *AuthHandler) CreateIMAPClient(c *fiber.Ctx) (*api.Client, error) {
 	)
 }
 
+// GetSessionEmail returns the authenticated user's email address from the
+// session, or an empty string if the session is unavailable.
+func (h *AuthHandler) GetSessionEmail(c *fiber.Ctx) string {
+	sess, err := h.store.Get(c)
+	if err != nil {
+		return ""
+	}
+	email, _ := sess.Get("email").(string)
+	return email
+}
+
 func (h *AuthHandler) CreateSMTPClient(c *fiber.Ctx) (*api.SMTPClient, error) {
 	// Use the configured SMTP server (the config loader derives it from the
 	// IMAP server when not explicitly set).

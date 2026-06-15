@@ -45,16 +45,18 @@
              data-subject="{{.Email.Subject}}"
              data-date="{{formatDate .Email.Date}}"
              data-body="{{.Email.Body}}"
+             data-html="{{.Email.HTML}}"
              data-messageid="{{.Email.MessageID}}"
              data-inreplyto="{{.Email.InReplyTo}}"
              data-references="{{join .Email.References " "}}"
+             data-emailid="{{.Email.ID}}"
              x-data="{
                  quoted() {
                      const d = $root.dataset;
                      const lines = (d.body || '').split('\n').map(l => '> ' + l).join('\n');
                      return '\n\nOn ' + d.date + ', ' + d.fromname + ' wrote:\n' + lines;
                  },
-                 fill(to, subject, body, inReplyTo, refs) {
+                 fill(to, subject, body, inReplyTo, refs, draftUID, htmlBody) {
                      showComposeModal = true;
                      $nextTick(() => {
                          const t = document.getElementById('compose-to');
@@ -62,14 +64,39 @@
                          const b = document.getElementById('compose-body');
                          const irt = document.getElementById('compose-in-reply-to');
                          const rfr = document.getElementById('compose-references');
+                         const du = document.getElementById('compose-draft-uid');
                          if (t) t.value = to;
                          if (s) s.value = subject;
                          if (b) { b.value = body; b.focus(); }
                          if (irt) irt.value = inReplyTo || '';
                          if (rfr) rfr.value = refs || '';
+                         if (du) du.value = draftUID || '';
+                         // If HTML body: switch to rich mode.
+                         if (htmlBody) {
+                             const ed = document.getElementById('compose-rich-body');
+                             if (ed) ed.innerHTML = htmlBody;
+                             // Trigger Alpine richMode toggle.
+                             const cmp = Alpine.$data(document.getElementById('compose-form').closest('[x-data]'));
+                             if (cmp) cmp.richMode = true;
+                         }
                      });
+                 },
+                 restoreDraft() {
+                     const d = $root.dataset;
+                     this.fill(d.from, d.subject, d.body, d.inreplyto, d.references, d.emailid, d.html);
                  }
              }">
+            {{if .IsDrafts}}
+            <!-- Edit Draft button — only shown when viewing a draft -->
+            <button class="btn-action"
+                    @click="restoreDraft()">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                </svg>
+                Edit Draft
+            </button>
+            {{else}}
             <button class="btn-action"
                     @click="const d = $root.dataset;
                             const mid = d.messageid || '';
@@ -79,7 +106,9 @@
                                  /^re:/i.test(d.subject) ? d.subject : 'Re: ' + d.subject,
                                  quoted(),
                                  mid,
-                                 newRefs.trim())">
+                                 newRefs.trim(),
+                                 '',
+                                 '')">
                 <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/>
@@ -93,12 +122,15 @@
                                  /^fwd:/i.test(d.subject) ? d.subject : 'Fwd: ' + d.subject,
                                  '\n\n---------- Forwarded message ----------\nFrom: ' + d.fromname + '\nDate: ' + d.date + '\nSubject: ' + d.subject + '\n\n' + (d.body || ''),
                                  '',
+                                 '',
+                                 '',
                                  '')">
                 <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"/>
                 </svg>
                 Forward
             </button>
+            {{end}}
 
             <!-- More / Delete dropdown -->
             <div class="dropdown" x-data="{ open: false }">

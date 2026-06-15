@@ -18,6 +18,12 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/session"
 )
 
+// recipientsStorePath returns the path to the per-user bbolt database that
+// stores both thread cache and recent recipients (shared file).
+func recipientsStorePath(cacheFolder, username string) string {
+	return filepath.Join(cacheFolder, api.SanitizeUsername(username), "threads.db")
+}
+
 // boltPath returns the path to the per-user bbolt thread-cache database.
 func boltPath(cacheFolder, username string) string {
 	return filepath.Join(cacheFolder, api.SanitizeUsername(username), "threads.db")
@@ -224,10 +230,14 @@ func (h *EmailHandler) HandleEmailView(c *fiber.Ctx) error {
 			"error": fmt.Sprintf("Error fetching email: %v", err),
 		})
 	}
+	// Detect Drafts folder so the template can show "Edit Draft" instead of Reply/Forward.
+	isDrafts := strings.Contains(strings.ToLower(folderName), "draft")
+
 	// Important: Set empty layout and only render the partial
 	return c.Render("partials/email-viewer", fiber.Map{
 		"Email":         email,
 		"CurrentFolder": folderName,
+		"IsDrafts":      isDrafts,
 		"Layout":        "", // This is crucial to prevent full HTML rendering
 	}, "") // Add empty string as second argument to explicitly disable layout
 }
@@ -380,29 +390,104 @@ func (h *EmailHandler) HandleFolderEmails(c *fiber.Ctx) error {
 }
 
 // HandleComposeEmail handles the email composition and sending.
-// It accepts CC, BCC, In-Reply-To, and References form fields so that replies
-// and forwards thread correctly (RFC 2822 §3.6.4).
+// Supports:
+//   - Plain-text and HTML (rich-text) bodies — multipart/alternative when both present
+//   - File attachments — multipart/mixed wrapper with base64-encoded parts
+//   - CC, BCC, In-Reply-To, References for reply/forward threading
+//   - Draft deletion by UID when "draft_uid" form field is set (replaces draft on send)
+//
+// The form must use enctype="multipart/form-data" when attachments are included.
 func (h *EmailHandler) HandleComposeEmail(c *fiber.Ctx) error {
 	// Required fields.
 	to := c.FormValue("to")
 	subject := c.FormValue("subject")
-	body := c.FormValue("body")
+	plainBody := c.FormValue("body")       // plain-text body
+	htmlBody := c.FormValue("html_body")   // optional HTML body (rich-text editor)
 
-	if to == "" || subject == "" || body == "" {
+	if to == "" || subject == "" || (plainBody == "" && htmlBody == "") {
 		return c.Status(400).JSON(fiber.Map{
 			"error": "To, subject and body are required",
 		})
 	}
 
-	// Optional fields.
-	opts := &api.MailOptions{
-		Cc:         c.FormValue("cc"),
-		Bcc:        c.FormValue("bcc"),
-		InReplyTo:  c.FormValue("in_reply_to"),
-		References: c.FormValue("references"),
+	// If only HTML body is provided, generate a minimal plain-text version.
+	if plainBody == "" && htmlBody != "" {
+		plainBody = stripHTMLForPlain(htmlBody)
 	}
 
-	// Create SMTP client.
+	// Collect file attachments from the multipart form.
+	var attachments []api.OutgoingAttachment
+	form, _ := c.MultipartForm()
+	if form != nil {
+		for _, fhs := range form.File {
+			for _, fh := range fhs {
+				f, err := fh.Open()
+				if err != nil {
+					log.Printf("compose: open attachment %q: %v", fh.Filename, err)
+					continue
+				}
+				data := make([]byte, fh.Size)
+				if _, err := f.Read(data); err != nil {
+					f.Close()
+					log.Printf("compose: read attachment %q: %v", fh.Filename, err)
+					continue
+				}
+				f.Close()
+				ct := fh.Header.Get("Content-Type")
+				if ct == "" {
+					ct = "application/octet-stream"
+				}
+				attachments = append(attachments, api.OutgoingAttachment{
+					Filename:    fh.Filename,
+					ContentType: ct,
+					Data:        data,
+				})
+			}
+		}
+	}
+
+	cc := c.FormValue("cc")
+	bcc := c.FormValue("bcc")
+	inReplyTo := c.FormValue("in_reply_to")
+	references := c.FormValue("references")
+	draftUID := c.FormValue("draft_uid") // UID of draft to delete after send
+
+	// Get the sender email from the session.
+	fromEmail := h.auth.GetSessionEmail(c)
+
+	// Build the MIME message.
+	mimeOpts := api.MIMEMessageOptions{
+		From:        fromEmail,
+		To:          to,
+		Cc:          cc,
+		Subject:     subject,
+		InReplyTo:   inReplyTo,
+		References:  references,
+		PlainBody:   plainBody,
+		HTMLBody:    htmlBody,
+		Attachments: attachments,
+	}
+	rawMessage, err := api.BuildMIMEMessage(mimeOpts)
+	if err != nil {
+		log.Printf("compose: build MIME message: %v", err)
+		return c.Status(500).JSON(fiber.Map{
+			"error": fmt.Sprintf("Failed to build message: %v", err),
+		})
+	}
+
+	// Collect all RCPT TO addresses (To + CC + BCC).
+	var allRcpts []string
+	for _, a := range api.ParseAddressField(to) {
+		allRcpts = append(allRcpts, a.Email)
+	}
+	for _, a := range api.ParseAddressField(cc) {
+		allRcpts = append(allRcpts, a.Email)
+	}
+	for _, a := range api.ParseAddressField(bcc) {
+		allRcpts = append(allRcpts, a.Email)
+	}
+
+	// Create SMTP client and send.
 	smtpClient, err := h.auth.CreateSMTPClient(c)
 	if err != nil {
 		log.Printf("SMTP client creation error: %v", err)
@@ -411,22 +496,42 @@ func (h *EmailHandler) HandleComposeEmail(c *fiber.Ctx) error {
 		})
 	}
 
-	// Send the email.
-	if err = smtpClient.SendMail(to, subject, body, opts); err != nil {
+	if err = smtpClient.SendRawMessage(allRcpts, rawMessage); err != nil {
 		log.Printf("Email sending error: %v", err)
 		return c.Status(500).JSON(fiber.Map{
 			"error": fmt.Sprintf("Failed to send email: %v", err),
 		})
 	}
 
-	// Save a copy to the Sent folder.
+	// Record recipients for autocomplete.
+	username, _ := c.Locals("username").(string)
+	if username != "" {
+		dbPath := recipientsStorePath(h.config.Cache.Folder, username)
+		if rs, err := api.OpenRecipientsStore(dbPath); err == nil {
+			defer rs.Close()
+			var entries []api.RecipientEntry
+			entries = append(entries, api.ParseAddressField(to)...)
+			entries = append(entries, api.ParseAddressField(cc)...)
+			if err := rs.Record(entries); err != nil {
+				log.Printf("compose: record recipients: %v", err)
+			}
+		}
+	}
+
+	// Save to Sent folder (best effort).
 	imapClient, err := h.auth.CreateIMAPClient(c)
 	if err != nil {
 		log.Printf("IMAP client error when saving to Sent: %v", err)
 	} else {
 		defer imapClient.Close()
-		if err := imapClient.SaveToSent(to, subject, body); err != nil {
+		if err := imapClient.SaveToSent(to, subject, plainBody, rawMessage); err != nil {
 			log.Printf("Error saving to Sent folder: %v", err)
+		}
+		// If this was a draft, delete it from the Drafts folder.
+		if draftUID != "" {
+			if err := imapClient.DeleteDraft(draftUID); err != nil {
+				log.Printf("compose: delete draft %s: %v", draftUID, err)
+			}
 		}
 	}
 
@@ -438,6 +543,183 @@ func (h *EmailHandler) HandleComposeEmail(c *fiber.Ctx) error {
 			"subject": subject,
 		},
 	})
+}
+
+// HandleSaveDraft saves or updates a draft message in the IMAP Drafts folder.
+// Route: POST /api/draft
+// Form fields: to, cc, bcc, subject, body, html_body, in_reply_to, references, draft_uid
+// If draft_uid is set, the old draft is deleted before saving the new one.
+func (h *EmailHandler) HandleSaveDraft(c *fiber.Ctx) error {
+	to := c.FormValue("to")
+	subject := c.FormValue("subject")
+	plainBody := c.FormValue("body")
+	htmlBody := c.FormValue("html_body")
+	cc := c.FormValue("cc")
+	inReplyTo := c.FormValue("in_reply_to")
+	references := c.FormValue("references")
+	oldUID := c.FormValue("draft_uid")
+
+	if subject == "" && plainBody == "" && htmlBody == "" && to == "" {
+		return c.Status(400).JSON(fiber.Map{"error": "Draft is empty"})
+	}
+
+	if plainBody == "" && htmlBody != "" {
+		plainBody = stripHTMLForPlain(htmlBody)
+	}
+
+	fromEmail := h.auth.GetSessionEmail(c)
+
+	mimeOpts := api.MIMEMessageOptions{
+		From:      fromEmail,
+		To:        to,
+		Cc:        cc,
+		Subject:   subject,
+		InReplyTo: inReplyTo,
+		References: references,
+		PlainBody: plainBody,
+		HTMLBody:  htmlBody,
+	}
+	rawMessage, err := api.BuildMIMEMessage(mimeOpts)
+	if err != nil {
+		// If body is truly empty, build a minimal skeleton.
+		rawMessage = []byte(fmt.Sprintf(
+			"From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=\"utf-8\"\r\n\r\n",
+			fromEmail, to, subject,
+		))
+	}
+
+	imapClient, err := h.auth.CreateIMAPClient(c)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Failed to connect to mail server"})
+	}
+	defer imapClient.Close()
+
+	// Delete the previous version of the draft before saving the new one.
+	if oldUID != "" {
+		if err := imapClient.DeleteDraft(oldUID); err != nil {
+			log.Printf("draft: delete old %s: %v", oldUID, err)
+		}
+	}
+
+	if err := imapClient.SaveDraft(rawMessage); err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": fmt.Sprintf("Failed to save draft: %v", err)})
+	}
+
+	return c.JSON(fiber.Map{"success": true, "message": "Draft saved"})
+}
+
+// HandleListDrafts returns draft messages as an email-list partial.
+// Route: GET /api/drafts
+func (h *EmailHandler) HandleListDrafts(c *fiber.Ctx) error {
+	username, _ := c.Locals("username").(string)
+
+	token, err := api.GetSessionToken(c, h.store)
+	if err != nil {
+		return c.Status(401).JSON(fiber.Map{"error": "Invalid session"})
+	}
+
+	imapClient, err := h.auth.CreateIMAPClient(c)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": "Failed to connect to mail server"})
+	}
+	defer imapClient.Close()
+
+	draftsFolder, err := imapClient.DiscoverDraftsFolder()
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "No Drafts folder found"})
+	}
+
+	emails, err := imapClient.FetchMessages(draftsFolder, 50)
+	if err != nil {
+		return c.Status(500).JSON(fiber.Map{"error": fmt.Sprintf("Failed to fetch drafts: %v", err)})
+	}
+
+	threads := h.buildThreads(username, draftsFolder, emails)
+
+	return c.Render("partials/email-list", fiber.Map{
+		"Emails":        emails,
+		"Threads":       threads,
+		"CurrentFolder": draftsFolder,
+		"IsDrafts":      true,
+		"Token":         token,
+	}, "")
+}
+
+// HandleAutocomplete returns recipient suggestions for the compose modal.
+// Route: GET /api/autocomplete?q=<query>
+// Returns JSON array of {email, name} objects.
+func (h *EmailHandler) HandleAutocomplete(c *fiber.Ctx) error {
+	query := strings.TrimSpace(c.Query("q"))
+	username, _ := c.Locals("username").(string)
+
+	const limit = 10
+
+	// Recent recipients from bbolt.
+	var results []api.RecipientEntry
+	if username != "" {
+		dbPath := recipientsStorePath(h.config.Cache.Folder, username)
+		if rs, err := api.OpenRecipientsStore(dbPath); err == nil {
+			defer rs.Close()
+			if res, err := rs.Search(query, limit); err == nil {
+				results = res
+			}
+		}
+	}
+
+	// CardDAV contacts (if configured and we haven't hit the limit).
+	if len(results) < limit && h.config.CardDAV.Enabled {
+		remaining := limit - len(results)
+		cardContacts := api.CardDAVContacts(
+			h.config.CardDAV.URL,
+			h.config.CardDAV.Username,
+			h.config.CardDAV.Password,
+			query,
+			remaining,
+		)
+		// Deduplicate: skip addresses already in results.
+		seen := make(map[string]bool)
+		for _, r := range results {
+			seen[strings.ToLower(r.Email)] = true
+		}
+		for _, r := range cardContacts {
+			if !seen[strings.ToLower(r.Email)] {
+				results = append(results, r)
+				seen[strings.ToLower(r.Email)] = true
+			}
+		}
+	}
+
+	// Return simple JSON array.
+	type suggestion struct {
+		Email string `json:"email"`
+		Name  string `json:"name"`
+	}
+	out := make([]suggestion, 0, len(results))
+	for _, r := range results {
+		out = append(out, suggestion{Email: r.Email, Name: r.Name})
+	}
+	return c.JSON(out)
+}
+
+// stripHTMLForPlain produces a minimal plain-text version of an HTML string by
+// stripping tags and collapsing whitespace. Used to auto-generate the
+// text/plain alternative when only HTML body is provided.
+func stripHTMLForPlain(html string) string {
+	var b strings.Builder
+	inTag := false
+	for _, r := range html {
+		switch {
+		case r == '<':
+			inTag = true
+			b.WriteByte(' ')
+		case r == '>':
+			inTag = false
+		case !inTag:
+			b.WriteRune(r)
+		}
+	}
+	// Collapse runs of whitespace.
+	return strings.Join(strings.Fields(b.String()), " ")
 }
 
 // HandleMarkUnread removes the \Seen flag from a message, marking it as unread.

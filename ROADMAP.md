@@ -110,10 +110,25 @@ we're going.
 - **`[server] secure_cookies`** config key for TLS-terminated deployments.
 - **Shared bbolt handle** per user (no per-request file open).
 
+## ✅ Recently shipped (v1.7.0)
+
+- **Drafts** — Save / list / restore via IMAP APPEND to the `\Drafts` folder;
+  compose modal "Draft" button + 30-second auto-save; draft restored into
+  compose on click; draft deleted from IMAP on send.
+- **Attachments in compose** — multipart form upload; `multipart/mixed` MIME
+  assembly (base64 attachment parts, correct `Content-Type`/`Content-Disposition`);
+  filename list shown in compose before send.
+- **HTML compose** — lightweight contenteditable rich-text editor with
+  dependency-free formatting toolbar (bold/italic/underline/lists/links);
+  sends `multipart/alternative` (plain + HTML); plain compose unchanged.
+- **Recipient autocomplete** — inline dropdown on To/CC/BCC; backed by
+  recent-recipients bbolt store (records every send) + optional CardDAV
+  address-book query; `GET /api/autocomplete?q=` endpoint.
+- **CardDAV contacts** (`[carddav]` config) — optional; uses `go-vcard`
+  `FN`/`EMAIL` fields from configured address book.
+
 ## 🔜 Next up
 
-- 🔜 **Rich compose** — HTML editor, file-upload attachments, drafts.
-- 🔜 **CardDAV contacts** — address book + recipient autocomplete in the composer.
 - 🔜 **Web Push (VAPID + Service Worker)** — background notifications even when no
   tab is open (the IMAP IDLE → SSE foundation already exists).
 - 🔜 **Nix package + NixOS module** for declarative, reproducible self-hosting.

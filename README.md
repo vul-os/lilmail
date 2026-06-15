@@ -76,6 +76,11 @@ browser — see the [Roadmap](ROADMAP.md).
 - 🔔 **Real-time notifications** — new-mail browser notifications via SSE + the
   Web Notifications API while a tab is open; opt-in native desktop toasts
   (see [Notifications](#-notifications) below)
+- ✏️ **Compose** — plain-text and **HTML rich-text** (contenteditable toolbar);
+  **file attachments** (multipart/mixed MIME, base64-encoded, correct headers);
+  **drafts** saved to IMAP Drafts folder with auto-save + restore
+- 👥 **Recipient autocomplete** — recent-recipients bbolt store + optional
+  CardDAV address-book query; inline dropdown on To/CC/BCC fields
 - 🖥️ Server-rendered UI (Go templates + HTMX + Alpine.js), dark mode,
   hand-written CSS — no CDN dependency, no SPA build step
 - 🌍 Runs on Linux, macOS, and Windows
@@ -158,6 +163,7 @@ key = "a-32-character-encryption-key!!"   # must be exactly 32 bytes
 | `[oauth2]` | see [below](#-oauth2--openid-connect) | Optional OAuth2 / OIDC connection to your mail server |
 | `[ai]` | see [below](#-ai-mail-assistant) | Optional AI mail assistant |
 | `[caldav]` | see [below](#-calendar-caldav) | Optional CalDAV calendar integration |
+| `[carddav]` | `enabled`, `url`, `username`, `password` | Optional CardDAV address-book for recipient autocomplete |
 | `[notifications]` | see [below](#-notifications) | Optional real-time new-mail notifications |
 
 ## 🔑 OAuth2 / OpenID Connect

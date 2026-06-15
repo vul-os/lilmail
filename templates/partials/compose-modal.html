@@ -4,12 +4,65 @@
      x-cloak
      x-data="{
          loading: false,
+         saving: false,
          minimized: false,
+         richMode: false,
+         draftUID: '',
+         autoSaveTimer: null,
+         attachmentNames: [],
+
          resetForm() {
              const f = document.getElementById('compose-form');
              if (f) f.reset();
+             const ed = document.getElementById('compose-rich-body');
+             if (ed) ed.innerHTML = '';
              this.loading = false;
+             this.saving = false;
              this.minimized = false;
+             this.richMode = false;
+             this.draftUID = '';
+             this.attachmentNames = [];
+             if (this.autoSaveTimer) { clearTimeout(this.autoSaveTimer); this.autoSaveTimer = null; }
+         },
+
+         scheduleAutoSave() {
+             if (this.autoSaveTimer) clearTimeout(this.autoSaveTimer);
+             this.autoSaveTimer = setTimeout(() => { this.saveDraft(); }, 30000);
+         },
+
+         saveDraft() {
+             if (this.loading || this.saving) return;
+             const form = document.getElementById('compose-form');
+             if (!form) return;
+             this.saving = true;
+             const fd = new FormData(form);
+             // Include rich HTML body if in rich mode.
+             const ed = document.getElementById('compose-rich-body');
+             if (this.richMode && ed) {
+                 fd.set('html_body', ed.innerHTML);
+                 fd.set('body', ed.innerText);
+             }
+             if (this.draftUID) fd.set('draft_uid', this.draftUID);
+             fetch('/api/draft', { method: 'POST', body: fd,
+                 headers: (() => { const tok = (document.getElementById('app-token')||{}).dataset?.token||''; return tok ? {'Authorization':'Bearer '+tok} : {}; })()
+             })
+             .then(r => r.json())
+             .then(r => {
+                 this.saving = false;
+                 if (!r.success) $dispatch('show-toast', { type:'error', title:'Draft error', message: r.error || 'Could not save draft' });
+             })
+             .catch(() => { this.saving = false; });
+         },
+
+         execCmd(cmd, val) {
+             document.execCommand(cmd, false, val || null);
+             document.getElementById('compose-rich-body').focus();
+         },
+
+         handleFiles(files) {
+             for (const f of files) {
+                 this.attachmentNames.push(f.name);
+             }
          }
      }"
      x-init="$watch('showComposeModal', v => { if (!v) resetForm() })"
@@ -46,7 +99,7 @@
 
         <!-- Header -->
         <div class="compose-header" @click.self="minimized = !minimized">
-            <span class="compose-header__title">New Message</span>
+            <span class="compose-header__title" x-text="draftUID ? 'Draft' : 'New Message'">New Message</span>
             <div class="compose-header__actions">
                 <button class="compose-header__btn" @click.stop="minimized = !minimized"
                         :title="minimized ? 'Restore' : 'Minimize'">
@@ -69,9 +122,22 @@
         <div x-show="!minimized" x-cloak style="display:flex;flex-direction:column;flex:1;">
             <form id="compose-form"
                   style="display:flex;flex-direction:column;flex:1;"
+                  enctype="multipart/form-data"
                   hx-post="/api/compose"
                   hx-swap="none"
-                  @htmx:before-request="loading = true"
+                  hx-encoding="multipart/form-data"
+                  @htmx:before-request="
+                      loading = true;
+                      if (richMode) {
+                          const ed = document.getElementById('compose-rich-body');
+                          if (ed) {
+                              document.getElementById('compose-html-body').value = ed.innerHTML;
+                              document.getElementById('compose-body').value = ed.innerText;
+                          }
+                      }
+                      if (autoSaveTimer) { clearTimeout(autoSaveTimer); autoSaveTimer = null; }
+                      document.getElementById('compose-draft-uid').value = draftUID;
+                  "
                   @htmx:after-request="loading = false"
                   @htmx:response-error="$dispatch('show-toast', { type: 'error', title: 'Error', message: 'Failed to send email' })"
                   hx-on::after-request="(() => {
@@ -86,14 +152,63 @@
                       } catch(e) {}
                   })()"
             >
-                <div class="compose-field">
+                <!-- Hidden fields -->
+                <input type="hidden" name="in_reply_to" id="compose-in-reply-to">
+                <input type="hidden" name="references" id="compose-references">
+                <input type="hidden" name="draft_uid" id="compose-draft-uid" x-bind:value="draftUID">
+                <input type="hidden" name="html_body" id="compose-html-body">
+
+                <!-- To field with autocomplete -->
+                <div class="compose-field" x-data="{
+                    acQuery: '',
+                    acResults: [],
+                    acOpen: false,
+                    acSearch(q) {
+                        this.acQuery = q;
+                        if (q.length < 2) { this.acResults = []; this.acOpen = false; return; }
+                        const tok = (document.getElementById('app-token') || {}).dataset?.token || '';
+                        fetch('/api/autocomplete?q=' + encodeURIComponent(q), {
+                            headers: tok ? {'Authorization': 'Bearer ' + tok} : {}
+                        }).then(r=>r.json()).then(data => {
+                            this.acResults = data || [];
+                            this.acOpen = this.acResults.length > 0;
+                        }).catch(()=>{});
+                    },
+                    pick(entry) {
+                        const input = document.getElementById('compose-to');
+                        if (!input) return;
+                        // Append to existing comma-separated list.
+                        const parts = input.value.split(',').map(s=>s.trim()).filter(Boolean);
+                        const display = entry.name ? entry.name + ' <' + entry.email + '>' : entry.email;
+                        parts.push(display);
+                        input.value = parts.join(', ') + ', ';
+                        this.acOpen = false;
+                        this.acQuery = '';
+                        input.focus();
+                    }
+                }" style="position:relative;">
                     <label for="compose-to" class="compose-field__label">To</label>
                     <input type="text" name="to" id="compose-to" required
                            placeholder="Recipients"
                            :disabled="loading"
-                           class="compose-field__input">
+                           autocomplete="off"
+                           class="compose-field__input"
+                           @input="acSearch($event.target.value.split(',').pop().trim()); scheduleAutoSave()"
+                           @keydown.escape="acOpen = false"
+                           @blur="setTimeout(()=>{ acOpen = false }, 150)">
+                    <!-- Autocomplete dropdown -->
+                    <ul x-show="acOpen" x-cloak class="ac-dropdown" role="listbox">
+                        <template x-for="(r, i) in acResults" :key="i">
+                            <li class="ac-item" role="option"
+                                @mousedown.prevent="pick(r)">
+                                <span class="ac-item__name" x-text="r.name || r.email"></span>
+                                <span class="ac-item__email" x-show="r.name" x-text="r.email"></span>
+                            </li>
+                        </template>
+                    </ul>
                 </div>
 
+                <!-- CC / BCC -->
                 <div class="compose-field" x-data="{ showCcBcc: false }">
                     <label class="compose-field__label" style="cursor:pointer" @click="showCcBcc = !showCcBcc">
                         CC/BCC <span x-text="showCcBcc ? '▲' : '▼'" style="font-size:9px"></span>
@@ -102,7 +217,8 @@
                         <input type="text" name="cc" id="compose-cc"
                                placeholder="CC"
                                :disabled="loading"
-                               class="compose-field__input">
+                               class="compose-field__input"
+                               @input="scheduleAutoSave()">
                         <input type="text" name="bcc" id="compose-bcc"
                                placeholder="BCC"
                                :disabled="loading"
@@ -110,33 +226,121 @@
                     </div>
                 </div>
 
-                <!-- Hidden threading headers — filled by the Reply/Forward buttons -->
-                <input type="hidden" name="in_reply_to" id="compose-in-reply-to">
-                <input type="hidden" name="references" id="compose-references">
-
+                <!-- Subject -->
                 <div class="compose-field">
                     <label for="compose-subject" class="compose-field__label">Subj</label>
                     <input type="text" name="subject" id="compose-subject" required
                            placeholder="Subject"
                            :disabled="loading"
-                           class="compose-field__input">
+                           class="compose-field__input"
+                           @input="scheduleAutoSave()">
                 </div>
 
-                <textarea name="body" id="compose-body" required
+                <!-- Rich-text toolbar (shown when richMode = true) -->
+                <div x-show="richMode" x-cloak class="rich-toolbar">
+                    <button type="button" class="rich-btn" title="Bold" @click="execCmd('bold')"><b>B</b></button>
+                    <button type="button" class="rich-btn" title="Italic" @click="execCmd('italic')"><i>I</i></button>
+                    <button type="button" class="rich-btn" title="Underline" @click="execCmd('underline')"><u>U</u></button>
+                    <button type="button" class="rich-btn" title="Strikethrough" @click="execCmd('strikeThrough')"><s>S</s></button>
+                    <span class="rich-sep">|</span>
+                    <button type="button" class="rich-btn" title="Ordered list" @click="execCmd('insertOrderedList')">1.</button>
+                    <button type="button" class="rich-btn" title="Unordered list" @click="execCmd('insertUnorderedList')">•</button>
+                    <span class="rich-sep">|</span>
+                    <button type="button" class="rich-btn" title="Link" @click="
+                        const url = prompt('URL:');
+                        if (url) execCmd('createLink', url)">🔗</button>
+                    <button type="button" class="rich-btn" title="Remove formatting" @click="execCmd('removeFormat')">✕</button>
+                </div>
+
+                <!-- Plain-text textarea (shown when richMode = false) -->
+                <textarea name="body" id="compose-body"
                           placeholder="Write your message…"
                           :disabled="loading"
+                          x-show="!richMode"
                           class="compose-body"
                           style="flex:1;"
+                          @input="scheduleAutoSave()"
                 ></textarea>
 
+                <!-- Rich-text contenteditable (shown when richMode = true) -->
+                <div id="compose-rich-body"
+                     x-show="richMode" x-cloak
+                     contenteditable="true"
+                     class="compose-body compose-rich"
+                     style="flex:1;overflow-y:auto;"
+                     @input="scheduleAutoSave()"
+                     data-placeholder="Write your message…"
+                     aria-label="Message body (rich text)"
+                ></div>
+
+                <!-- Attachment list -->
+                <div x-show="attachmentNames.length > 0" x-cloak class="compose-attachments">
+                    <template x-for="(name, i) in attachmentNames" :key="i">
+                        <span class="attach-badge" x-text="name"></span>
+                    </template>
+                </div>
+
+                <!-- Toolbar -->
                 <div class="compose-toolbar">
-                    <button type="submit" class="btn-send" :disabled="loading">
+                    <button type="submit" class="btn-send" :disabled="loading || saving">
                         <svg x-show="loading" style="animation:spin .7s linear infinite" fill="none" viewBox="0 0 24 24">
                             <circle style="opacity:.25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
                             <path style="opacity:.75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
                         </svg>
                         <span x-text="loading ? 'Sending…' : 'Send'">Send</span>
                     </button>
+
+                    <!-- Save draft -->
+                    <button type="button" class="btn-action btn-draft" :disabled="loading || saving"
+                            @click="saveDraft()"
+                            title="Save draft">
+                        <svg x-show="saving" style="animation:spin .7s linear infinite;width:14px;height:14px" fill="none" viewBox="0 0 24 24">
+                            <circle style="opacity:.25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                            <path style="opacity:.75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                        </svg>
+                        <svg x-show="!saving" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:14px;height:14px">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/>
+                        </svg>
+                        <span x-text="saving ? 'Saving…' : 'Draft'">Draft</span>
+                    </button>
+
+                    <!-- Toggle rich / plain text -->
+                    <button type="button" class="btn-action" :disabled="loading"
+                            @click="
+                                if (!richMode) {
+                                    // Switching plain → rich: copy text into editor
+                                    const plain = document.getElementById('compose-body');
+                                    const ed = document.getElementById('compose-rich-body');
+                                    if (plain && ed) ed.innerText = plain.value;
+                                } else {
+                                    // Switching rich → plain: copy text out of editor
+                                    const plain = document.getElementById('compose-body');
+                                    const ed = document.getElementById('compose-rich-body');
+                                    if (plain && ed) plain.value = ed.innerText;
+                                }
+                                richMode = !richMode;
+                            "
+                            title="Toggle rich text">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:14px;height:14px">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M4 6h16M4 12h8m-8 6h16"/>
+                        </svg>
+                        <span x-text="richMode ? 'Plain' : 'Rich'">Rich</span>
+                    </button>
+
+                    <!-- Attach file -->
+                    <label class="btn-action" title="Attach file" style="cursor:pointer">
+                        <input type="file" name="attachments" multiple
+                               style="display:none"
+                               @change="handleFiles($event.target.files)">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" style="width:14px;height:14px">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+                        </svg>
+                        Attach
+                    </label>
+
                     <button type="button" class="btn-discard" @click="showComposeModal = false"
                             :disabled="loading" title="Discard">
                         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">

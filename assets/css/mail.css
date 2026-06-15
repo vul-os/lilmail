@@ -1352,3 +1352,95 @@ input, textarea, select { font-family: inherit; }
 .slide-up-enter-active { transition: opacity 200ms ease, transform 200ms ease; }
 .slide-up-leave-active { transition: opacity 150ms ease, transform 150ms ease; }
 .slide-up-leave-to { opacity: 0; transform: translateY(8px); }
+
+/* ---------------------------------------------------------
+   AUTOCOMPLETE DROPDOWN (compose To/CC/BCC)
+--------------------------------------------------------- */
+.ac-dropdown {
+  position: absolute;
+  top: calc(100% + 2px); left: 0; right: 0;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-md);
+  z-index: 200;
+  max-height: 200px; overflow-y: auto;
+  list-style: none; margin: 0; padding: 4px 0;
+}
+.ac-item {
+  display: flex; flex-direction: column;
+  padding: 7px 12px;
+  cursor: pointer;
+  transition: background var(--t-fast);
+}
+.ac-item:hover { background: var(--c-surface-hover); }
+.ac-item__name { font-size: 13px; color: var(--c-text); font-weight: 500; }
+.ac-item__email { font-size: 11px; color: var(--c-text-3); margin-top: 1px; }
+
+/* ---------------------------------------------------------
+   RICH TEXT TOOLBAR
+--------------------------------------------------------- */
+.rich-toolbar {
+  display: flex; align-items: center; gap: 2px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--c-border-soft);
+  flex-shrink: 0; flex-wrap: wrap;
+}
+.rich-btn {
+  padding: 3px 7px;
+  font-size: 12px; font-weight: 600;
+  border-radius: var(--r-sm);
+  color: var(--c-text-2);
+  transition: background var(--t-fast), color var(--t-fast);
+  min-width: 26px; text-align: center;
+}
+.rich-btn:hover { background: var(--c-surface-alt); color: var(--c-text); }
+.rich-sep { color: var(--c-border); padding: 0 2px; }
+
+/* Rich contenteditable area — same look as the plain textarea */
+.compose-rich {
+  font-family: inherit;
+  white-space: pre-wrap;
+  word-break: break-word;
+  cursor: text;
+}
+.compose-rich:empty::before {
+  content: attr(data-placeholder);
+  color: var(--c-text-3);
+  pointer-events: none;
+}
+.compose-rich:focus { outline: none; }
+
+/* ---------------------------------------------------------
+   ATTACHMENT CHIPS in compose
+--------------------------------------------------------- */
+.compose-attachments {
+  display: flex; flex-wrap: wrap; gap: 4px;
+  padding: 4px 14px 0;
+  flex-shrink: 0;
+}
+.attach-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 8px;
+  font-size: 11px; font-weight: 500;
+  background: var(--c-surface-alt);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-full);
+  color: var(--c-text-2);
+  max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ---------------------------------------------------------
+   DRAFT SAVE BUTTON in compose toolbar
+--------------------------------------------------------- */
+.btn-draft {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 5px 10px;
+  font-size: 12px; font-weight: 500;
+  border-radius: var(--r-sm);
+  color: var(--c-text-2);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.btn-draft:hover { background: var(--c-surface-alt); color: var(--c-text); }
+.btn-draft:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-draft svg { flex-shrink: 0; }

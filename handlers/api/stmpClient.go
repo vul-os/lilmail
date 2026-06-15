@@ -196,6 +196,85 @@ func (c *SMTPClient) SendMail(to, subject, body string, opts *MailOptions) error
 	return client.Quit()
 }
 
+// SendRawMessage sends a pre-built RFC 2822 message via SMTP. The caller is
+// responsible for constructing the full message including all headers and body.
+// allRcpts is the union of To, CC, and BCC addresses to use as RCPT TO.
+func (c *SMTPClient) SendRawMessage(allRcpts []string, rawMessage []byte) error {
+	addr := fmt.Sprintf("%s:%d", c.server, c.port)
+	tlsCfg := &tls.Config{
+		ServerName:         c.server,
+		InsecureSkipVerify: c.insecureSkipVerify, //nolint:gosec // operator-controlled
+	}
+
+	var smtpClient *smtp.Client
+	var err error
+
+	if c.useStartTLS {
+		smtpClient, err = smtp.Dial(addr)
+		if err != nil {
+			return fmt.Errorf("dial failed: %v", err)
+		}
+		domain := GetDomainFromEmail(c.email)
+		if err := smtpClient.Hello(domain); err != nil {
+			smtpClient.Close()
+			return fmt.Errorf("hello failed: %v", err)
+		}
+		if err = smtpClient.StartTLS(tlsCfg); err != nil {
+			smtpClient.Close()
+			return fmt.Errorf("starttls failed: %v", err)
+		}
+	} else {
+		conn, err := tls.Dial("tcp", addr, tlsCfg)
+		if err != nil {
+			return fmt.Errorf("tls dial failed: %v", err)
+		}
+		host, _, _ := net.SplitHostPort(addr)
+		smtpClient, err = smtp.NewClient(conn, host)
+		if err != nil {
+			conn.Close()
+			return fmt.Errorf("smtp client init failed: %v", err)
+		}
+	}
+	defer smtpClient.Close()
+
+	username := GetUsernameFromEmail(c.email)
+	var auth smtp.Auth
+	if c.useOAuth {
+		switch strings.ToLower(c.mechanism) {
+		case "oauthbearer":
+			auth = NewSMTPOAuthBearer(c.email, c.token, c.server, c.port)
+		default:
+			auth = NewSMTPXoauth2(c.email, c.token)
+		}
+	} else {
+		auth = smtp.PlainAuth("", username, c.password, c.server)
+	}
+	if err = smtpClient.Auth(auth); err != nil {
+		return fmt.Errorf("auth failed: %v", err)
+	}
+
+	if err = smtpClient.Mail(c.email); err != nil {
+		return fmt.Errorf("mail from failed: %v", err)
+	}
+	for _, rcpt := range allRcpts {
+		if err = smtpClient.Rcpt(rcpt); err != nil {
+			return fmt.Errorf("rcpt to %q failed: %v", rcpt, err)
+		}
+	}
+
+	writer, err := smtpClient.Data()
+	if err != nil {
+		return fmt.Errorf("data failed: %v", err)
+	}
+	if _, err = writer.Write(rawMessage); err != nil {
+		return fmt.Errorf("write failed: %v", err)
+	}
+	if err = writer.Close(); err != nil {
+		return fmt.Errorf("close failed: %v", err)
+	}
+	return smtpClient.Quit()
+}
+
 // splitAddresses splits a comma-separated address list into individual entries,
 // trimming whitespace and skipping empty strings.
 func splitAddresses(s string) []string {
