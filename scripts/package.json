@@ -1,0 +1,13 @@
+{
+  "name": "lilmail-screenshots",
+  "version": "1.0.0",
+  "description": "Playwright screenshotter for lilmail",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "screenshots": "node screenshots.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.44.0"
+  }
+}
