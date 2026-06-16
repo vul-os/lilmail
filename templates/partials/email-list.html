@@ -11,11 +11,13 @@
                  showEmailViewer = true;
                  htmx.ajax('GET', '/api/email/{{$latest.ID}}',
                      {target:'#email-viewer-pane', swap:'innerHTML',
-                      headers:{'X-Folder':'{{$.CurrentFolder}}','Authorization':'Bearer {{$.Token}}'}});
+                      headers:{'X-Folder':'{{$.CurrentFolder}}','Authorization':'Bearer {{$.Token}}'{{if $latest.AccountEmail}},'X-Account-Email':'{{$latest.AccountEmail}}'{{end}}
+                      }});
                  if(window.innerWidth < 1024) {
                      htmx.ajax('GET', '/api/email/{{$latest.ID}}',
                          {target:'#email-viewer-pane-mobile', swap:'innerHTML',
-                          headers:{'X-Folder':'{{$.CurrentFolder}}','Authorization':'Bearer {{$.Token}}'}});
+                          headers:{'X-Folder':'{{$.CurrentFolder}}','Authorization':'Bearer {{$.Token}}'{{if $latest.AccountEmail}},'X-Account-Email':'{{$latest.AccountEmail}}'{{end}}
+                          }});
                  }
              }">
             {{if $unread}}<span class="email-row__unread-dot"></span>{{end}}
@@ -26,6 +28,10 @@
                         {{if $latest.FromName}}{{$latest.FromName}}{{else}}{{$latest.From}}{{end}}
                     </span>
                     <div class="email-row__meta">
+                        {{if and $.Unified $latest.AccountLabel}}
+                        <span class="acct-badge"
+                              style="{{if $latest.AccountColor}}background:{{$latest.AccountColor}}{{end}}">{{$latest.AccountLabel}}</span>
+                        {{end}}
                         {{if gt $thread.Count 1}}
                         <span class="email-row__count">{{$thread.Count}}</span>
                         {{end}}
@@ -66,13 +72,14 @@
                  hx-get="/api/email/{{$m.ID}}"
                  hx-target="#email-viewer-pane"
                  hx-swap="innerHTML"
-                 hx-headers='{"X-Folder": "{{$.CurrentFolder}}", "Authorization": "Bearer {{$.Token}}"}'
+                 hx-headers='{"X-Folder": "{{$.CurrentFolder}}", "Authorization": "Bearer {{$.Token}}"{{if $m.AccountEmail}}, "X-Account-Email": "{{$m.AccountEmail}}"{{end}}}'
                  hx-indicator="#list-spinner"
                  @click="showEmailViewer = true;
                          if(window.innerWidth < 1024) {
                              htmx.ajax('GET', '/api/email/{{$m.ID}}',
                                  {target:'#email-viewer-pane-mobile', swap:'innerHTML',
-                                  headers:{'X-Folder':'{{$.CurrentFolder}}','Authorization':'Bearer {{$.Token}}'}});
+                                  headers:{'X-Folder':'{{$.CurrentFolder}}','Authorization':'Bearer {{$.Token}}'{{if $m.AccountEmail}},'X-Account-Email':'{{$m.AccountEmail}}'{{end}}
+                                  }});
                          }">
                 <div class="avatar avatar--sm">{{initial $m.FromName $m.From}}</div>
                 <div class="thread-msg__body">
@@ -99,13 +106,14 @@
          hx-get="/api/email/{{.ID}}"
          hx-target="#email-viewer-pane"
          hx-swap="innerHTML"
-         hx-headers='{"X-Folder": "{{$.CurrentFolder}}", "Authorization": "Bearer {{$.Token}}"}'
+         hx-headers='{"X-Folder": "{{$.CurrentFolder}}", "Authorization": "Bearer {{$.Token}}"{{if .AccountEmail}}, "X-Account-Email": "{{.AccountEmail}}"{{end}}}'
          hx-indicator="#list-spinner"
          @click="showEmailViewer = true;
                  if(window.innerWidth < 1024) {
                      htmx.ajax('GET', '/api/email/{{.ID}}',
                          {target:'#email-viewer-pane-mobile', swap:'innerHTML',
-                          headers:{'X-Folder':'{{$.CurrentFolder}}','Authorization':'Bearer {{$.Token}}'}});
+                          headers:{'X-Folder':'{{$.CurrentFolder}}','Authorization':'Bearer {{$.Token}}'{{if .AccountEmail}},'X-Account-Email':'{{.AccountEmail}}'{{end}}
+                          }});
                  }">
         {{if $unread}}<span class="email-row__unread-dot"></span>{{end}}
         <div class="avatar">{{initial .FromName .From}}</div>
@@ -114,7 +122,13 @@
                 <span class="email-row__from">
                     {{if .FromName}}{{.FromName}}{{else}}{{.From}}{{end}}
                 </span>
-                <span class="email-row__date">{{formatDate .Date}}</span>
+                <div class="email-row__meta">
+                    {{if and $.Unified .AccountLabel}}
+                    <span class="acct-badge"
+                          style="{{if .AccountColor}}background:{{.AccountColor}}{{end}}">{{.AccountLabel}}</span>
+                    {{end}}
+                    <span class="email-row__date">{{formatDate .Date}}</span>
+                </div>
             </div>
             <div class="email-row__subject">{{.Subject}}</div>
             <div class="email-row__preview">{{.Preview}}</div>

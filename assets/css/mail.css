@@ -1581,3 +1581,79 @@ input, textarea, select { font-family: inherit; }
   border: 1px solid transparent;
 }
 .btn--danger:hover { background: #fecaca; }
+
+/* ---------------------------------------------------------
+   Unified inbox — account badge + toolbar toggle
+--------------------------------------------------------- */
+
+/* Coloured label badge shown on each row in unified mode */
+.acct-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--c-accent);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Unified toggle link in the list toolbar */
+.list-toolbar__unified {
+  margin-left: auto;
+  margin-right: 8px;
+}
+.unified-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--c-border);
+  background: var(--c-surface);
+  color: var(--c-text-2);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background var(--t-fast), color var(--t-fast), border-color var(--t-fast);
+}
+.unified-toggle:hover {
+  background: var(--c-accent-soft);
+  border-color: var(--c-accent);
+  color: var(--c-accent-text);
+}
+.unified-toggle--active {
+  background: var(--c-accent);
+  border-color: var(--c-accent-dark);
+  color: #fff;
+}
+.unified-toggle--active:hover {
+  background: var(--c-accent-dark);
+  color: #fff;
+}
+
+/* Per-account error indicator dots in toolbar */
+.list-toolbar__acct-errors {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 8px;
+}
+.acct-error-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--c-danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: help;
+  flex-shrink: 0;
+}

@@ -7,6 +7,73 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
+## [Unreleased] — 1.9.0
+
+### Added
+
+- **Unified inbox** — multiplexed cross-account inbox fetch and combined view.
+  - `FetchUnified` (`handlers/web/unified.go`) — fans out to the session account
+    and every additional account concurrently (one goroutine per account). Each
+    goroutine runs with a 10 s `context.WithTimeout`; one account timing out or
+    failing does **not** affect the others. Results are merged and sorted by date
+    descending, capped at `min(200, 50 × accounts)` messages.
+  - `AccountFetchResult` / `AccountFetchError` — per-account result type that
+    carries the fetched emails (tagged with source account metadata) or the error
+    for that account. Callers can inspect `HasErrors()` to show a per-account
+    warning without losing messages from healthy accounts.
+  - `models.Email` gains three new optional fields: `AccountEmail`, `AccountLabel`,
+    `AccountColor`. These are empty in single-account mode; no template or API
+    change is visible to users who don't use unified mode.
+  - `AuthHandler.CreateIMAPClientForAccount` / `CreateSMTPClientForAccount` —
+    open IMAP/SMTP connections for a stored `AccountEntry` by decrypting its
+    password exactly as the rest of the app does.
+  - `EmailHandler.SetAccountStore` — late-wire the `AccountStore` after it is
+    opened in `main.go`; keeps `NewEmailHandler` signature unchanged.
+  - **UI toggle** — when `[accounts] enabled = true` and at least one additional
+    account is stored, a "Unified" pill appears in the inbox list toolbar.
+    Activating it navigates to `/inbox?unified=1`; deactivating returns to
+    `/inbox`. The HTMX folder-switch partial (`/api/folder/INBOX/emails?unified=1`)
+    also accepts the `?unified=1` flag so the toggle works without a full page
+    reload.
+  - **Account badge** — each email row in unified mode shows the source account's
+    label as a coloured pill using the account's configured badge colour.
+  - **Per-account error indicators** — when one or more accounts fail to load,
+    a red dot with a tooltip appears in the toolbar (one per failed account).
+    Successfully loaded accounts are unaffected.
+  - **Correct account for view / reply / send** — clicking a message in unified
+    mode passes `X-Account-Email` in the HTMX request headers; the server opens
+    an IMAP connection for that specific account to fetch the full message.
+    Replying/composing passes `account_email` as a hidden form field; the server
+    uses that account's SMTP credentials (and IMAP for Sent-folder append) for
+    the send.
+  - **Graceful degradation** — when `[accounts] disabled` or only one account
+    exists, the toggle is hidden and all behaviour is identical to before.
+  - **Tests** (`handlers/web/unified_test.go`) — 8 tests covering: merge order
+    (newest-first across accounts), per-account error isolation (one failure does
+    not suppress others), all-failed case (empty output), limit cap,
+    account-tag preservation, single-account equivalence, `AccountFetchError`
+    `HasErrors()` / `Error()`, and empty-input safety.
+
+### Changed
+
+- `EmailHandler.HandleInbox` — detects `?unified=1` and fans out; passes
+  `Unified`, `UnifiedAvailable`, and `AccountErrors` to the template.
+- `EmailHandler.HandleFolderEmails` — same flag, scoped to `INBOX` only.
+- `EmailHandler.HandleEmailView` — reads `X-Account-Email` header to route the
+  IMAP fetch to the correct account; falls back to the session account.
+- `EmailHandler.HandleComposeEmail` — reads `account_email` form field; uses
+  that account's SMTP client and IMAP client (for Sent-folder APPEND).
+- `inbox.html` — toolbar gains unified toggle and error-indicator slots;
+  `email-rows` sub-template renders `acct-badge` in unified mode and passes
+  `X-Account-Email` in HTMX headers.
+- `partials/email-list.html` — same badge + header changes as `email-rows`.
+- `assets/css/mail.css` — adds `.acct-badge`, `.unified-toggle`,
+  `.unified-toggle--active`, `.list-toolbar__unified`, `.list-toolbar__acct-errors`,
+  `.acct-error-dot` styles.
+- `config.toml.example` — documents the unified inbox behaviour under `[accounts]`.
+
+---
+
 ## [Unreleased] — 1.8.0
 
 ### Added

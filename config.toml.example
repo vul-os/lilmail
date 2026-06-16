@@ -128,6 +128,17 @@ use_pkce = true           # PKCE (S256); recommended
 #   DELETE /api/accounts/:email       — remove an account
 #   POST   /api/accounts/:email/switch — switch the active session to this account
 #
+# Unified inbox:
+#   Once accounts are added, a "Unified" toggle appears in the inbox toolbar.
+#   Clicking it fans out to all accounts concurrently and merges results sorted
+#   newest-first. Each row shows a colour badge from the account's configured
+#   colour. One failing account does not break the others — a per-account error
+#   indicator appears in the toolbar instead.
+#   Access directly: GET /inbox?unified=1
+#   HTMX partial:    GET /api/folder/INBOX/emails?unified=1
+#   Reply/send from a unified-view message uses the correct account's SMTP
+#   credentials automatically (pass account_email in the compose form).
+#
 # [accounts]
 # enabled    = false          # master switch; default false
 # store_file = "accounts.db"  # bbolt database for encrypted extra-account creds

@@ -275,6 +275,47 @@ func (h *AuthHandler) CreateIMAPClient(c *fiber.Ctx) (*api.Client, error) {
 	)
 }
 
+// CreateIMAPClientForAccount opens an IMAP connection for a stored additional
+// account.  It decrypts the password from the AccountEntry using the
+// application encryption key and derives the IMAP username exactly as the rest
+// of the app does.  The caller must close the returned client.
+func (h *AuthHandler) CreateIMAPClientForAccount(entry AccountEntry) (*api.Client, error) {
+	var password string
+	if err := api.DecryptJSON(entry.EncryptedPassword, &password, h.config.Encryption.Key); err != nil {
+		return nil, fmt.Errorf("decrypt password for %s: %w", entry.Email, err)
+	}
+
+	username := entry.Email
+	if !h.config.Server.UsernameIsEmail {
+		username = api.GetUsernameFromEmail(entry.Email)
+	}
+	if username == "" {
+		return nil, fmt.Errorf("invalid email format for account %s", entry.Email)
+	}
+
+	return api.NewClient(entry.IMAPServer, entry.IMAPPort, username, password)
+}
+
+// CreateSMTPClientForAccount opens an SMTP connection for a stored additional
+// account.  The caller is responsible for closing/recycling the connection.
+func (h *AuthHandler) CreateSMTPClientForAccount(entry AccountEntry) (*api.SMTPClient, error) {
+	var password string
+	if err := api.DecryptJSON(entry.EncryptedPassword, &password, h.config.Encryption.Key); err != nil {
+		return nil, fmt.Errorf("decrypt password for %s: %w", entry.Email, err)
+	}
+
+	client := api.NewSMTPClient(
+		entry.SMTPServer, entry.SMTPPort,
+		entry.Email, password,
+		h.config.SMTP.UseSTARTTLS,
+	)
+	if client == nil {
+		return nil, fmt.Errorf("failed to create SMTP client for %s", entry.Email)
+	}
+	client.SetInsecureSkipVerify(h.config.SMTP.InsecureSkipVerify)
+	return client, nil
+}
+
 // GetSessionEmail returns the authenticated user's email address from the
 // session, or an empty string if the session is unavailable.
 func (h *AuthHandler) GetSessionEmail(c *fiber.Ctx) string {

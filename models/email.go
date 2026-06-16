@@ -23,6 +23,10 @@ type Email struct {
 	MessageID  string   `json:"messageId,omitempty"`
 	InReplyTo  string   `json:"inReplyTo,omitempty"`
 	References []string `json:"references,omitempty"`
+	// Multi-account: source account metadata (empty when single-account mode)
+	AccountEmail string `json:"accountEmail,omitempty"`
+	AccountLabel string `json:"accountLabel,omitempty"`
+	AccountColor string `json:"accountColor,omitempty"`
 }
 
 type Attachment struct {

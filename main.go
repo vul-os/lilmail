@@ -331,6 +331,9 @@ func main() {
 		if err != nil {
 			log.Fatalf("accounts: open store: %v", err)
 		}
+		// Wire the account store into the email handler so unified-inbox fetches work.
+		webEmailHandler.SetAccountStore(acctStore)
+
 		acctHandler = web.NewAccountsHandler(store, config, webAuthHandler, acctStore)
 
 		protected.Get("/api/accounts", acctHandler.HandleListAccounts)

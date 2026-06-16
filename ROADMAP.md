@@ -131,6 +131,20 @@ we're going.
 - **CardDAV contacts** (`[carddav]` config) — optional; uses `go-vcard`
   `FN`/`EMAIL` fields from configured address book.
 
+## ✅ Recently shipped (v1.9.0)
+
+- **Unified inbox** — when `[accounts] enabled = true` and additional accounts
+  are configured, a "Unified" toggle appears in the inbox toolbar. Clicking it
+  fans out to all accounts concurrently (one goroutine per account, 10 s timeout
+  each) and merges results newest-first. Each row shows the source account as a
+  colour badge. One failing account does not suppress the rest — a per-account
+  error indicator (red dot) appears in the toolbar instead. Clicking a message
+  in unified mode fetches it from the correct account's IMAP connection
+  (`X-Account-Email` header); replying or sending uses that account's SMTP
+  credentials (`account_email` form field wired through compose). Degrades
+  gracefully: when only one account exists the toggle is hidden and inbox
+  behaviour is unchanged.
+
 ## ✅ Recently shipped (v1.8.0)
 
 - **Web Push (VAPID + Service Worker)** — background push notifications when no
@@ -153,11 +167,6 @@ we're going.
 
 ## 💭 Later / exploratory
 
-- 💭 **Unified inbox** — show messages from all added accounts in a single view
-  (see multi-account above for the account-switching foundation).
-  Precise remaining scope: the `AccountStore` and session-switch path are done;
-  what's missing is a multiplexed IMAP fetch across accounts on inbox load and
-  a combined thread store that tags messages by source account.
 - 💭 **Filters / rules** and richer server-side flag management.
 - 💭 **PWA / offline** mode and a keyboard-driven UX / theming.
 - 💭 **JMAP** client support ([RFC 8620](https://jmap.io/)) as a modern transport

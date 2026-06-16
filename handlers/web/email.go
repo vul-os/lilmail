@@ -30,9 +30,10 @@ func boltPath(cacheFolder, username string) string {
 }
 
 type EmailHandler struct {
-	store  *session.Store
-	config *config.Config
-	auth   *AuthHandler
+	store     *session.Store
+	config    *config.Config
+	auth      *AuthHandler
+	acctStore *AccountStore // nil when accounts.enabled = false
 
 	// threadStores caches one open bbolt handle per user so we don't open the
 	// single-writer file on every request (which would cause lock contention).
@@ -47,6 +48,12 @@ func NewEmailHandler(store *session.Store, config *config.Config, auth *AuthHand
 		auth:         auth,
 		threadStores: make(map[string]*api.ThreadStore),
 	}
+}
+
+// SetAccountStore wires in the multi-account store so HandleInbox can do
+// unified fetches.  Called from main.go after the store is opened.
+func (h *EmailHandler) SetAccountStore(s *AccountStore) {
+	h.acctStore = s
 }
 
 // getThreadStore returns the shared ThreadStore for the given user, opening it
@@ -84,7 +91,10 @@ func (h *EmailHandler) buildThreads(username, folder string, emails []models.Ema
 	return api.ThreadMessages(emails)
 }
 
-// HandleInbox renders the main inbox page
+// HandleInbox renders the main inbox page.
+// When [accounts] is enabled and the user has additional accounts, and the
+// "unified" query parameter is set to "1" (or the user had it set last time),
+// it fans out to all accounts and shows a merged view.
 func (h *EmailHandler) HandleInbox(c *fiber.Ctx) error {
 	username := c.Locals("username")
 	if username == nil {
@@ -95,6 +105,7 @@ func (h *EmailHandler) HandleInbox(c *fiber.Ctx) error {
 	if !ok {
 		return c.Redirect("/login")
 	}
+	sessionEmail, _ := c.Locals("email").(string)
 
 	// Load folders from cache
 	userCacheFolder := filepath.Join(h.config.Cache.Folder, api.SanitizeUsername(userStr))
@@ -103,35 +114,68 @@ func (h *EmailHandler) HandleInbox(c *fiber.Ctx) error {
 		return c.Status(500).SendString("Error loading folders")
 	}
 
-	// Get IMAP client
-	client, err := h.auth.CreateIMAPClient(c)
-	if err != nil {
-		return c.Status(500).SendString("Error connecting to email server")
-	}
-	defer client.Close()
-
-	// Fetch inbox messages
-	emails, err := client.FetchMessages("INBOX", 50)
-	if err != nil {
-		return c.Status(500).SendString("Error fetching emails")
-	}
-
 	// Get JWT token for API requests
 	token, err := api.GetSessionToken(c, h.store)
 	if err != nil {
 		return c.Redirect("/login")
 	}
 
-	// Build JWZ threads using the shared bbolt store.
-	threads := h.buildThreads(userStr, "INBOX", emails)
+	// Determine whether unified mode is requested.
+	unified := c.Query("unified") == "1"
+
+	// Check if multi-account is available.
+	var additionalAccounts []AccountEntry
+	if h.acctStore != nil && h.config.Accounts.Enabled {
+		additionalAccounts, _ = h.acctStore.List(userStr)
+	}
+	unifiedAvailable := len(additionalAccounts) > 0
+
+	// Get primary IMAP client — needed in all cases.
+	client, err := h.auth.CreateIMAPClient(c)
+	if err != nil {
+		return c.Status(500).SendString("Error connecting to email server")
+	}
+	defer client.Close()
+
+	var emails []models.Email
+	var accountErrors []AccountFetchResult
+
+	if unified && unifiedAvailable {
+		// Fan out to all accounts.
+		emails, accountErrors = FetchUnified(
+			client,
+			sessionEmail, "", "", // primary has no badge in unified when label is ""
+			additionalAccounts,
+			h.auth,
+			"INBOX",
+			50,
+		)
+	} else {
+		// Single-account path — unchanged behaviour.
+		emails, err = client.FetchMessages("INBOX", 50)
+		if err != nil {
+			return c.Status(500).SendString("Error fetching emails")
+		}
+	}
+
+	// Build JWZ threads.  In unified mode we bucket by account+folder to avoid
+	// UID collisions between different servers.
+	threadKey := "INBOX"
+	if unified && unifiedAvailable {
+		threadKey = "UNIFIED/INBOX"
+	}
+	threads := h.buildThreads(userStr, threadKey, emails)
 
 	return c.Render("inbox", fiber.Map{
-		"Username":      userStr,
-		"Folders":       folders,
-		"Emails":        emails,
-		"Threads":       threads,
-		"CurrentFolder": "INBOX",
-		"Token":         token,
+		"Username":         userStr,
+		"Folders":          folders,
+		"Emails":           emails,
+		"Threads":          threads,
+		"CurrentFolder":    "INBOX",
+		"Token":            token,
+		"Unified":          unified && unifiedAvailable,
+		"UnifiedAvailable": unifiedAvailable,
+		"AccountErrors":    accountErrors,
 	})
 }
 
@@ -191,7 +235,9 @@ func (h *EmailHandler) HandleFolder(c *fiber.Ctx) error {
 	})
 }
 
-// HandleEmailView handles the HTMX request for viewing a single email
+// HandleEmailView handles the HTMX request for viewing a single email.
+// In unified mode, X-Account-Email identifies which account's IMAP connection
+// to use.  Falls back to the session account when the header is absent.
 func (h *EmailHandler) HandleEmailView(c *fiber.Ctx) error {
 	// Validate Authorization header
 	token := c.Get("Authorization")
@@ -213,8 +259,39 @@ func (h *EmailHandler) HandleEmailView(c *fiber.Ctx) error {
 		return c.Status(400).SendString("Email ID required")
 	}
 
-	// Get IMAP client
-	client, err := h.auth.CreateIMAPClient(c)
+	// Unified mode: X-Account-Email tells us which account this message belongs to.
+	accountEmail := c.Get("X-Account-Email")
+
+	var client *api.Client
+	var err error
+
+	if accountEmail != "" && h.acctStore != nil && h.config.Accounts.Enabled {
+		// Try to find this account in the store.
+		username, _ := c.Locals("username").(string)
+		sessionEmail, _ := c.Locals("email").(string)
+
+		if accountEmail == sessionEmail {
+			// It's the primary account — use the session client.
+			client, err = h.auth.CreateIMAPClient(c)
+		} else {
+			// It's an additional account.
+			entries, listErr := h.acctStore.List(username)
+			if listErr == nil {
+				for _, e := range entries {
+					if e.Email == accountEmail {
+						client, err = h.auth.CreateIMAPClientForAccount(e)
+						break
+					}
+				}
+			}
+			if client == nil && err == nil {
+				err = fmt.Errorf("account %s not found", accountEmail)
+			}
+		}
+	} else {
+		client, err = h.auth.CreateIMAPClient(c)
+	}
+
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{
 			"error": "Error connecting to email server",
@@ -232,6 +309,11 @@ func (h *EmailHandler) HandleEmailView(c *fiber.Ctx) error {
 	}
 	// Detect Drafts folder so the template can show "Edit Draft" instead of Reply/Forward.
 	isDrafts := strings.Contains(strings.ToLower(folderName), "draft")
+
+	// Propagate account identity so the reply/compose path can use the right SMTP.
+	if accountEmail != "" {
+		email.AccountEmail = accountEmail
+	}
 
 	// Important: Set empty layout and only render the partial
 	return c.Render("partials/email-viewer", fiber.Map{
@@ -332,8 +414,8 @@ func (h *EmailHandler) HandleDeleteEmail(c *fiber.Ctx) error {
 	})
 }
 
-// handlers/web/email.go
-// HandleFolderEmails handles template rendering for folder contents
+// HandleFolderEmails handles HTMX partial rendering for folder contents.
+// Supports unified mode via ?unified=1 query parameter (INBOX only).
 func (h *EmailHandler) HandleFolderEmails(c *fiber.Ctx) error {
 	folderName, err := url.QueryUnescape(c.Params("name"))
 	if err != nil || folderName == "" {
@@ -348,6 +430,8 @@ func (h *EmailHandler) HandleFolderEmails(c *fiber.Ctx) error {
 			"error": "Unauthorized",
 		})
 	}
+	userStr, _ := username.(string)
+	sessionEmail, _ := c.Locals("email").(string)
 
 	// Get JWT token for API requests
 	token, err := api.GetSessionToken(c, h.store)
@@ -356,6 +440,13 @@ func (h *EmailHandler) HandleFolderEmails(c *fiber.Ctx) error {
 			"error": "Invalid session",
 		})
 	}
+
+	unified := c.Query("unified") == "1"
+	var additionalAccounts []AccountEntry
+	if h.acctStore != nil && h.config.Accounts.Enabled {
+		additionalAccounts, _ = h.acctStore.List(userStr)
+	}
+	unifiedAvailable := len(additionalAccounts) > 0
 
 	// Get IMAP client
 	client, err := h.auth.CreateIMAPClient(c)
@@ -366,26 +457,41 @@ func (h *EmailHandler) HandleFolderEmails(c *fiber.Ctx) error {
 	}
 	defer client.Close()
 
-	// Fetch emails from the folder
-	emails, err := client.FetchMessages(folderName, 50)
-	if err != nil {
-		return c.Status(500).JSON(fiber.Map{
-			"error": fmt.Sprintf("Error fetching emails: %v", err),
-		})
+	var emails []models.Email
+	var accountErrors []AccountFetchResult
+
+	if unified && unifiedAvailable && folderName == "INBOX" {
+		emails, accountErrors = FetchUnified(
+			client,
+			sessionEmail, "", "",
+			additionalAccounts,
+			h.auth,
+			folderName,
+			50,
+		)
+	} else {
+		emails, err = client.FetchMessages(folderName, 50)
+		if err != nil {
+			return c.Status(500).JSON(fiber.Map{
+				"error": fmt.Sprintf("Error fetching emails: %v", err),
+			})
+		}
 	}
 
-	// Build JWZ threads using the shared bbolt store.
-	userStr := ""
-	if u, ok := username.(string); ok {
-		userStr = u
+	threadKey := folderName
+	if unified && unifiedAvailable && folderName == "INBOX" {
+		threadKey = "UNIFIED/INBOX"
 	}
-	threads := h.buildThreads(userStr, folderName, emails)
+	threads := h.buildThreads(userStr, threadKey, emails)
 
 	return c.Render("partials/email-list", fiber.Map{
-		"Emails":        emails,
-		"Threads":       threads,
-		"CurrentFolder": folderName,
-		"Token":         token,
+		"Emails":           emails,
+		"Threads":          threads,
+		"CurrentFolder":    folderName,
+		"Token":            token,
+		"Unified":          unified && unifiedAvailable,
+		"UnifiedAvailable": unifiedAvailable,
+		"AccountErrors":    accountErrors,
 	}, "") // Explicitly set no layout
 }
 
@@ -452,8 +558,15 @@ func (h *EmailHandler) HandleComposeEmail(c *fiber.Ctx) error {
 	references := c.FormValue("references")
 	draftUID := c.FormValue("draft_uid") // UID of draft to delete after send
 
-	// Get the sender email from the session.
+	// account_email: when set (unified-view reply), send from that account's SMTP
+	// rather than the session account.
+	replyAccountEmail := c.FormValue("account_email")
+
+	// Get the sender email from the session (or the specific reply account).
 	fromEmail := h.auth.GetSessionEmail(c)
+	if replyAccountEmail != "" {
+		fromEmail = replyAccountEmail
+	}
 
 	// Build the MIME message.
 	mimeOpts := api.MIMEMessageOptions{
@@ -487,8 +600,28 @@ func (h *EmailHandler) HandleComposeEmail(c *fiber.Ctx) error {
 		allRcpts = append(allRcpts, a.Email)
 	}
 
-	// Create SMTP client and send.
-	smtpClient, err := h.auth.CreateSMTPClient(c)
+	// Create SMTP client — use the specific account when replying from unified view.
+	var smtpClient *api.SMTPClient
+	if replyAccountEmail != "" && replyAccountEmail != h.auth.GetSessionEmail(c) &&
+		h.acctStore != nil && h.config.Accounts.Enabled {
+		// Find the additional account entry.
+		username, _ := c.Locals("username").(string)
+		entries, listErr := h.acctStore.List(username)
+		if listErr == nil {
+			for _, e := range entries {
+				if e.Email == replyAccountEmail {
+					smtpClient, err = h.auth.CreateSMTPClientForAccount(e)
+					break
+				}
+			}
+		}
+		if smtpClient == nil && err == nil {
+			err = fmt.Errorf("account %s not found", replyAccountEmail)
+		}
+	}
+	if smtpClient == nil {
+		smtpClient, err = h.auth.CreateSMTPClient(c)
+	}
 	if err != nil {
 		log.Printf("SMTP client creation error: %v", err)
 		return c.Status(500).JSON(fiber.Map{
@@ -518,8 +651,24 @@ func (h *EmailHandler) HandleComposeEmail(c *fiber.Ctx) error {
 		}
 	}
 
-	// Save to Sent folder (best effort).
-	imapClient, err := h.auth.CreateIMAPClient(c)
+	// Save to Sent folder (best effort) — use the reply account's IMAP if needed.
+	var imapClient *api.Client
+	if replyAccountEmail != "" && replyAccountEmail != h.auth.GetSessionEmail(c) &&
+		h.acctStore != nil && h.config.Accounts.Enabled {
+		username, _ := c.Locals("username").(string)
+		entries, listErr := h.acctStore.List(username)
+		if listErr == nil {
+			for _, e := range entries {
+				if e.Email == replyAccountEmail {
+					imapClient, err = h.auth.CreateIMAPClientForAccount(e)
+					break
+				}
+			}
+		}
+	}
+	if imapClient == nil {
+		imapClient, err = h.auth.CreateIMAPClient(c)
+	}
 	if err != nil {
 		log.Printf("IMAP client error when saving to Sent: %v", err)
 	} else {
