@@ -1,54 +1,49 @@
 # Screenshots
 
 This document describes the screenshot gallery, how to regenerate screenshots,
-and which screenshots require a live IMAP account.
+and the two modes available: demo mode (no credentials required) and live IMAP
+mode.
 
 ## Gallery
 
-| File | Description | Requires live IMAP? |
-|------|-------------|---------------------|
-| `docs/screenshots/hero.png` | Hero composite (login + inbox) | No (login captured automatically) |
-| `docs/screenshots/login.png` | Login page | No |
-| `docs/screenshots/inbox.png` | Inbox / email list | **Yes** |
-| `docs/screenshots/message.png` | Message viewer | **Yes** |
-| `docs/screenshots/compose.png` | Compose modal | **Yes** (modal is triggered from inbox) |
-| `docs/screenshots/calendar.png` | Calendar month view | **Yes** (requires `[caldav]` + live CalDAV) |
-| `docs/screenshots/settings.png` | Settings page | **Yes** |
-| `docs/screenshots/search.png` | Search results | **Yes** |
+| File | Description | Status |
+|------|-------------|--------|
+| `docs/screenshots/hero.png` | Inbox hero shot (demo data) | Real — demo mode |
+| `docs/screenshots/login.png` | Login page | Real — no credentials needed |
+| `docs/screenshots/inbox.png` | Inbox with seeded demo messages | Real — demo mode |
+| `docs/screenshots/message.png` | Message viewer | Real — demo mode |
+| `docs/screenshots/compose.png` | Compose modal with CC/BCC and attachment UI | Real — demo mode |
+| `docs/screenshots/search.png` | Search results filtered by query | Real — demo mode |
+| `docs/screenshots/calendar.png` | Calendar month view | Needs CalDAV (`[caldav]` enabled) |
+| `docs/screenshots/settings.png` | Settings page | Real — demo mode |
 
-Screenshots that require a live IMAP account cannot be generated in a CI
-environment without credentials. The login screenshot can be captured from the
-public login page with no credentials.
+## Demo mode (no credentials required)
 
-## Prerequisites
-
-| Tool | Version | Notes |
-|------|---------|-------|
-| Node.js | 18+ | Required to run the Playwright script |
-| Go 1.23+ | — | To build the lilmail binary |
-
-Playwright Chromium is installed automatically by `make screenshots` the first
-time you run it.
-
-## Quick start
+All screenshots except the calendar can be captured without any real email
+account. Demo mode runs an in-memory mail client seeded with realistic messages.
 
 ```bash
-# From the lilmail repo root:
-make screenshots
+# From the lilmail repo root — builds binary and captures all demo screenshots:
+make demo-screenshots
 ```
 
 This will:
 1. Build the lilmail binary (`go build -o lilmail`)
-2. Start lilmail with the minimal demo config (no IMAP required)
-3. Install Playwright Chromium if not already present
-4. Capture the login page (and any other static routes)
-5. Write PNGs to `docs/screenshots/`
-6. Stop the server
+2. Install Playwright Chromium if not already present (first run only)
+3. Write a temporary `config.toml` with `[demo] enabled = true`
+4. Start lilmail, log in as the demo user, capture all screenshots
+5. Write PNGs to `docs/screenshots/` and stop the server
 
-## Full run with a live IMAP account
+The demo seed contains:
+- 10 INBOX messages (varied senders, subjects, dates; 3 unread; 2 with
+  attachments; one 2-message thread; one 3-party thread)
+- 2 Sent messages
+- 1 Draft message
 
-To capture inbox/message/compose/settings screenshots, provide real credentials
-via environment variables before running `make screenshots`:
+## Live IMAP mode (with real credentials)
+
+To capture screenshots against a real account, set environment variables and
+run `make screenshots`:
 
 ```bash
 export LILMAIL_IMAP_SERVER=imap.example.com
@@ -63,47 +58,34 @@ export LILMAIL_ENC_KEY="a-32-character-encryption-key!!"
 make screenshots
 ```
 
-The script reads these environment variables and writes a temporary `config.toml`
-before starting the server.
+## Prerequisites
 
-## BASE_URL override
+| Tool | Version | Notes |
+|------|---------|-------|
+| Node.js | 18+ | Required to run the Playwright scripts |
+| Go 1.23+ | — | To build the lilmail binary |
 
-By default the screenshotter connects to `http://localhost:3099` (a port chosen
-to avoid conflicting with a running dev server). Override with:
+Playwright Chromium is installed automatically on first run.
 
-```bash
-BASE_URL=http://localhost:4000 node scripts/screenshots.mjs
-```
+## Reproducibility
 
-Or if lilmail is already running (skip the auto-start):
+The demo seed is hardcoded in `handlers/api/democlient.go`. Dates are relative
+to `time.Now()` at server start, so timestamps differ between runs — but the
+message content and folder structure are stable.
 
-```bash
-LILMAIL_EXTERNAL=1 BASE_URL=http://localhost:3000 node scripts/screenshots.mjs
-```
-
-## Manual run
+To reproduce exactly:
 
 ```bash
-# Install Playwright once:
-cd scripts && npm install && npx playwright install chromium
-
-# Run the screenshotter (lilmail must already be running):
-LILMAIL_EXTERNAL=1 BASE_URL=http://localhost:3000 node scripts/screenshots.mjs
+scripts/seed-demo.sh --screenshots
 ```
 
-## What the script captures
+Or, to run the server and capture manually:
 
-1. **Login page** — always captured; no credentials needed.
-2. **Inbox** — attempts login with provided credentials; skipped with a warning
-   if no credentials are set.
-3. **Message view** — opens the first message in the inbox; skipped if inbox is
-   empty or no credentials.
-4. **Compose modal** — clicks Compose in the inbox; skipped if not logged in.
-5. **Calendar** — navigates to `/calendar`; skipped if `[caldav]` is not enabled.
-6. **Settings** — navigates to `/settings`; skipped if not logged in.
-7. **Search results** — submits a search query; skipped if not logged in.
+```bash
+scripts/seed-demo.sh          # start; open browser at http://localhost:3099/demo-login
+# Ctrl-C to stop
+```
 
 ## docs/screenshots/README.md
 
-See [`docs/screenshots/README.md`](screenshots/README.md) for a summary of which
-screenshots are checked in versus which need to be generated locally.
+See [`docs/screenshots/README.md`](screenshots/README.md) for per-file status.

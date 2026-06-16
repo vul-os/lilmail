@@ -16,6 +16,9 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/session"
 )
 
+// demoAuthType is the session auth_type value used when demo mode is active.
+const demoAuthType = "demo"
+
 type AuthHandler struct {
 	store  *session.Store
 	config *config.Config
@@ -215,12 +218,19 @@ func (h *AuthHandler) fetchInitialData(client *api.Client, cacheFolder string) e
 	return nil
 }
 
-// Add this method to the AuthHandler struct
-func (h *AuthHandler) CreateIMAPClient(c *fiber.Ctx) (*api.Client, error) {
+// CreateIMAPClient returns a MailClient for the authenticated session.
+// In demo mode it returns a *api.DemoClient (no network); otherwise it opens
+// a real IMAP TLS connection using the session credentials.
+func (h *AuthHandler) CreateIMAPClient(c *fiber.Ctx) (api.MailClient, error) {
 	// Get credentials from session
 	sess, err := h.store.Get(c)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get session: %v", err)
+	}
+
+	// Demo mode: return an in-memory client with seed data.
+	if authType, _ := sess.Get("auth_type").(string); authType == demoAuthType {
+		return api.NewDemoClient(), nil
 	}
 
 	// OAuth2 sessions authenticate with a (possibly refreshed) bearer token.
@@ -275,11 +285,63 @@ func (h *AuthHandler) CreateIMAPClient(c *fiber.Ctx) (*api.Client, error) {
 	)
 }
 
+// HandleDemoLogin establishes a demo session without contacting any IMAP server.
+// Only available when [demo] enabled = true in config.toml.
+func (h *AuthHandler) HandleDemoLogin(c *fiber.Ctx) error {
+	if !h.config.Demo.Enabled {
+		return c.Status(404).SendString("Demo mode is not enabled")
+	}
+
+	sess, err := h.store.Get(c)
+	if err != nil {
+		return c.Status(500).SendString("Session error")
+	}
+
+	email := h.config.Demo.Email
+	if email == "" {
+		email = "demo@lilmail.dev"
+	}
+	username := api.GetUsernameFromEmail(email)
+	if username == "" {
+		username = "demo"
+	}
+
+	// Write seed cache data so the inbox handler can load folders.json.
+	demoClient := api.NewDemoClient()
+	userCacheFolder := filepath.Join(h.config.Cache.Folder, api.SanitizeUsername(username))
+	if err := h.ensureUserCacheFolder(userCacheFolder); err != nil {
+		log.Printf("demo: ensureUserCacheFolder: %v", err)
+	}
+	if folders, fErr := demoClient.FetchFolders(); fErr == nil {
+		if cErr := utils.SaveCache(filepath.Join(userCacheFolder, "folders.json"), folders); cErr != nil {
+			log.Printf("demo: save folders cache: %v", cErr)
+		}
+	}
+
+	token, err := api.GenerateToken(username, email, h.config.JWT.Secret)
+	if err != nil {
+		return c.Status(500).SendString("Failed to create token")
+	}
+
+	sess.Set("authenticated", true)
+	sess.Set("email", email)
+	sess.Set("username", username)
+	sess.Set("token", token)
+	sess.Set("auth_type", demoAuthType)
+	sess.SetExpiry(24 * 60 * 60 * time.Second)
+
+	if err := sess.Save(); err != nil {
+		return c.Status(500).SendString("Failed to create session")
+	}
+
+	return c.Redirect("/inbox")
+}
+
 // CreateIMAPClientForAccount opens an IMAP connection for a stored additional
 // account.  It decrypts the password from the AccountEntry using the
 // application encryption key and derives the IMAP username exactly as the rest
 // of the app does.  The caller must close the returned client.
-func (h *AuthHandler) CreateIMAPClientForAccount(entry AccountEntry) (*api.Client, error) {
+func (h *AuthHandler) CreateIMAPClientForAccount(entry AccountEntry) (api.MailClient, error) {
 	var password string
 	if err := api.DecryptJSON(entry.EncryptedPassword, &password, h.config.Encryption.Key); err != nil {
 		return nil, fmt.Errorf("decrypt password for %s: %w", entry.Email, err)

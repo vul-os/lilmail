@@ -8,6 +8,8 @@
 [![Latest release](https://img.shields.io/github/v/tag/exolutionza/lilmail?label=release&sort=semver)](https://github.com/exolutionza/lilmail/releases)
 [![CI](https://github.com/exolutionza/lilmail/actions/workflows/ci.yml/badge.svg)](https://github.com/exolutionza/lilmail/actions/workflows/ci.yml)
 
+<sub><img src="docs/assets/vulos-logo.png" height="14" alt="Vulos logo"> The default mail client of <strong><a href="https://vulos.org">Vulos</a></strong> OS — and a fully standalone webmail client.</sub>
+
 ![lilmail](docs/screenshots/hero.png)
 
 </div>

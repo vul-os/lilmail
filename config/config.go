@@ -164,6 +164,23 @@ type AccountsConfig struct {
 	StoreFile string `toml:"store_file"` // bbolt path; default accounts.db
 }
 
+// DemoConfig configures the optional demo / screenshot mode.
+//
+// When enabled, a POST /demo-login route is registered that accepts the
+// configured username/password without contacting any IMAP server. The
+// resulting session returns in-memory seed messages so the UI can be
+// screenshotted without real credentials.
+//
+//	[demo]
+//	enabled  = true
+//	email    = "demo@lilmail.dev"
+//	password = "demo"
+type DemoConfig struct {
+	Enabled  bool   `toml:"enabled"`
+	Email    string `toml:"email"`
+	Password string `toml:"password"`
+}
+
 type Config struct {
 	Server        ServerConfig           `toml:"server"`
 	IMAP          IMAPConfig             `toml:"imap"`
@@ -178,6 +195,7 @@ type Config struct {
 	Notifications NotificationsConfig    `toml:"notifications"`
 	AI            AIConfig               `toml:"ai"`
 	Accounts      AccountsConfig         `toml:"accounts"`
+	Demo          DemoConfig             `toml:"demo"`
 }
 
 func LoadConfig(filepath string) (*Config, error) {
@@ -317,7 +335,11 @@ func (c *Config) GetSecurityHeaders() map[string]string {
 	//
 	// Email HTML bodies are sandboxed inside <iframe sandbox> (no allow-scripts)
 	// so they never reach this CSP; this policy is the outer-page defence.
-	scriptSrc := "'self' 'unsafe-inline'"
+	// Alpine.js evaluates expressions via new Function() which requires
+	// 'unsafe-eval'. Without it, Alpine silently falls back and x-data / x-show
+	// expressions may not initialize correctly. 'unsafe-inline' is also needed
+	// for Alpine's inline x-on handlers.
+	scriptSrc := "'self' 'unsafe-inline' 'unsafe-eval'"
 	imgSrc := "'self' data: blob:"
 	connectSrc := "'self'"
 	csp := "default-src 'self'; script-src " + scriptSrc + "; style-src 'self' 'unsafe-inline'; img-src " + imgSrc + "; connect-src " + connectSrc + "; object-src 'none'; base-uri 'self';"

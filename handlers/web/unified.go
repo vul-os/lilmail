@@ -144,7 +144,7 @@ func (f *unifiedFetcher) fetchForEntry(entry AccountEntry) AccountFetchResult {
 //   - merged []models.Email sorted date descending
 //   - []AccountFetchResult — one entry per account; Err != nil for failures
 func FetchUnified(
-	primaryClient *api.Client,
+	primaryClient api.MailClient,
 	primaryEmail, primaryLabel, primaryColor string,
 	entries []AccountEntry,
 	auth *AuthHandler,

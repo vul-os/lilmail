@@ -6,22 +6,21 @@ This directory contains screenshots used in the README and documentation.
 
 | File | Status | Notes |
 |------|--------|-------|
-| `hero.png` | Generated | Login page capture (no IMAP required) |
-| `login.png` | Generated | Login page |
-| `inbox.png` | Needs live IMAP | Requires a configured IMAP account |
-| `message.png` | Needs live IMAP | Requires a message in the inbox |
-| `compose.png` | Needs live IMAP | Compose modal triggered from inbox |
+| `hero.png` | Real (demo mode) | Inbox view with seeded messages |
+| `login.png` | Real (demo mode) | Login page — no IMAP required |
+| `inbox.png` | Real (demo mode) | Inbox with 10 seeded messages, threads, unread badges |
+| `message.png` | Real (demo mode) | Message viewer open (GitHub PR notification) |
+| `compose.png` | Real (demo mode) | Compose modal: TO/CC/BCC fields, subject, toolbar |
+| `search.png` | Real (demo mode) | Search results filtered to "roadmap" thread |
 | `calendar.png` | Needs CalDAV | Requires `[caldav]` config + live CalDAV server |
-| `settings.png` | Needs live IMAP | Settings page (session required) |
-| `search.png` | Needs live IMAP | Search results page |
+| `settings.png` | Real (demo mode) | Settings page |
 
 ## Regenerating
 
-From the repo root:
+From the repo root (no credentials or external servers needed):
 
 ```bash
-make screenshots
+make demo-screenshots
 ```
 
-See [../SCREENSHOTS.md](../SCREENSHOTS.md) for full prerequisites and
-environment variable configuration.
+See [../SCREENSHOTS.md](../SCREENSHOTS.md) for full prerequisites and options.

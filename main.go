@@ -240,6 +240,15 @@ func main() {
 	app.Post("/login", webAuthHandler.HandleLogin)
 	app.Get("/logout", webAuthHandler.HandleLogout)
 
+	// Demo / screenshot mode — registered only when [demo] enabled = true.
+	// Both GET and POST /demo-login immediately establish a demo session
+	// (no IMAP contact) and redirect to /inbox. This lets Playwright simply
+	// navigate to /demo-login and follow the redirect.
+	if config.Demo.Enabled {
+		app.Get("/demo-login", webAuthHandler.HandleDemoLogin)
+		app.Post("/demo-login", webAuthHandler.HandleDemoLogin)
+	}
+
 	// OAuth2 login routes (public; the callback establishes the session)
 	if config.OAuth2.Enabled {
 		app.Get("/auth/oauth/login", webAuthHandler.HandleOAuthLogin)

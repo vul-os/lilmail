@@ -262,7 +262,7 @@ func (h *EmailHandler) HandleEmailView(c *fiber.Ctx) error {
 	// Unified mode: X-Account-Email tells us which account this message belongs to.
 	accountEmail := c.Get("X-Account-Email")
 
-	var client *api.Client
+	var client api.MailClient
 	var err error
 
 	if accountEmail != "" && h.acctStore != nil && h.config.Accounts.Enabled {
@@ -652,7 +652,7 @@ func (h *EmailHandler) HandleComposeEmail(c *fiber.Ctx) error {
 	}
 
 	// Save to Sent folder (best effort) — use the reply account's IMAP if needed.
-	var imapClient *api.Client
+	var imapClient api.MailClient
 	if replyAccountEmail != "" && replyAccountEmail != h.auth.GetSessionEmail(c) &&
 		h.acctStore != nil && h.config.Accounts.Enabled {
 		username, _ := c.Locals("username").(string)
