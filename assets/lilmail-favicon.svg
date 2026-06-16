@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="lilmail">
+  <title>lilmail</title>
+  <defs>
+    <linearGradient id="fav-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f5f0e8"/>
+      <stop offset="100%" stop-color="#e8dfd0"/>
+    </linearGradient>
+    <linearGradient id="fav-flap" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#4f46e5"/>
+    </linearGradient>
+  </defs>
+  <!-- Envelope body -->
+  <rect x="2" y="6" width="28" height="20" rx="3" ry="3"
+        fill="url(#fav-bg)" stroke="#c9b99a" stroke-width="1"/>
+  <!-- Bottom fold lines -->
+  <line x1="2"  y1="26" x2="16" y2="16" stroke="#c9b99a" stroke-width="0.8" opacity="0.5"/>
+  <line x1="30" y1="26" x2="16" y2="16" stroke="#c9b99a" stroke-width="0.8" opacity="0.5"/>
+  <!-- Flap -->
+  <path d="M 3 7 L 16 18 L 29 7 Z" fill="url(#fav-flap)"/>
+  <!-- Top edge of flap -->
+  <line x1="2" y1="7" x2="30" y2="7" stroke="#818cf8" stroke-width="0.5" opacity="0.4"/>
+</svg>

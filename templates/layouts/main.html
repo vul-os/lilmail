@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{if .Title}}{{.Title}} — LilMail{{else}}LilMail{{end}}</title>
+    <title>{{if .Title}}{{.Title}} — lilmail{{else}}lilmail{{end}}</title>
+    <link rel="icon" type="image/svg+xml" href="/assets/lilmail-favicon.svg">
     <link rel="stylesheet" href="/assets/css/mail.css">
     <!-- HTMX -->
     <script src="/assets/vendor/htmx.min.js"></script>
@@ -27,14 +28,8 @@
     </button>
 
     <!-- Logo -->
-    <a href="/inbox" class="topbar__logo">
-        <div class="topbar__logo-mark">
-            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
-            </svg>
-        </div>
-        <span class="topbar__logo-name">LilMail</span>
+    <a href="/inbox" class="topbar__logo" aria-label="lilmail — go to inbox">
+        <img src="/assets/lilmail-logo.svg" alt="lilmail" class="topbar__logo-img">
     </a>
 
     <!-- Search -->

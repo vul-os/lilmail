@@ -1,6 +1,6 @@
 <div align="center">
 
-# lilmail
+<img src="docs/assets/lilmail-logo.svg" alt="lilmail" height="52" width="208">
 
 **A lightweight, database-free webmail client written in Go.**
 

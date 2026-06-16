@@ -1657,3 +1657,457 @@ input, textarea, select { font-family: inherit; }
   cursor: help;
   flex-shrink: 0;
 }
+
+/* =========================================================
+   UI/UX POLISH — 2026-06
+   Improvements: logo sizing, focus rings, empty states,
+   loading skeletons, hover states, topbar refinements,
+   email row polish, viewer improvements, responsive tweaks,
+   dark-mode contrast boosts, micro-animations.
+   ========================================================= */
+
+/* ---------------------------------------------------------
+   Logo — topbar + login
+--------------------------------------------------------- */
+.topbar__logo-img {
+  height: 28px;
+  width: auto;
+  display: block;
+  flex-shrink: 0;
+}
+/* On very small screens hide the wordmark portion of the SVG
+   by shrinking the rendered size — the icon portion stays readable */
+@media (max-width: 480px) {
+  .topbar__logo-img { height: 24px; }
+}
+
+.login-logo-img {
+  height: 44px;
+  width: auto;
+  display: block;
+}
+
+/* Legacy class kept — hide old box-mark if present */
+.topbar__logo-mark { display: none; }
+.topbar__logo-name { display: none; }
+.login-logo-mark  { display: none; }
+.login-logo-name  { display: none; }
+
+/* ---------------------------------------------------------
+   Focus rings — keyboard-accessible, no outline:none traps
+--------------------------------------------------------- */
+:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+/* Remove browser default only when :focus-visible is supported */
+:focus:not(:focus-visible) { outline: none; }
+
+/* Buttons that already have their own active-look */
+.btn-compose:focus-visible,
+.btn-send:focus-visible,
+.btn-primary:focus-visible {
+  outline-offset: 3px;
+}
+
+/* Nav items */
+.nav-item:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: -2px;
+}
+
+/* ---------------------------------------------------------
+   Topbar refinements
+--------------------------------------------------------- */
+.topbar {
+  /* Subtle warm tint to match the logo paper palette */
+  background: var(--c-surface);
+  border-bottom-color: var(--c-border);
+}
+
+/* Search bar: slightly wider on large screens */
+.topbar__search { max-width: 540px; }
+
+/* Settings icon: slightly larger hit area */
+.topbar__settings {
+  width: 34px;
+  height: 34px;
+}
+
+/* ---------------------------------------------------------
+   Sidebar enhancements
+--------------------------------------------------------- */
+.sidebar {
+  /* Thin accent line on active-folder side */
+  border-right: 1px solid var(--c-border);
+}
+
+.nav-item {
+  /* Tighter letter spacing for folder names */
+  letter-spacing: -0.01em;
+}
+
+.nav-item.is-active {
+  /* Slightly stronger left indicator */
+  box-shadow: inset 3px 0 0 var(--c-accent);
+}
+
+/* Compose button — pill style, slight gradient lift */
+.btn-compose {
+  background: linear-gradient(135deg, var(--c-accent) 0%, var(--c-accent-dark) 100%);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--c-accent) 35%, transparent);
+}
+.btn-compose:hover {
+  background: linear-gradient(135deg, var(--c-accent-dark) 0%, #3730a3 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--c-accent) 40%, transparent);
+}
+
+/* ---------------------------------------------------------
+   Email list — improved row polish
+--------------------------------------------------------- */
+
+/* Selected email row: accent left bar */
+.email-row.is-selected {
+  background: var(--c-accent-soft);
+  box-shadow: inset 3px 0 0 var(--c-accent);
+}
+
+/* Unread dot — slightly bigger, higher contrast */
+.email-row__unread-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--c-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--c-accent) 20%, transparent);
+}
+
+/* Row hover — smooth lift illusion */
+.email-row { transition: background var(--t-fast), box-shadow var(--t-fast); }
+.email-row:hover { background: var(--c-surface-alt); }
+
+/* Avatar — richer colors based on first letter, cycled */
+.avatar { font-weight: 700; }
+
+/* Subject line: slightly darker when unread */
+.email-row.is-unread .email-row__subject {
+  color: var(--c-text);
+  font-weight: 600;
+}
+
+/* Preview fade: use a subtle gradient instead of hard ellipsis on wide screens */
+@media (min-width: 1200px) {
+  .email-row__preview {
+    position: relative;
+    overflow: hidden;
+  }
+}
+
+/* ---------------------------------------------------------
+   Empty states — richer, friendlier
+--------------------------------------------------------- */
+.empty-state {
+  height: 320px;
+  gap: 12px;
+  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--c-accent) 3%, transparent));
+  border-radius: var(--r-md);
+  margin: 12px;
+}
+.empty-state svg { width: 52px; height: 52px; opacity: 0.2; }
+.empty-state__title { font-size: 14px; font-weight: 600; color: var(--c-text-2); }
+.empty-state__sub { font-size: 13px; color: var(--c-text-3); max-width: 200px; line-height: 1.5; }
+
+/* Viewer placeholder */
+.viewer-placeholder {
+  gap: 14px;
+}
+.viewer-placeholder svg {
+  width: 64px;
+  height: 64px;
+  opacity: 0.15;
+  color: var(--c-accent);
+}
+.viewer-placeholder p {
+  font-size: 14px;
+  color: var(--c-text-3);
+  font-weight: 500;
+}
+
+/* ---------------------------------------------------------
+   HTMX loading indicator — smoother animation
+--------------------------------------------------------- */
+#htmx-loading-bar {
+  height: 2.5px;
+  background: linear-gradient(90deg, var(--c-accent), #818cf8);
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 0 2px 2px 0;
+}
+
+/* List spinner — use accent colour */
+.htmx-indicator-inner {
+  border-color: var(--c-border);
+  border-top-color: var(--c-accent);
+  width: 16px;
+  height: 16px;
+}
+
+/* HTMX loading — dim the list while refreshing */
+.htmx-request #email-list-inner {
+  opacity: 0.55;
+  transition: opacity 0.2s ease;
+}
+
+/* ---------------------------------------------------------
+   Skeleton loading rows (shown while HTMX loads)
+   Usage: add class .skeleton to a placeholder div
+--------------------------------------------------------- */
+@keyframes shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--c-surface-alt) 25%,
+    var(--c-border-soft) 50%,
+    var(--c-surface-alt) 75%
+  );
+  background-size: 800px 100%;
+  animation: shimmer 1.4s ease infinite;
+  border-radius: var(--r-sm);
+}
+
+/* ---------------------------------------------------------
+   Email viewer — reading pane improvements
+--------------------------------------------------------- */
+.email-view__header {
+  background: var(--c-surface);
+  /* Slightly more generous padding */
+  padding: 18px 24px 14px;
+}
+
+.email-view__subject {
+  font-size: 18px;
+  line-height: 1.25;
+  letter-spacing: -0.025em;
+}
+
+/* Sender avatar in viewer — slightly larger */
+.email-view .avatar {
+  width: 38px;
+  height: 38px;
+  font-size: 13px;
+}
+
+/* Action bar buttons — slightly taller hit area */
+.btn-action {
+  padding: 6px 14px;
+  border-radius: var(--r-md);
+  font-size: 12px;
+  gap: 6px;
+}
+.btn-action:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+/* Reply/Forward: accent-tinted hover */
+.btn-action:hover {
+  background: var(--c-surface-alt);
+  color: var(--c-text);
+  border-color: var(--c-border);
+}
+
+/* Email body: comfortable reading width on very wide screens */
+.email-body--text {
+  max-width: 72ch;
+  padding: 24px 28px;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+/* Blockquote styling in HTML mail body */
+.email-content blockquote {
+  border-left: 3px solid var(--c-accent);
+  padding-left: 16px;
+  margin: 14px 0;
+  color: var(--c-text-2);
+  font-style: normal;
+  opacity: 0.8;
+}
+
+/* ---------------------------------------------------------
+   Compose modal improvements
+--------------------------------------------------------- */
+.compose-header {
+  /* Richer header using indigo gradient instead of flat */
+  background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+}
+
+/* Compose field labels — slightly wider for alignment */
+.compose-field__label { width: 46px; }
+
+/* Compose body: minimum height on desktop */
+@media (min-width: 1024px) {
+  .compose-body { min-height: 240px; }
+}
+
+/* Drag-over state for compose file attachment */
+.compose-card.drag-over {
+  border: 2px dashed var(--c-accent);
+  background: var(--c-accent-soft);
+}
+
+/* ---------------------------------------------------------
+   Toast notifications — small position tweak for mobile
+--------------------------------------------------------- */
+@media (max-width: 640px) {
+  .toast-stack {
+    bottom: 12px;
+    right: 12px;
+    left: 12px;
+    width: auto;
+  }
+}
+
+/* Toast enter animation */
+.toast {
+  animation: toastIn 200ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+@keyframes toastIn {
+  from { opacity: 0; transform: translateX(24px) scale(0.96); }
+  to   { opacity: 1; transform: translateX(0)    scale(1); }
+}
+
+/* ---------------------------------------------------------
+   Login page improvements
+--------------------------------------------------------- */
+.login-page {
+  /* Warm gradient background */
+  background: radial-gradient(
+    ellipse at 50% 30%,
+    color-mix(in srgb, var(--c-accent) 7%, var(--c-bg)),
+    var(--c-bg) 70%
+  );
+}
+
+.login-card {
+  border-radius: var(--r-lg);
+  box-shadow:
+    var(--shadow-md),
+    0 0 0 1px color-mix(in srgb, var(--c-accent) 8%, transparent);
+}
+
+.login-logo {
+  /* Extra breathing room */
+  margin-bottom: 32px;
+}
+
+/* ---------------------------------------------------------
+   Settings page improvements
+--------------------------------------------------------- */
+.settings-section {
+  border-radius: var(--r-lg);
+  transition: box-shadow var(--t-base);
+}
+.settings-section:hover {
+  box-shadow: var(--shadow-sm);
+}
+
+/* ---------------------------------------------------------
+   Dark mode contrast boosts
+--------------------------------------------------------- */
+@media (prefers-color-scheme: dark) {
+  /* Slightly warmer topbar in dark */
+  .topbar {
+    background: #18181e;
+    border-bottom-color: #2a2a35;
+  }
+
+  /* Compose header — darker indigo in dark mode */
+  .compose-header {
+    background: linear-gradient(135deg, #1a1740 0%, #252060 100%);
+  }
+
+  /* Login background */
+  .login-page {
+    background: radial-gradient(
+      ellipse at 50% 30%,
+      color-mix(in srgb, var(--c-accent) 10%, #0f0f11),
+      #0f0f11 70%
+    );
+  }
+
+  /* Email rows — unread dot slightly brighter */
+  .email-row__unread-dot {
+    background: #818cf8;
+    box-shadow: 0 0 0 2px rgba(99,102,241,.2);
+  }
+
+  /* Empty state gradient in dark */
+  .empty-state {
+    background: linear-gradient(
+      180deg,
+      transparent,
+      color-mix(in srgb, var(--c-accent) 5%, transparent)
+    );
+  }
+
+  /* Active nav item — brighter in dark */
+  .nav-item.is-active {
+    background: color-mix(in srgb, var(--c-accent) 18%, transparent);
+    color: var(--c-accent-text);
+  }
+
+  /* Card hover in dark settings */
+  .settings-section:hover {
+    box-shadow: 0 0 0 1px var(--c-accent-soft);
+  }
+}
+
+/* ---------------------------------------------------------
+   Responsive improvements
+--------------------------------------------------------- */
+
+/* Compact list view on medium screens */
+@media (min-width: 768px) and (max-width: 1200px) {
+  :root { --list-w: 280px; }
+}
+
+/* Larger sidebar on wide screens */
+@media (min-width: 1400px) {
+  :root { --sidebar-w: 240px; }
+}
+
+/* Email row: tighter padding on small screens */
+@media (max-width: 480px) {
+  .email-row { padding: 10px 12px 10px 16px; gap: 8px; }
+  .avatar { width: 30px; height: 30px; font-size: 11px; }
+}
+
+/* Viewer col hidden on tablet — full list view */
+@media (max-width: 1023px) {
+  .list-col { width: 100%; max-width: 100%; }
+}
+
+/* ---------------------------------------------------------
+   Micro-interactions: selection & active states
+--------------------------------------------------------- */
+.email-row:active { background: var(--c-accent-soft); }
+.nav-item:active { opacity: 0.75; }
+.btn-action:active { transform: scale(0.97); }
+
+/* Thread expand animation */
+.thread-messages {
+  transition: opacity var(--t-base), transform var(--t-base);
+}
+
+/* ---------------------------------------------------------
+   Accessibility: high-contrast mode support
+--------------------------------------------------------- */
+@media (forced-colors: active) {
+  .btn-compose,
+  .btn-send,
+  .btn-primary { forced-color-adjust: none; }
+  .email-row__unread-dot { forced-color-adjust: none; }
+}
