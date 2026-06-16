@@ -19,47 +19,62 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.23'
+        go-version-file: go.mod
 
-    - name: Build
+    - name: Run tests
+      run: go test ./...
+
+    - name: Verify tag matches declared version
       run: |
-        VERSION=$(git describe --tags | tr -d 'v')
-        mkdir -p builds
+        TAG="${GITHUB_REF_NAME}"            # e.g. v1.9.0
+        VERSION="${TAG#v}"                  # strip leading 'v' → 1.9.0
+        # Build with the real version injected so --version prints the tag value.
+        go build -ldflags "-X main.Version=${VERSION}" -o /tmp/lilmail-check .
+        BIN_VER=$(/tmp/lilmail-check --version | awk '{print $2}')
+        if [ "${BIN_VER}" != "${VERSION}" ]; then
+          echo "ERROR: binary reports version '${BIN_VER}' but tag is '${TAG}'"
+          exit 1
+        fi
+        echo "Version check passed: ${VERSION}"
 
-        # Create lilmail directory for each platform
+    - name: Build release binaries
+      run: |
+        TAG="${GITHUB_REF_NAME}"
+        VERSION="${TAG#v}"
+        LDFLAGS="-X main.Version=${VERSION}"
         mkdir -p builds/lilmail
 
-        # Copy config to the bundle (templates and frontend assets are embedded
-        # in the binary via embed.FS, so they don't need to ship alongside it)
-        cp config.toml builds/lilmail/
+        # Copy example config into bundle (templates + assets are embedded)
+        cp config.toml.example builds/lilmail/config.toml.example
 
-        # Linux build
-        GOOS=linux GOARCH=amd64 go build -o builds/lilmail/lilmail
-        cd builds
-        zip -r lilmail${VERSION}_linux_amd64.zip lilmail/*
-        cd ..
+        # linux/amd64
+        GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o builds/lilmail/lilmail .
+        cd builds && zip -r "lilmail_${VERSION}_linux_amd64.zip" lilmail/ && cd ..
         rm builds/lilmail/lilmail
 
-        # Windows build
-        GOOS=windows GOARCH=amd64 go build -o builds/lilmail/lilmail.exe
-        cd builds
-        zip -r lilmail${VERSION}_windows_amd64.zip lilmail/*
-        cd ..
-        rm builds/lilmail/lilmail.exe
-
-        # Darwin build
-        GOOS=darwin GOARCH=amd64 go build -o builds/lilmail/lilmail
-        cd builds
-        zip -r lilmail${VERSION}_darwin_amd64.zip lilmail/*
-        cd ..
+        # linux/arm64
+        GOOS=linux GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o builds/lilmail/lilmail .
+        cd builds && zip -r "lilmail_${VERSION}_linux_arm64.zip" lilmail/ && cd ..
         rm builds/lilmail/lilmail
-        
+
+        # darwin/amd64
+        GOOS=darwin GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o builds/lilmail/lilmail .
+        cd builds && zip -r "lilmail_${VERSION}_darwin_amd64.zip" lilmail/ && cd ..
+        rm builds/lilmail/lilmail
+
+        # darwin/arm64 (Apple Silicon)
+        GOOS=darwin GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o builds/lilmail/lilmail .
+        cd builds && zip -r "lilmail_${VERSION}_darwin_arm64.zip" lilmail/ && cd ..
+        rm builds/lilmail/lilmail
+
         # Source archive
-        git archive --format=zip HEAD -o builds/lilmail${VERSION}_source.zip
+        git archive --format=zip HEAD -o "builds/lilmail_${VERSION}_source.zip"
 
-        # Clean up build directory
+        # Clean up staging dir
         rm -rf builds/lilmail
 
-    - uses: softprops/action-gh-release@v2
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
       with:
         files: builds/*
+        generate_release_notes: true

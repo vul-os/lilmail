@@ -7,7 +7,7 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
-## [Unreleased] — 1.9.0
+## [1.9.0] — 2026-06-16
 
 ### Added
 
@@ -74,7 +74,7 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
-## [Unreleased] — 1.8.0
+## [1.8.0] — 2026-06-15
 
 ### Added
 
@@ -364,7 +364,9 @@ Versioning: [Semantic Versioning](https://semver.org/)
 Initial releases: basic IMAP/SMTP webmail, JWT sessions, file-based cache,
 password-only login, server-rendered Go templates.
 
-[Unreleased]: https://github.com/exolutionza/lilmail/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/exolutionza/lilmail/compare/v1.9.0...HEAD
+[1.9.0]: https://github.com/exolutionza/lilmail/compare/v1.8.0...v1.9.0
+[1.8.0]: https://github.com/exolutionza/lilmail/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/exolutionza/lilmail/releases/tag/v1.7.0
 [1.6.0]: https://github.com/exolutionza/lilmail/releases/tag/v1.6.0
 [1.4.0]: https://github.com/exolutionza/lilmail/releases/tag/v1.4.0

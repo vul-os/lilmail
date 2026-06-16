@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"flag"
 	"fmt"
 	"io/fs"
 	"lilmail/config"
@@ -23,6 +24,9 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/session"
 	"github.com/gofiber/template/html/v2"
 )
+
+// Version is set at build time via -ldflags "-X main.Version=x.y.z".
+var Version = "dev"
 
 // titleCase converts the first letter of each word to upper-case.
 // It is used as a template function and replaces the deprecated strings.Title.
@@ -68,6 +72,13 @@ func isAPIRequest(c *fiber.Ctx) bool {
 }
 
 func main() {
+	showVersion := flag.Bool("version", false, "print version and exit")
+	flag.Parse()
+	if *showVersion {
+		fmt.Println("lilmail", Version)
+		return
+	}
+
 	// Load configuration
 	config, err := config.LoadConfig("config.toml")
 	if err != nil {
