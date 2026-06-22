@@ -8,7 +8,7 @@ mode.
 
 | File | Description | Status |
 |------|-------------|--------|
-| `docs/screenshots/hero.png` | Inbox hero shot (demo data) | Real — demo mode |
+| `docs/screenshots/hero.png` | Inbox hero — a message open in the three-pane reading view (demo data) | Real — demo mode |
 | `docs/screenshots/login.png` | Login page | Real — no credentials needed |
 | `docs/screenshots/inbox.png` | Inbox with seeded demo messages | Real — demo mode |
 | `docs/screenshots/message.png` | Message viewer | Real — demo mode |

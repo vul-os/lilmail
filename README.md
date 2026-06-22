@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/lilmail-logo.svg" alt="lilmail" height="52" width="208">
+<img src="docs/assets/lilmail-wordmark.png" alt="lilmail" height="56">
 
 **A lightweight, database-free webmail client in a single Go binary.**
 
@@ -10,7 +10,9 @@
 
 <sub><img src="docs/assets/vulos-logo.png" height="14" alt="Vulos logo"> The default mail client of <strong><a href="https://vulos.org">Vulos</a></strong> OS — and a fully standalone webmail client.</sub>
 
-![lilmail](docs/screenshots/hero.png)
+<br>
+
+<img src="docs/screenshots/hero.png" alt="lilmail — a message open in the three-pane reading view" width="900">
 
 </div>
 

@@ -7,6 +7,60 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
+## [1.10.0] — 2026-06-22
+
+### Added
+
+- **Full email address as login username** — new `[auth] allow_full_email_username`
+  config key controls what LilMail sends as the IMAP/SMTP SASL/LOGIN username:
+  - `true` (default) — the full email address (`alice@example.com`) is sent
+    verbatim, matching most hosted providers (Gmail, Fastmail, Migadu, Zoho…).
+  - `false` — only the local part before `@` (`alice`) is sent, for self-hosted
+    Dovecot/Postfix setups that authenticate the bare handle.
+  - The legacy `[server] username_is_email` key is kept as a backwards-compatible
+    alias; when `[auth] allow_full_email_username` is set it takes precedence.
+    `LoadConfig` reconciles the two into a single source of truth
+    (`Server.UsernameIsEmail`) that all auth paths (password login, OAuth2,
+    additional accounts, account switch, SMTP) already read.
+  - Documented in `config.toml.example`; covered by
+    `config.TestAllowFullEmailUsername_AuthSectionWins` (default, auth-only,
+    legacy-only, and auth-overrides-legacy cases).
+
+### Changed
+
+- **New brand identity — Coral & Teal warm-paper palette.** The whole design
+  system was retinted from the previous indigo scheme onto a coral primary
+  (`#F2674E`), teal link/highlight (`#14B8A6`), ink/slate text, and warm
+  "paper" surfaces (`#FBF7F4`) with mist borders (`#EEE6E0`). All `--c-*` design
+  tokens in `assets/css/mail.css` were remapped (light + a derived warm-charcoal
+  dark variant), avatar and status colours re-harmonised, and every hardcoded
+  indigo value removed from templates and CSS. WCAG-AA text contrast preserved.
+- **New logo, favicons & social meta.** The coral envelope-flap mark replaces the
+  old logo in the topbar and login card and is used as the favicon. Generated
+  app-icon PNGs (16/32/48/180/192/512) plus an Open Graph image; completed
+  `<head>` with description, `theme-color`, `color-scheme`, Open Graph, and
+  Twitter card meta; web manifest references the new icons.
+- **Thunderbird-class UI/UX overhaul.** The inbox is now a true resizable
+  three-pane layout — collapsible account/folder tree with unread counts (and the
+  unified-inbox toggle), a message list with avatars, threaded/collapsible
+  conversations, unread emphasis, multi-select + bulk action bar, and a
+  comfortable/compact density toggle — alongside a reading pane (right/bottom/off,
+  draggable divider, sizes persisted) with a full header block, avatar, attachment
+  chips, the sandboxed HTML body (XSS sanitisation unchanged), and a complete
+  action toolbar. Reply / Reply-All / Forward / Mark-unread / Delete / Print are
+  wired to existing handler routes; Archive / Junk are laid out and clearly flagged
+  as awaiting backend IMAP-move support. Keyboard navigation (j/k, Enter/o, r, u,
+  Delete, c, `/`, Esc) added. Login, Settings, Calendar, the compose modal, and
+  the error page were all brought up to the new palette and polish, with refined
+  loading/empty/hover/focus states and a single-pane responsive layout on mobile.
+
+### Docs
+
+- README now leads with a hero screenshot of a message open in the three-pane
+  reading view; demo-mode screenshot pipeline regenerated all screenshots.
+
+---
+
 ## [1.9.0] — 2026-06-16
 
 ### Added
@@ -364,7 +418,8 @@ Versioning: [Semantic Versioning](https://semver.org/)
 Initial releases: basic IMAP/SMTP webmail, JWT sessions, file-based cache,
 password-only login, server-rendered Go templates.
 
-[Unreleased]: https://github.com/exolutionza/lilmail/compare/v1.9.0...HEAD
+[Unreleased]: https://github.com/exolutionza/lilmail/compare/v1.10.0...HEAD
+[1.10.0]: https://github.com/exolutionza/lilmail/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/exolutionza/lilmail/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/exolutionza/lilmail/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/exolutionza/lilmail/releases/tag/v1.7.0

@@ -40,7 +40,7 @@ async function main() {
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({
     viewport: { width: 1280, height: 800 },
-    colorScheme: 'dark',
+    colorScheme: 'light',
   });
   const page = await context.newPage();
 
@@ -85,9 +85,29 @@ async function main() {
     await waitForAlpine(page);
     await shot(page, 'inbox', 'Inbox with seeded demo messages');
 
-    // Update hero to inbox view (looks better than login page).
+    // ------------------------------------------------------------------
+    // HERO: inbox with a message OPEN in the reading pane (3-pane view).
+    // Open a single-message row so the reading pane shows the email content.
+    // ------------------------------------------------------------------
+    console.log('\nCapturing: hero (inbox + open message)');
+    try {
+        const heroRows = await page.$$('.email-row');
+        const heroTarget = heroRows.length > 1 ? heroRows[1] : heroRows[0];
+        if (heroTarget) {
+            await heroTarget.click();
+            await page.waitForFunction(
+                () => {
+                    const pane = document.querySelector('#email-viewer-pane');
+                    return pane && pane.children.length > 0 && pane.textContent.trim().length > 10
+                        && !document.querySelector('#email-viewer-pane .viewer-placeholder');
+                },
+                { timeout: 5000 }
+            ).catch(() => {});
+            await page.waitForTimeout(500);
+        }
+    } catch (_) {}
     await page.screenshot({ path: resolve(OUT_DIR, 'hero.png'), fullPage: false });
-    console.log('  [ok] hero.png — Inbox view (demo data)');
+    console.log('  [ok] hero.png — Inbox with message open in reading pane (demo data)');
 
     // ------------------------------------------------------------------
     // 4. Message view — click the first email row, wait for HTMX pane
