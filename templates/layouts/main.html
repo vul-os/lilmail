@@ -4,7 +4,28 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{if .Title}}{{.Title}} — lilmail{{else}}lilmail{{end}}</title>
+    <meta name="description" content="lilmail — a lightweight, database-free webmail client that connects to any IMAP/SMTP mailbox and ships as a single self-contained Go binary.">
+    <meta name="theme-color" content="#F2674E">
+    <meta name="color-scheme" content="light dark">
+
+    <!-- Favicons / app icons -->
     <link rel="icon" type="image/svg+xml" href="/assets/lilmail-favicon.svg">
+    <link rel="icon" type="image/png" sizes="32x32" href="/assets/icon-32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/assets/icon-16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/assets/icon-180.png">
+    <link rel="manifest" href="/assets/site.webmanifest">
+
+    <!-- Open Graph / social -->
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="lilmail">
+    <meta property="og:title" content="lilmail — self-hostable webmail in one Go binary">
+    <meta property="og:description" content="A lightweight, database-free webmail client that connects to any IMAP/SMTP mailbox. Server-rendered, no build step, no database.">
+    <meta property="og:image" content="/assets/og-image.png">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="lilmail — self-hostable webmail in one Go binary">
+    <meta name="twitter:description" content="A lightweight, database-free webmail client that connects to any IMAP/SMTP mailbox.">
+    <meta name="twitter:image" content="/assets/og-image.png">
+
     <link rel="stylesheet" href="/assets/css/mail.css">
     <!-- HTMX -->
     <script src="/assets/vendor/htmx.min.js"></script>
@@ -29,7 +50,8 @@
 
     <!-- Logo -->
     <a href="/inbox" class="topbar__logo" aria-label="lilmail — go to inbox">
-        <img src="/assets/lilmail-logo.svg" alt="lilmail" class="topbar__logo-img">
+        <img src="/assets/lilmail-favicon.svg" alt="" class="topbar__logo-img" aria-hidden="true">
+        <span class="topbar__logo-word">lilmail</span>
     </a>
 
     <!-- Search -->
