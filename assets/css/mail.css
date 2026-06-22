@@ -2154,3 +2154,269 @@ input, textarea, select { font-family: inherit; }
   .btn-primary { forced-color-adjust: none; }
   .email-row__unread-dot { forced-color-adjust: none; }
 }
+
+/* =========================================================
+   THUNDERBIRD-CLASS DESKTOP MAIL — 3-pane layout, resizable
+   reading pane (right/bottom/off), density, multi-select,
+   bulk action bar, list controls, expanded reading toolbar.
+   ========================================================= */
+
+/* ---- Pane container: holds list + resizer + reading pane ---- */
+.mail-panes {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  min-width: 0;
+  /* live width set by the resizer; falls back to the token */
+  --list-w-live: var(--list-w);
+  --list-h: 45%;
+}
+
+/* RIGHT layout (default): list | resizer | viewer side-by-side */
+.mail-panes.pane-right { flex-direction: row; }
+.mail-panes.pane-right .list-col {
+  width: var(--list-w-live);
+}
+.mail-panes.pane-right .viewer-col { flex: 1; min-width: 0; }
+
+/* BOTTOM layout: list on top, viewer below */
+.mail-panes.pane-bottom { flex-direction: column; }
+.mail-panes.pane-bottom .list-col {
+  width: 100%;
+  flex: 1 1 auto;
+  border-right: none;
+  border-bottom: 1px solid var(--c-border);
+}
+.mail-panes.pane-bottom .viewer-col {
+  width: 100%;
+  height: var(--list-h);
+  flex: 0 0 var(--list-h);
+}
+.mail-panes.pane-bottom .pane-resizer {
+  width: 100%; height: 6px; cursor: row-resize;
+}
+
+/* OFF layout: list fills, viewer hidden on desktop */
+.mail-panes.pane-off .list-col { width: 100%; }
+@media (min-width: 1024px) {
+  .mail-panes.pane-off .viewer-col,
+  .mail-panes.pane-off .pane-resizer { display: none; }
+}
+
+/* Resizer handle */
+.pane-resizer {
+  flex-shrink: 0;
+  width: 6px;
+  cursor: col-resize;
+  background: transparent;
+  position: relative;
+  z-index: 5;
+}
+.pane-resizer::after {
+  content: '';
+  position: absolute; inset: 0;
+  margin: auto;
+  background: var(--c-border);
+  transition: background var(--t-fast);
+}
+.mail-panes.pane-right .pane-resizer::after { width: 1px; height: 100%; }
+.mail-panes.pane-bottom .pane-resizer::after { width: 100%; height: 1px; }
+.pane-resizer:hover::after { background: var(--c-accent); }
+@media (max-width: 1023px) {
+  .pane-resizer { display: none; }
+}
+
+/* The desktop viewer column is hidden until a message is active */
+@media (min-width: 1024px) {
+  .viewer-col { display: none; }
+  .viewer-col.viewer-active { display: flex; }
+  /* When no message is open keep an empty reading pane visible in right layout
+     so the placeholder ("Select a message") shows — Thunderbird-like. */
+  .mail-panes.pane-right .viewer-col { display: flex; }
+}
+
+/* ---- List toolbar controls (density + layout) ---- */
+.list-toolbar__controls {
+  display: flex; align-items: center; gap: 2px;
+  margin-left: 6px;
+}
+.list-ctrl-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px;
+  border-radius: var(--r-sm);
+  color: var(--c-text-3);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.list-ctrl-btn:hover { background: var(--c-surface-alt); color: var(--c-text-2); }
+.list-ctrl-btn.is-active { background: var(--c-accent-soft); color: var(--c-accent-text); }
+.list-ctrl-btn svg { width: 15px; height: 15px; }
+
+.layout-toggle { position: relative; }
+.layout-menu {
+  position: absolute; right: 0; top: calc(100% + 4px);
+  min-width: 168px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-md);
+  z-index: 25; overflow: hidden; padding: 4px;
+}
+.layout-menu__item {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 8px 10px;
+  font-size: 12px; color: var(--c-text-2);
+  border-radius: var(--r-sm);
+  text-align: left;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.layout-menu__item:hover { background: var(--c-surface-alt); color: var(--c-text); }
+.layout-menu__item.is-active { background: var(--c-accent-soft); color: var(--c-accent-text); }
+.layout-menu__item svg { width: 15px; height: 15px; flex-shrink: 0; opacity: 0.8; }
+
+/* ---- Multi-select checkbox on rows ---- */
+.email-row__check {
+  flex-shrink: 0;
+  width: 18px; height: 18px;
+  margin-top: 9px;
+  border: 1.5px solid var(--c-border);
+  border-radius: 5px;
+  background: var(--c-surface);
+  display: flex; align-items: center; justify-content: center;
+  color: transparent;
+  opacity: 0;
+  transition: opacity var(--t-fast), background var(--t-fast), border-color var(--t-fast), color var(--t-fast);
+}
+.email-row:hover .email-row__check,
+.email-row.is-cursor .email-row__check { opacity: 1; }
+.email-row__check svg { width: 12px; height: 12px; }
+.email-row__check.is-checked {
+  opacity: 1;
+  background: var(--c-accent);
+  border-color: var(--c-accent);
+  color: #fff;
+}
+
+/* Keyboard cursor row */
+.email-row.is-cursor {
+  background: var(--c-surface-alt);
+  box-shadow: inset 3px 0 0 var(--c-link);
+}
+
+/* ---- Bulk action bar ---- */
+.bulk-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px;
+  padding: 8px 14px;
+  background: var(--c-accent-soft);
+  border-bottom: 1px solid var(--c-border);
+  flex-shrink: 0;
+}
+.bulk-bar__count { font-size: 12px; font-weight: 600; color: var(--c-accent-text); }
+.bulk-bar__actions { display: flex; gap: 4px; }
+.bulk-bar__btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 10px;
+  font-size: 12px; font-weight: 500;
+  border-radius: var(--r-sm);
+  color: var(--c-text-2);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  transition: background var(--t-fast), color var(--t-fast), border-color var(--t-fast);
+}
+.bulk-bar__btn:hover { background: var(--c-surface-alt); color: var(--c-text); border-color: var(--c-text-3); }
+.bulk-bar__btn svg { width: 13px; height: 13px; }
+.bulk-bar__btn--danger { color: var(--c-danger); }
+.bulk-bar__btn--danger:hover { background: var(--c-danger-soft); border-color: var(--c-danger); }
+
+/* ---- Density: compact (single-line rows, no avatar/preview) ---- */
+body[data-density="compact"] .email-row {
+  padding: 5px 12px 5px 18px;
+  gap: 8px;
+  align-items: center;
+}
+body[data-density="compact"] .email-row .avatar { display: none; }
+body[data-density="compact"] .email-row__check { margin-top: 0; }
+body[data-density="compact"] .email-row__top { margin-bottom: 0; }
+body[data-density="compact"] .email-row__subject {
+  font-size: 12px; margin-bottom: 0;
+}
+body[data-density="compact"] .email-row__preview { display: none; }
+body[data-density="compact"] .email-row__unread-dot { top: 50%; }
+
+/* ---- Reading-pane action toolbar (expanded) ---- */
+.reading-toolbar {
+  display: flex; align-items: center; gap: 2px; flex-wrap: wrap;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--c-border);
+  background: var(--c-surface-alt);
+  flex-shrink: 0;
+}
+.rt-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 6px 9px;
+  font-size: 12px; font-weight: 500;
+  border-radius: var(--r-sm);
+  color: var(--c-text-2);
+  background: transparent;
+  transition: background var(--t-fast), color var(--t-fast);
+  white-space: nowrap;
+}
+.rt-btn:hover { background: var(--c-surface); color: var(--c-text); }
+.rt-btn svg { width: 15px; height: 15px; }
+.rt-btn--primary { color: var(--c-accent-text); }
+.rt-btn--primary:hover { background: var(--c-accent-soft); }
+.rt-btn--danger:hover { background: var(--c-danger-soft); color: var(--c-danger); }
+.rt-btn.is-on { color: var(--c-warn); }
+.rt-sep { width: 1px; height: 18px; background: var(--c-border); margin: 0 4px; flex-shrink: 0; }
+.rt-btn__label { }
+@media (max-width: 1300px) {
+  .rt-btn__label { display: none; }
+  .rt-btn { padding: 6px; }
+}
+
+/* Star/flag toggle on rows */
+.email-row__star {
+  flex-shrink: 0; margin-top: 8px;
+  color: var(--c-text-3);
+  opacity: 0;
+  transition: opacity var(--t-fast), color var(--t-fast);
+}
+.email-row:hover .email-row__star { opacity: 0.7; }
+.email-row__star.is-on { opacity: 1; color: var(--c-warn); }
+.email-row__star svg { width: 14px; height: 14px; }
+
+/* Loading skeleton rows shown during HTMX list swaps */
+.list-skeleton { padding: 8px 14px; }
+.list-skeleton__row { height: 46px; margin-bottom: 6px; border-radius: var(--r-sm); }
+
+/* Make the placeholder reading pane look intentional in right layout */
+.mail-panes.pane-right .viewer-col:not(.viewer-active) { background: var(--c-bg); }
+
+/* ---- Folder-tree section header + tree ---- */
+.nav-section {
+  display: flex; align-items: center; gap: 6px;
+  width: 100%;
+  padding: 8px 10px 4px;
+  margin-top: 6px;
+  font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--c-text-3);
+  text-align: left;
+}
+.nav-section__chevron {
+  width: 12px; height: 12px; flex-shrink: 0;
+  transition: transform var(--t-fast);
+}
+.nav-section__chevron.is-open { transform: rotate(90deg); }
+.nav-section__label {
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  text-transform: none; letter-spacing: 0; font-weight: 600;
+  color: var(--c-text-2); font-size: 11px;
+}
+.nav-tree { display: flex; flex-direction: column; gap: 1px; }
+.nav-tree .nav-item { padding-left: 22px; }
+
+.nav-item--footer {
+  margin-top: auto;
+}
+.sidebar__nav { display: flex; flex-direction: column; }

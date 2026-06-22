@@ -116,6 +116,12 @@
                           }});
                  }">
         {{if $unread}}<span class="email-row__unread-dot"></span>{{end}}
+        <button class="email-row__check" title="Select"
+                @click.stop="$store.mail && $store.mail.toggleSelect('{{.ID}}')"
+                :class="{ 'is-checked': $store.mail && $store.mail.isSelected('{{.ID}}') }"
+                :aria-pressed="$store.mail && $store.mail.isSelected('{{.ID}}')">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>
+        </button>
         <div class="avatar">{{initial .FromName .From}}</div>
         <div class="email-row__body">
             <div class="email-row__top">
@@ -127,20 +133,20 @@
                     <span class="acct-badge"
                           style="{{if .AccountColor}}background:{{.AccountColor}}{{end}}">{{.AccountLabel}}</span>
                     {{end}}
+                    {{if .HasAttachments}}
+                    <span class="email-row__attach" title="Has attachments">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+                        </svg>
+                    </span>
+                    {{end}}
                     <span class="email-row__date">{{formatDate .Date}}</span>
                 </div>
             </div>
             <div class="email-row__subject">{{.Subject}}</div>
             <div class="email-row__preview">{{.Preview}}</div>
         </div>
-        {{if .HasAttachments}}
-        <div class="email-row__attach">
-            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
-            </svg>
-        </div>
-        {{end}}
     </div>
     {{end}}
 

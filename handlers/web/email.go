@@ -168,6 +168,7 @@ func (h *EmailHandler) HandleInbox(c *fiber.Ctx) error {
 
 	return c.Render("inbox", fiber.Map{
 		"Username":         userStr,
+		"Email":            sessionEmail,
 		"Folders":          folders,
 		"Emails":           emails,
 		"Threads":          threads,

@@ -39,7 +39,7 @@
         </div>
 
         <!-- Action bar -->
-        <div class="action-bar"
+        <div class="reading-toolbar"
              data-from="{{.Email.From}}"
              data-fromname="{{if .Email.FromName}}{{.Email.FromName}}{{else}}{{.Email.From}}{{end}}"
              data-subject="{{.Email.Subject}}"
@@ -87,84 +87,125 @@
                  }
              }">
             {{if .IsDrafts}}
-            <!-- Edit Draft button — only shown when viewing a draft -->
-            <button class="btn-action"
-                    @click="restoreDraft()">
+            <!-- Edit Draft button — only shown when viewing a draft (wired) -->
+            <button class="rt-btn rt-btn--primary" data-action="reply" @click="restoreDraft()" title="Edit draft (r)">
                 <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
                 </svg>
-                Edit Draft
+                <span class="rt-btn__label">Edit Draft</span>
             </button>
             {{else}}
-            <button class="btn-action"
+            <!-- Reply (wired) -->
+            <button class="rt-btn rt-btn--primary" data-action="reply" title="Reply (r)"
                     @click="const d = $root.dataset;
                             const mid = d.messageid || '';
                             const existingRefs = d.references || '';
                             const newRefs = (existingRefs ? existingRefs + ' ' : '') + mid;
                             fill(d.from,
                                  /^re:/i.test(d.subject) ? d.subject : 'Re: ' + d.subject,
-                                 quoted(),
-                                 mid,
-                                 newRefs.trim(),
-                                 '',
-                                 '')">
+                                 quoted(), mid, newRefs.trim(), '', '')">
                 <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/>
                 </svg>
-                Reply
+                <span class="rt-btn__label">Reply</span>
             </button>
 
-            <button class="btn-action"
+            <!-- Reply All (wired: To = from, Cc = original To+Cc) -->
+            <button class="rt-btn" data-action="reply-all" title="Reply all"
+                    @click="const d = $root.dataset;
+                            const mid = d.messageid || '';
+                            const existingRefs = d.references || '';
+                            const newRefs = (existingRefs ? existingRefs + ' ' : '') + mid;
+                            fill(d.from,
+                                 /^re:/i.test(d.subject) ? d.subject : 'Re: ' + d.subject,
+                                 quoted(), mid, newRefs.trim(), '', '');
+                            $nextTick(() => {
+                                const cc = document.getElementById('compose-cc');
+                                const extra = [{{printf "%q" .Email.To}}{{with .Email.Cc}}, {{printf "%q" .}}{{end}}].filter(Boolean).join(', ');
+                                if (cc && extra) cc.value = extra;
+                            })">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10H5a8 8 0 00-3 6m6-6L4 6m4 4L4 14m11-4h2a8 8 0 018 8v0M15 10l-4-4m4 4l-4 4"/>
+                </svg>
+                <span class="rt-btn__label">Reply All</span>
+            </button>
+
+            <!-- Forward (wired) -->
+            <button class="rt-btn" data-action="forward" title="Forward"
                     @click="const d = $root.dataset;
                             fill('',
                                  /^fwd:/i.test(d.subject) ? d.subject : 'Fwd: ' + d.subject,
                                  '\n\n---------- Forwarded message ----------\nFrom: ' + d.fromname + '\nDate: ' + d.date + '\nSubject: ' + d.subject + '\n\n' + (d.body || ''),
-                                 '',
-                                 '',
-                                 '',
-                                 '')">
+                                 '', '', '', '')">
                 <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"/>
                 </svg>
-                Forward
+                <span class="rt-btn__label">Forward</span>
             </button>
             {{end}}
 
-            <!-- More / Delete dropdown -->
-            <div class="dropdown" x-data="{ open: false }">
-                <button class="btn-action" @click="open = !open">
-                    More
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-                    </svg>
-                </button>
-                <div class="dropdown__menu" x-show="open" x-cloak @click.away="open = false">
-                    <button class="dropdown__item"
-                            hx-patch="/api/email/{{.Email.ID}}/unread"
-                            hx-swap="none"
-                            hx-headers='{"X-Folder": "{{.CurrentFolder}}"}'
-                            hx-on::after-request="open = false; htmx.ajax('GET', '/api/folder/{{.CurrentFolder | urlEncode}}/emails', {target:'#email-list-inner', swap:'innerHTML'})">
-                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
-                        </svg>
-                        Mark as unread
-                    </button>
-                    <button class="dropdown__item dropdown__item--danger"
-                            hx-delete="/api/email/{{.Email.ID}}"
-                            hx-swap="none"
-                            hx-headers='{"X-Folder": "{{.CurrentFolder}}"}'
-                            hx-on::after-request="showEmailViewer = false; open = false; htmx.ajax('GET', '/api/folder/{{.CurrentFolder | urlEncode}}/emails', {target:'#email-list-inner', swap:'innerHTML'})">
-                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                        </svg>
-                        Delete
-                    </button>
-                </div>
-            </div>
+            <span class="rt-sep"></span>
+
+            <!-- Archive (laid out — IMAP move not yet supported by backend) -->
+            <button class="rt-btn" data-action="archive" title="Archive (coming soon)"
+                    @click="$dispatch('show-toast', { type:'info', title:'Archive', message:'Folder moves are not available in this build yet.' })">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"/>
+                </svg>
+                <span class="rt-btn__label">Archive</span>
+            </button>
+
+            <!-- Mark unread (wired) -->
+            <button class="rt-btn" data-action="unread" title="Mark as unread (u)"
+                    hx-patch="/api/email/{{.Email.ID}}/unread"
+                    hx-swap="none"
+                    hx-headers='{"X-Folder": "{{.CurrentFolder}}"}'
+                    hx-on::after-request="htmx.ajax('GET', '/api/folder/{{.CurrentFolder | urlEncode}}/emails', {target:'#email-list-inner', swap:'innerHTML'})">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                </svg>
+                <span class="rt-btn__label">Unread</span>
+            </button>
+
+            <!-- Flag / Star (visual toggle — local) -->
+            <button class="rt-btn" data-action="flag" title="Flag" x-data="{ on: false }" :class="{ 'is-on': on }" @click="on = !on">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" :fill="on ? 'currentColor' : 'none'">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 2H21l-3 6 3 6h-8.5l-1-2H5a2 2 0 00-2 2z"/>
+                </svg>
+                <span class="rt-btn__label">Flag</span>
+            </button>
+
+            <span class="rt-sep"></span>
+
+            <!-- Junk (laid out — IMAP move not yet supported by backend) -->
+            <button class="rt-btn" data-action="junk" title="Mark as junk (coming soon)"
+                    @click="$dispatch('show-toast', { type:'info', title:'Junk', message:'Folder moves are not available in this build yet.' })">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                </svg>
+                <span class="rt-btn__label">Junk</span>
+            </button>
+
+            <!-- Print (laid out) -->
+            <button class="rt-btn" data-action="print" title="Print" @click="window.print()">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/>
+                </svg>
+                <span class="rt-btn__label">Print</span>
+            </button>
+
+            <!-- Delete (wired) -->
+            <button class="rt-btn rt-btn--danger" data-action="delete" title="Delete (Del)"
+                    hx-delete="/api/email/{{.Email.ID}}"
+                    hx-swap="none"
+                    hx-headers='{"X-Folder": "{{.CurrentFolder}}"}'
+                    hx-on::after-request="showEmailViewer = false; htmx.ajax('GET', '/api/folder/{{.CurrentFolder | urlEncode}}/emails', {target:'#email-list-inner', swap:'innerHTML'})">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                </svg>
+                <span class="rt-btn__label">Delete</span>
+            </button>
         </div>
     </div>
 
