@@ -7,41 +7,56 @@
    Design tokens
 --------------------------------------------------------- */
 :root {
-  /* Neutral palette */
-  --c-bg:          #f5f5f7;
-  --c-surface:     #ffffff;
-  --c-surface-alt: #f9f9fb;
-  --c-border:      #e4e4e7;
-  --c-border-soft: #f0f0f2;
+  /* ---- LilMail brand palette ----
+     PRIMARY  Coral  #F2674E  → logo, primary buttons, key actions
+     ACCENT   Teal   #14B8A6  → links, new-mail, highlights, unread dots
+     TEXT     Ink    #1F2A37 / Slate #6B7280
+     SURFACES Paper  #FBF7F4 (app bg) / warm white cards / Mist #EEE6E0 borders
+  */
+
+  /* Surfaces — warm "paper" tones */
+  --c-bg:          #FBF7F4;   /* Paper — app background */
+  --c-surface:     #FFFDFB;   /* clean warm white cards/panes */
+  --c-surface-alt: #F6F0EA;   /* subtle warm tint for hovers/strips */
+  --c-surface-hover:#F1EAE3;
+  --c-border:      #EEE6E0;   /* Mist — dividers / input borders */
+  --c-border-soft: #F4EEE8;   /* a touch lighter */
 
   /* Text */
-  --c-text:        #18181b;
-  --c-text-2:      #52525b;
-  --c-text-3:      #a1a1aa;
+  --c-text:        #1F2A37;   /* Ink */
+  --c-text-2:      #6B7280;   /* Slate */
+  --c-text-3:      #9AA1AB;   /* lighter slate */
   --c-text-inv:    #ffffff;
 
-  /* Accent — a calm indigo */
-  --c-accent:      #4f46e5;
-  --c-accent-dark: #4338ca;
-  --c-accent-soft: #eef2ff;
-  --c-accent-text: #3730a3;
+  /* Accent — Coral (primary brand) */
+  --c-accent:      #F2674E;
+  --c-accent-dark: #D94E37;
+  --c-accent-soft: #FCE9E4;
+  --c-accent-text: #9E3520;
 
-  /* Semantic */
-  --c-danger:      #dc2626;
-  --c-danger-soft: #fef2f2;
-  --c-danger-text: #991b1b;
-  --c-success:     #16a34a;
-  --c-success-soft:#f0fdf4;
-  --c-success-text:#166534;
-  --c-warn:        #d97706;
-  --c-warn-soft:   #fffbeb;
-  --c-warn-text:   #92400e;
+  /* Link / highlight — Teal */
+  --c-link:        #14B8A6;
+  --c-link-dark:   #0E9384;
+  --c-link-soft:   #DCF5F1;
+  --c-link-text:   #0B6B60;
+  --c-highlight:   #14B8A6;
 
-  /* Avatar colours (cycle by initial) */
-  --av-a: #6366f1; --av-b: #8b5cf6; --av-c: #ec4899;
-  --av-d: #f59e0b; --av-e: #10b981; --av-f: #3b82f6;
-  --av-g: #ef4444; --av-h: #14b8a6; --av-i: #f97316;
-  --av-j: #84cc16;
+  /* Semantic — warm-harmonised */
+  --c-danger:      #E0533A;
+  --c-danger-soft: #FCEAE5;
+  --c-danger-text: #9C2B16;
+  --c-success:     #15A38C;
+  --c-success-soft:#DEF4F0;
+  --c-success-text:#0B6B5C;
+  --c-warn:        #E08A2B;
+  --c-warn-soft:   #FBEFDD;
+  --c-warn-text:   #8A4E0F;
+
+  /* Avatar colours (cycle by initial) — warm, harmonised set */
+  --av-a: #F2674E; --av-b: #E8833C; --av-c: #D9587A;
+  --av-d: #E0A52B; --av-e: #14B8A6; --av-f: #4E94C4;
+  --av-g: #D9543E; --av-h: #0E9384; --av-i: #E8763C;
+  --av-j: #9DA84E;
 
   /* Layout */
   --topbar-h: 52px;
@@ -73,34 +88,42 @@
 --------------------------------------------------------- */
 @media (prefers-color-scheme: dark) {
   :root {
-    --c-bg:          #0f0f11;
-    --c-surface:     #1a1a1f;
-    --c-surface-alt: #222228;
-    --c-border:      #2e2e36;
-    --c-border-soft: #252530;
+    /* Warm-charcoal surfaces that keep the coral/teal identity in the dark */
+    --c-bg:          #16130F;
+    --c-surface:     #211D18;
+    --c-surface-alt: #2A251F;
+    --c-surface-hover:#332D26;
+    --c-border:      #3A332B;
+    --c-border-soft: #2E2820;
 
-    --c-text:        #f4f4f5;
-    --c-text-2:      #a1a1aa;
-    --c-text-3:      #52525b;
+    --c-text:        #F4EFE9;
+    --c-text-2:      #B7AFA4;
+    --c-text-3:      #847C71;
 
-    --c-accent:      #6366f1;
-    --c-accent-dark: #818cf8;
-    --c-accent-soft: #1e1b4b;
-    --c-accent-text: #a5b4fc;
+    --c-accent:      #F2785F;
+    --c-accent-dark: #FF8E76;
+    --c-accent-soft: #3A241D;
+    --c-accent-text: #FBB6A4;
 
-    --c-danger:      #f87171;
-    --c-danger-soft: #1f0a0a;
-    --c-danger-text: #fca5a5;
-    --c-success:     #4ade80;
-    --c-success-soft:#052e16;
-    --c-success-text:#86efac;
-    --c-warn:        #fbbf24;
-    --c-warn-soft:   #1c1007;
-    --c-warn-text:   #fde68a;
+    --c-link:        #2DD4BF;
+    --c-link-dark:   #5EEAD9;
+    --c-link-soft:   #163A36;
+    --c-link-text:   #7FE6D9;
+    --c-highlight:   #2DD4BF;
 
-    --shadow-sm: 0 1px 2px rgba(0,0,0,.3);
-    --shadow-md: 0 4px 12px rgba(0,0,0,.4);
-    --shadow-lg: 0 8px 32px rgba(0,0,0,.5);
+    --c-danger:      #F08368;
+    --c-danger-soft: #3A1C15;
+    --c-danger-text: #F5B3A2;
+    --c-success:     #34D3BC;
+    --c-success-soft:#10302B;
+    --c-success-text:#86E8D8;
+    --c-warn:        #ECA85B;
+    --c-warn-soft:   #33240F;
+    --c-warn-text:   #F3CE96;
+
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.35);
+    --shadow-md: 0 4px 12px rgba(0,0,0,.45);
+    --shadow-lg: 0 8px 32px rgba(0,0,0,.55);
   }
 }
 
@@ -121,6 +144,13 @@ body {
 }
 
 a { color: inherit; text-decoration: none; }
+/* Teal link accent for body content + generic links */
+.email-content a,
+.email-body--text a,
+a.link, .text-link { color: var(--c-link); text-decoration: none; }
+.email-content a:hover,
+.email-body--text a:hover,
+a.link:hover, .text-link:hover { color: var(--c-link-dark); text-decoration: underline; }
 button { cursor: pointer; font-family: inherit; border: none; background: none; }
 input, textarea, select { font-family: inherit; }
 
@@ -345,7 +375,7 @@ input, textarea, select { font-family: inherit; }
 .nav-item__label { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .nav-item__badge {
   font-size: 11px; font-weight: 700;
-  background: var(--c-accent);
+  background: var(--c-highlight);
   color: white;
   border-radius: var(--r-full);
   padding: 1px 6px;
@@ -432,7 +462,7 @@ input, textarea, select { font-family: inherit; }
   position: absolute; left: 6px; top: 50%; transform: translateY(-50%);
   width: 5px; height: 5px;
   border-radius: 50%;
-  background: var(--c-accent);
+  background: var(--c-highlight);
   flex-shrink: 0;
 }
 
@@ -480,7 +510,7 @@ input, textarea, select { font-family: inherit; }
 .email-row__date {
   font-size: 11px; color: var(--c-text-3); white-space: nowrap;
 }
-.email-row.is-unread .email-row__date { color: var(--c-accent); font-weight: 600; }
+.email-row.is-unread .email-row__date { color: var(--c-link-text); font-weight: 600; }
 
 .email-row__subject {
   font-size: 12px; color: var(--c-text-2);
@@ -824,7 +854,7 @@ input, textarea, select { font-family: inherit; }
 .compose-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 10px 14px;
-  background: #1e1b4b;
+  background: var(--c-text);
   cursor: pointer; user-select: none; flex-shrink: 0;
 }
 .compose-header__title {
@@ -1580,7 +1610,7 @@ input, textarea, select { font-family: inherit; }
   color: var(--c-danger);
   border: 1px solid transparent;
 }
-.btn--danger:hover { background: #fecaca; }
+.btn--danger:hover { background: color-mix(in srgb, var(--c-danger) 22%, transparent); }
 
 /* ---------------------------------------------------------
    Unified inbox — account badge + toolbar toggle
@@ -1669,22 +1699,35 @@ input, textarea, select { font-family: inherit; }
 /* ---------------------------------------------------------
    Logo — topbar + login
 --------------------------------------------------------- */
+.topbar__logo { gap: 7px; }
 .topbar__logo-img {
-  height: 28px;
-  width: auto;
+  height: 26px;
+  width: 26px;
   display: block;
   flex-shrink: 0;
 }
-/* On very small screens hide the wordmark portion of the SVG
-   by shrinking the rendered size — the icon portion stays readable */
+.topbar__logo-word {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--c-text);
+}
 @media (max-width: 480px) {
-  .topbar__logo-img { height: 24px; }
+  .topbar__logo-img { height: 24px; width: 24px; }
+  .topbar__logo-word { font-size: 15px; }
 }
 
+.login-logo { gap: 12px; }
 .login-logo-img {
   height: 44px;
-  width: auto;
+  width: 44px;
   display: block;
+}
+.login-logo-word {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  color: var(--c-text);
 }
 
 /* Legacy class kept — hide old box-mark if present */
@@ -1758,7 +1801,7 @@ input, textarea, select { font-family: inherit; }
   box-shadow: 0 2px 8px color-mix(in srgb, var(--c-accent) 35%, transparent);
 }
 .btn-compose:hover {
-  background: linear-gradient(135deg, var(--c-accent-dark) 0%, #3730a3 100%);
+  background: linear-gradient(135deg, var(--c-accent-dark) 0%, var(--c-accent-text) 100%);
   transform: translateY(-1px);
   box-shadow: 0 4px 12px color-mix(in srgb, var(--c-accent) 40%, transparent);
 }
@@ -1773,12 +1816,12 @@ input, textarea, select { font-family: inherit; }
   box-shadow: inset 3px 0 0 var(--c-accent);
 }
 
-/* Unread dot — slightly bigger, higher contrast */
+/* Unread dot — teal "new mail" accent, slightly bigger */
 .email-row__unread-dot {
   width: 6px;
   height: 6px;
-  background: var(--c-accent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--c-accent) 20%, transparent);
+  background: var(--c-highlight);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--c-highlight) 20%, transparent);
 }
 
 /* Row hover — smooth lift illusion */
@@ -1837,7 +1880,7 @@ input, textarea, select { font-family: inherit; }
 --------------------------------------------------------- */
 #htmx-loading-bar {
   height: 2.5px;
-  background: linear-gradient(90deg, var(--c-accent), #818cf8);
+  background: linear-gradient(90deg, var(--c-accent), var(--c-link));
   transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   border-radius: 0 2px 2px 0;
 }
@@ -1939,8 +1982,8 @@ input, textarea, select { font-family: inherit; }
    Compose modal improvements
 --------------------------------------------------------- */
 .compose-header {
-  /* Richer header using indigo gradient instead of flat */
-  background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);
+  /* Richer header using a warm ink → coral gradient instead of flat */
+  background: linear-gradient(135deg, var(--c-text) 0%, var(--c-accent-dark) 140%);
   border-radius: var(--r-lg) var(--r-lg) 0 0;
 }
 
@@ -2024,9 +2067,9 @@ input, textarea, select { font-family: inherit; }
     border-bottom-color: #2a2a35;
   }
 
-  /* Compose header — darker indigo in dark mode */
+  /* Compose header — warm charcoal → coral in dark mode */
   .compose-header {
-    background: linear-gradient(135deg, #1a1740 0%, #252060 100%);
+    background: linear-gradient(135deg, #1A1510 0%, var(--c-accent-dark) 160%);
   }
 
   /* Login background */
@@ -2040,8 +2083,8 @@ input, textarea, select { font-family: inherit; }
 
   /* Email rows — unread dot slightly brighter */
   .email-row__unread-dot {
-    background: #818cf8;
-    box-shadow: 0 0 0 2px rgba(99,102,241,.2);
+    background: var(--c-highlight);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--c-highlight) 25%, transparent);
   }
 
   /* Empty state gradient in dark */
