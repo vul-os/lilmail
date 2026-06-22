@@ -22,6 +22,27 @@ type ServerConfig struct {
 	SecureCookies bool `toml:"secure_cookies"`
 }
 
+// AuthConfig holds login/authentication preferences that are independent of the
+// transport ([imap]/[smtp]) and identity-provider ([oauth2]) sections.
+//
+//	[auth]
+//	allow_full_email_username = true
+//
+// AllowFullEmailUsername controls what string LilMail passes as the SASL/LOGIN
+// username to the IMAP and SMTP servers:
+//
+//   - true  → the full email address (e.g. "alice@example.com") is sent verbatim.
+//     This is what most hosted providers (Gmail, Fastmail, Migadu, …) expect.
+//   - false → only the local part before the "@" (e.g. "alice") is sent. Some
+//     self-hosted Dovecot/Postfix setups authenticate against the bare handle.
+//
+// It is a pointer so the loader can tell "explicitly set in [auth]" apart from
+// "absent". When absent, the legacy [server] username_is_email key governs (and
+// the two are kept in sync). When present, [auth] takes precedence.
+type AuthConfig struct {
+	AllowFullEmailUsername *bool `toml:"allow_full_email_username"`
+}
+
 type IMAPConfig struct {
 	Server string `toml:"server"`
 	Port   int    `toml:"port"`
@@ -183,6 +204,7 @@ type DemoConfig struct {
 
 type Config struct {
 	Server        ServerConfig           `toml:"server"`
+	Auth          AuthConfig             `toml:"auth"`
 	IMAP          IMAPConfig             `toml:"imap"`
 	SMTP          SMTPConfig             `toml:"smtp"`
 	JWT           JWTConfig              `toml:"jwt"`
@@ -248,6 +270,18 @@ func LoadConfig(filepath string) (*Config, error) {
 	_, err := toml.DecodeFile(filepath, &config)
 	if err != nil {
 		return nil, err
+	}
+
+	// Reconcile the [auth] allow_full_email_username key with the legacy
+	// [server] username_is_email key. [auth] is the documented option going
+	// forward; when it is explicitly set it wins. When it is absent we mirror
+	// the [server] value into it so downstream code (which all reads
+	// Server.UsernameIsEmail) sees a single, consistent source of truth.
+	if config.Auth.AllowFullEmailUsername != nil {
+		config.Server.UsernameIsEmail = *config.Auth.AllowFullEmailUsername
+	} else {
+		v := config.Server.UsernameIsEmail
+		config.Auth.AllowFullEmailUsername = &v
 	}
 
 	// If SMTP server is not specified, derive it from IMAP server

@@ -1,6 +1,84 @@
 package config
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+// writeTempConfig writes body to a temp config.toml and returns its path.
+func writeTempConfig(t *testing.T, body string) string {
+	t.Helper()
+	dir := t.TempDir()
+	p := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatalf("write temp config: %v", err)
+	}
+	return p
+}
+
+// minimalIMAP is the smallest valid body LoadConfig needs (SSL is disabled so
+// no certificate validation runs).
+const minimalIMAP = `
+[imap]
+server = "imap.example.com"
+port = 993
+`
+
+func TestAllowFullEmailUsername_AuthSectionWins(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{
+			name: "default is full email (true)",
+			body: minimalIMAP,
+			want: true,
+		},
+		{
+			name: "auth=false sends bare handle",
+			body: minimalIMAP + "\n[auth]\nallow_full_email_username = false\n",
+			want: false,
+		},
+		{
+			name: "auth=true sends full email",
+			body: minimalIMAP + "\n[auth]\nallow_full_email_username = true\n",
+			want: true,
+		},
+		{
+			name: "legacy server.username_is_email=false honoured when auth absent",
+			body: "[server]\nusername_is_email = false\n" + minimalIMAP,
+			want: false,
+		},
+		{
+			name: "auth overrides legacy server key",
+			body: "[server]\nusername_is_email = false\n" + minimalIMAP + "\n[auth]\nallow_full_email_username = true\n",
+			want: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := LoadConfig(writeTempConfig(t, tc.body))
+			if err != nil {
+				t.Fatalf("LoadConfig: %v", err)
+			}
+			// Server.UsernameIsEmail is the single source of truth all auth
+			// paths read; it must reflect the reconciled value.
+			if cfg.Server.UsernameIsEmail != tc.want {
+				t.Errorf("Server.UsernameIsEmail = %v; want %v", cfg.Server.UsernameIsEmail, tc.want)
+			}
+			// The [auth] mirror must agree so either key can be inspected.
+			if cfg.Auth.AllowFullEmailUsername == nil {
+				t.Fatal("Auth.AllowFullEmailUsername should never be nil after LoadConfig")
+			}
+			if *cfg.Auth.AllowFullEmailUsername != tc.want {
+				t.Errorf("Auth.AllowFullEmailUsername = %v; want %v", *cfg.Auth.AllowFullEmailUsername, tc.want)
+			}
+		})
+	}
+}
 
 // makeConfig builds a Config struct directly (no TOML file) so tests are
 // fast and hermetic.

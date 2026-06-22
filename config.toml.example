@@ -1,5 +1,8 @@
 [server]
 port = 3000
+# Legacy alias for [auth] allow_full_email_username (kept for backwards
+# compatibility). If [auth] allow_full_email_username is set, it takes
+# precedence over this key.
 username_is_email = true
 # Allow a host shell (e.g. Vulos OS) to embed LilMail as an iframe. Space-separated
 # list of origins in CSP frame-ancestors syntax. Leave empty for same-origin only.
@@ -8,6 +11,17 @@ frame_ancestors = ""
 # Set to true when serving over HTTPS (direct [ssl] or TLS reverse proxy) to
 # add the Secure flag to session cookies. Default false for local HTTP dev.
 secure_cookies = false
+
+# Authentication / login preferences.
+[auth]
+# Controls what LilMail sends as the IMAP/SMTP login username.
+#   true  → the FULL email address is used as the username (e.g.
+#           "alice@example.com"). This is what most hosted providers expect
+#           (Gmail, Fastmail, Migadu, Zoho, …) and is the default.
+#   false → only the local part before "@" is sent (e.g. "alice"). Use this for
+#           self-hosted Dovecot/Postfix setups that authenticate the bare handle.
+# This takes precedence over the legacy [server] username_is_email key above.
+allow_full_email_username = true
 
 [imap]
 server = "mail.example.com"
