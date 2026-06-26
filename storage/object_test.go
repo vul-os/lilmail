@@ -17,37 +17,66 @@ func headerGetter(m map[string]string) func(string) string {
 	return func(k string) string { return m[k] }
 }
 
+const testStorageSecret = "s3cr3t-broker-token"
+
 func TestObjectStoreFromHeaders_Gating(t *testing.T) {
 	full := map[string]string{
-		HdrStorageEndpoint:  "https://s3.example.com",
-		HdrStorageBucket:    "vulos",
-		HdrStorageAccessKey: "AK",
-		HdrStorageSecretKey: "SK",
-		HdrStorageRegion:    "eu-west-1",
-		HdrStoragePrefix:    "tenant42",
+		HdrStorageBrokerAuth: testStorageSecret,
+		HdrStorageEndpoint:   "https://s3.example.com",
+		HdrStorageBucket:     "vulos",
+		HdrStorageAccessKey:  "AK",
+		HdrStorageSecretKey:  "SK",
+		HdrStorageRegion:     "eu-west-1",
+		HdrStoragePrefix:     "tenant42",
 	}
 
-	// Seam disabled by default → never trust headers.
-	t.Setenv(storageSeamEnv, "")
+	// Seam disabled by default (secret unset) → never trust headers, even with a
+	// presented broker-auth header.
+	t.Setenv(storageBrokerSecretEnv, "")
 	if _, ok := ObjectStoreFromHeaders(headerGetter(full)); ok {
-		t.Fatal("expected seam disabled when env unset")
+		t.Fatal("expected seam disabled when broker secret unset")
 	}
 
-	t.Setenv(storageSeamEnv, "1")
+	t.Setenv(storageBrokerSecretEnv, testStorageSecret)
+
+	// Secret set but no broker-auth header presented → off.
+	noAuth := map[string]string{}
+	for k, v := range full {
+		noAuth[k] = v
+	}
+	delete(noAuth, HdrStorageBrokerAuth)
+	if _, ok := ObjectStoreFromHeaders(headerGetter(noAuth)); ok {
+		t.Fatal("expected off when broker-auth header absent")
+	}
+
+	// Mismatched broker-auth header → off.
+	badAuth := map[string]string{}
+	for k, v := range full {
+		badAuth[k] = v
+	}
+	badAuth[HdrStorageBrokerAuth] = "wrong"
+	if _, ok := ObjectStoreFromHeaders(headerGetter(badAuth)); ok {
+		t.Fatal("expected off when broker-auth header mismatched")
+	}
 
 	// Missing endpoint → off.
-	if _, ok := ObjectStoreFromHeaders(headerGetter(map[string]string{HdrStorageBucket: "b"})); ok {
+	if _, ok := ObjectStoreFromHeaders(headerGetter(map[string]string{
+		HdrStorageBrokerAuth: testStorageSecret, HdrStorageBucket: "b",
+	})); ok {
 		t.Fatal("expected off with no endpoint")
 	}
 	// Missing credentials → off.
-	if _, ok := ObjectStoreFromHeaders(headerGetter(map[string]string{HdrStorageEndpoint: "https://x", HdrStorageBucket: "b"})); ok {
+	if _, ok := ObjectStoreFromHeaders(headerGetter(map[string]string{
+		HdrStorageBrokerAuth: testStorageSecret, HdrStorageEndpoint: "https://x", HdrStorageBucket: "b",
+	})); ok {
 		t.Fatal("expected off with missing credentials")
 	}
 
-	// Complete → on, with mail/ sub-prefix applied under the gateway prefix.
+	// Complete + valid broker auth → on, with mail/ sub-prefix applied under the
+	// gateway prefix.
 	st, ok := ObjectStoreFromHeaders(headerGetter(full))
 	if !ok {
-		t.Fatal("expected seam enabled with complete headers")
+		t.Fatal("expected seam enabled with complete headers and valid broker auth")
 	}
 	s3 := st.(*s3Store)
 	if s3.prefix != "tenant42/mail/" {
@@ -58,13 +87,50 @@ func TestObjectStoreFromHeaders_Gating(t *testing.T) {
 	}
 }
 
+// TestEndpointSafety verifies the transport-safety gate: plaintext http is only
+// honored for loopback/private-network endpoints, never for public hosts; https
+// is always allowed.
+func TestEndpointSafety(t *testing.T) {
+	t.Setenv(storageBrokerSecretEnv, testStorageSecret)
+	base := func(endpoint string) map[string]string {
+		return map[string]string{
+			HdrStorageBrokerAuth: testStorageSecret,
+			HdrStorageEndpoint:   endpoint,
+			HdrStorageBucket:     "b",
+			HdrStorageAccessKey:  "AK",
+			HdrStorageSecretKey:  "SK",
+		}
+	}
+	cases := []struct {
+		endpoint string
+		want     bool
+	}{
+		{"https://s3.amazonaws.com", true},   // public but TLS → ok
+		{"http://s3.amazonaws.com", false},   // public plaintext → refused
+		{"http://minio:9000", true},          // single-label internal host → ok
+		{"http://127.0.0.1:9000", true},      // loopback → ok
+		{"http://localhost:9000", true},      // localhost → ok
+		{"http://10.0.0.5:9000", true},       // private range → ok
+		{"http://192.168.1.10", true},        // private range → ok
+		{"http://store.internal:9000", true}, // internal suffix → ok
+		{"ftp://example.com", false},         // non-http scheme → refused
+	}
+	for _, c := range cases {
+		_, ok := ObjectStoreFromHeaders(headerGetter(base(c.endpoint)))
+		if ok != c.want {
+			t.Errorf("endpoint %q: got ok=%v, want %v", c.endpoint, ok, c.want)
+		}
+	}
+}
+
 func TestObjectStoreFromHeaders_DefaultPrefixAndRegion(t *testing.T) {
-	t.Setenv(storageSeamEnv, "true")
+	t.Setenv(storageBrokerSecretEnv, testStorageSecret)
 	st, ok := ObjectStoreFromHeaders(headerGetter(map[string]string{
-		HdrStorageEndpoint:  "http://minio:9000",
-		HdrStorageBucket:    "b",
-		HdrStorageAccessKey: "AK",
-		HdrStorageSecretKey: "SK",
+		HdrStorageBrokerAuth: testStorageSecret,
+		HdrStorageEndpoint:   "http://minio:9000",
+		HdrStorageBucket:     "b",
+		HdrStorageAccessKey:  "AK",
+		HdrStorageSecretKey:  "SK",
 	}))
 	if !ok {
 		t.Fatal("expected enabled")
@@ -189,14 +255,15 @@ func TestRoundTrip(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	t.Setenv(storageSeamEnv, "1")
+	t.Setenv(storageBrokerSecretEnv, testStorageSecret)
 	u, _ := url.Parse(srv.URL)
 	st, ok := ObjectStoreFromHeaders(headerGetter(map[string]string{
-		HdrStorageEndpoint:  u.Scheme + "://" + u.Host,
-		HdrStorageBucket:    "b",
-		HdrStorageAccessKey: "AK",
-		HdrStorageSecretKey: "SK",
-		HdrStoragePrefix:    "t1",
+		HdrStorageBrokerAuth: testStorageSecret,
+		HdrStorageEndpoint:   u.Scheme + "://" + u.Host,
+		HdrStorageBucket:     "b",
+		HdrStorageAccessKey:  "AK",
+		HdrStorageSecretKey:  "SK",
+		HdrStoragePrefix:     "t1",
 	}))
 	if !ok {
 		t.Fatal("expected store")

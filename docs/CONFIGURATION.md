@@ -74,25 +74,38 @@ backend = "bolt"   # default; omit the section entirely for the same effect
 # postgres_dsn = "postgres://lilmail:secret@localhost:5432/lilmail?sslmode=require"
 ```
 
-### Shared object storage (`LILMAIL_STORAGE_SEAM`)
+### Shared object storage (`VULOS_STORAGE_BROKER_SECRET`)
 
 lilmail's primary stores are IMAP (the mail) and the KV seam above; it does **not**
 keep mail or state in object storage. The only object-storage use is a **supplementary
 read-through cache of immutable attachment blobs**, avoiding repeated IMAP pulls of the
 same MIME part.
 
-This is **off by default**. It activates only when **both** of these hold:
+This is **off by default** and is **authenticated**, exactly like the MAIL credential
+broker (`LILMAIL_BROKER_SECRET`). It activates only when **all** of these hold:
 
-1. The operator sets the environment variable `LILMAIL_STORAGE_SEAM` to `1`/`true`
-   (set only in deployments behind the Vulos OS gateway). When unset, injected
-   storage headers are ignored entirely — standalone lilmail never trusts them.
-2. The Vulos OS gateway injects per-request `X-Vulos-Storage-*` headers
+1. The operator sets the environment variable `VULOS_STORAGE_BROKER_SECRET` to a shared
+   secret (set only in deployments behind the Vulos OS gateway). **Setting it is the
+   enable signal — there is no separate on/off toggle.** When unset, injected storage
+   headers are ignored entirely and lilmail behaves as standalone (IMAP-only).
+2. The request presents a matching `X-Vulos-Storage-Broker-Auth` header. It is compared
+   against the secret in constant time; an absent or mismatched value means the storage
+   headers are ignored entirely (standalone behaviour). This proves the headers came
+   from the gateway and were not forged by a client.
+3. The Vulos OS gateway injects per-request `X-Vulos-Storage-*` headers
    (`-Endpoint`, `-Bucket`, `-Prefix`, `-Region`, `-Access-Key`, `-Secret-Key`,
    optional `-Session-Token`). An absent/empty `-Endpoint` means "do nothing new".
 
-Objects are written under `<X-Vulos-Storage-Prefix>/mail/attachments/<id>`. A cache
-miss or any S3 error transparently falls back to IMAP and is never shown to the user.
-No config file keys are involved; there is nothing to set for standalone use.
+As an additional SSRF/exfiltration guard, the injected `-Endpoint` must use `https://`
+unless it names a loopback or private-network host (e.g. `http://minio:9000`,
+`http://127.0.0.1:9000`, an RFC 1918 address, or an internal `*.internal`/`*.local`
+name); a plaintext `http://` endpoint to a public host is refused and the request falls
+back to IMAP.
+
+Objects are written under `<X-Vulos-Storage-Prefix>/mail/attachments/<id>` (the prefix
+is now `<userID>/<appID>/`). A cache miss or any S3 error transparently falls back to
+IMAP and is never shown to the user. No config file keys are involved; there is nothing
+to set for standalone use.
 
 ---
 

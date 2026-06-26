@@ -129,17 +129,28 @@ store is deliberately **light and supplementary**.
 thing only: a **read-through cache of immutable attachment blobs**, so repeated
 downloads of the same MIME part don't re-pull it from IMAP. It activates **only**
 when the Vulos OS gateway injects `X-Vulos-Storage-*` headers on a request *and*
-the operator has opted in with `LILMAIL_STORAGE_SEAM` (see
-[CONFIGURATION.md](CONFIGURATION.md#storage)). Absent either, the
-attachment route behaves exactly as before (fetch from IMAP every time).
+the request is **authenticated as coming from the gateway**: the operator must
+set `VULOS_STORAGE_BROKER_SECRET` and the request must present a matching
+`X-Vulos-Storage-Broker-Auth` header (constant-time compared via
+`crypto/subtle`). This is the **same broker-auth gate** the MAIL credential
+broker uses (`LILMAIL_BROKER_SECRET` + `X-Vulos-Broker-Auth`), not a bare on/off
+toggle — the secret being set is the enable signal. Absent the secret, or with an
+absent/mismatched auth header, the storage headers are ignored entirely and the
+attachment route behaves exactly as before (fetch from IMAP every time). See
+[CONFIGURATION.md](CONFIGURATION.md#storage).
 
-Properties: objects live under the gateway-provided prefix in a `mail/`
-sub-space (`<prefix>/mail/attachments/<id>`); the cache is pure read-through
-(IMAP stays authoritative; a cache miss or any S3 error falls back to IMAP and is
-never surfaced to the user); the client is a minimal self-contained AWS SigV4
-GET/PUT (no new dependency, single binary preserved). The seam is **off by
-default** so standalone lilmail never trusts injected storage headers — the same
-fail-closed posture as the CP credential broker.
+As a second SSRF/exfiltration guard, the injected endpoint must use `https://`
+unless it names a loopback or private-network host (sidecar MinIO, RFC 1918
+address, `*.internal`/`*.local`); a plaintext endpoint to a public host is
+refused.
+
+Properties: objects live under the gateway-provided prefix (`<userID>/<appID>/`)
+in a `mail/` sub-space (`<prefix>/mail/attachments/<id>`); the cache is pure
+read-through (IMAP stays authoritative; a cache miss or any S3 error falls back to
+IMAP and is never surfaced to the user); the client is a minimal self-contained
+AWS SigV4 GET/PUT (no new dependency, single binary preserved). The seam is **off
+by default** so standalone lilmail never trusts injected storage headers — the
+same fail-closed posture as the CP credential broker.
 
 ### JSON API (`handlers/jsonapi`)
 

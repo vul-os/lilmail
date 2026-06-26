@@ -11,10 +11,15 @@
 //
 // SECURITY: honoring storage headers means lilmail will talk to whatever S3
 // endpoint the headers name — an SSRF/exfiltration risk if a client could forge
-// them. So, exactly like the CP broker (handlers/jsonapi/broker.go), the seam is
-// OFF unless the operator opts in by setting LILMAIL_STORAGE_SEAM. Standalone
-// lilmail therefore never trusts these headers, and when the headers are absent
-// (or the gate is closed) every caller keeps its current IMAP-only behaviour.
+// them. So, exactly like the CP MAIL broker (handlers/jsonapi/broker.go), the
+// seam is authenticated: the X-Vulos-Storage-* headers are honored ONLY when the
+// VULOS_STORAGE_BROKER_SECRET env is set AND the request presents a matching
+// X-Vulos-Storage-Broker-Auth header (constant-time compared). The secret being
+// set IS the enable signal — there is no separate on/off toggle. If the secret
+// is unset, or the presented auth is absent/mismatched, the storage headers are
+// IGNORED ENTIRELY and the request keeps its standalone IMAP-only behaviour. As
+// a second SSRF guard the injected endpoint must be https:// unless it names a
+// loopback or private-network host.
 //
 // No new dependency: this is a minimal, self-contained AWS SigV4 GET/PUT client
 // (stdlib only), preserving lilmail's single-static-binary property.
@@ -25,9 +30,11 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -47,11 +54,18 @@ const (
 	HdrStorageAccessKey    = "X-Vulos-Storage-Access-Key"
 	HdrStorageSecretKey    = "X-Vulos-Storage-Secret-Key"
 	HdrStorageSessionToken = "X-Vulos-Storage-Session-Token"
+
+	// HdrStorageBrokerAuth carries the shared secret proving the storage headers
+	// were injected by the Vulos gateway, not forged by a client. It mirrors the
+	// MAIL broker's X-Vulos-Broker-Auth header.
+	HdrStorageBrokerAuth = "X-Vulos-Storage-Broker-Auth"
 )
 
-// storageSeamEnv gates the whole seam. When empty, storage headers are ignored
-// (standalone behaviour); the gateway deployment sets it to "1"/"true".
-const storageSeamEnv = "LILMAIL_STORAGE_SEAM"
+// storageBrokerSecretEnv both gates AND authenticates the seam: when empty the
+// storage headers are ignored entirely (standalone behaviour); when set to a
+// shared secret the seam honors X-Vulos-Storage-* headers only on requests whose
+// X-Vulos-Storage-Broker-Auth matches it. Its being set IS the enable signal.
+const storageBrokerSecretEnv = "VULOS_STORAGE_BROKER_SECRET"
 
 // mailSubPrefix is lilmail's own sub-space inside the gateway-provided prefix.
 const mailSubPrefix = "mail/"
@@ -72,23 +86,34 @@ type ObjectStore interface {
 	Put(ctx context.Context, key string, body []byte, contentType string, meta map[string]string) error
 }
 
-// StorageSeamEnabled reports whether the operator has opted the object-storage
-// seam in. It is false by default so standalone lilmail never trusts injected
-// storage headers.
-func StorageSeamEnabled() bool {
-	v := strings.ToLower(strings.TrimSpace(os.Getenv(storageSeamEnv)))
-	return v == "1" || v == "true" || v == "yes" || v == "on"
+// storageBrokerAuthorized reports whether the request is authenticated as having
+// come from the Vulos gateway: VULOS_STORAGE_BROKER_SECRET must be set AND the
+// request's X-Vulos-Storage-Broker-Auth header must match it (constant-time). It
+// is false by default (secret unset) so standalone lilmail never trusts injected
+// storage headers. This mirrors the MAIL broker's gate in handlers/jsonapi.
+func storageBrokerAuthorized(get func(string) string) bool {
+	secret := strings.TrimSpace(os.Getenv(storageBrokerSecretEnv))
+	if secret == "" {
+		return false // gate disabled — never trust headers
+	}
+	presented := get(HdrStorageBrokerAuth)
+	if presented == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(presented), []byte(secret)) == 1
 }
 
 // ObjectStoreFromHeaders builds an ObjectStore from the per-request storage
-// headers, or returns (nil, false) when the seam is disabled, the Endpoint
-// header is absent, or the credentials are incomplete. get is the request's
-// header accessor (e.g. fiber.Ctx.Get) so this package needs no web dependency.
+// headers, or returns (nil, false) when the broker gate is closed (secret unset
+// or X-Vulos-Storage-Broker-Auth absent/mismatched), the Endpoint header is
+// absent, the endpoint fails the SSRF safety check, or the credentials are
+// incomplete. get is the request's header accessor (e.g. fiber.Ctx.Get) so this
+// package needs no web dependency.
 //
 // All lilmail objects are namespaced under <gateway-prefix>/mail/ so they never
 // collide with other Vulos apps sharing the same bucket.
 func ObjectStoreFromHeaders(get func(string) string) (ObjectStore, bool) {
-	if !StorageSeamEnabled() {
+	if !storageBrokerAuthorized(get) {
 		return nil, false
 	}
 	endpoint := strings.TrimSpace(get(HdrStorageEndpoint))
@@ -104,6 +129,9 @@ func ObjectStoreFromHeaders(get func(string) string) (ObjectStore, bool) {
 	u, err := url.Parse(endpoint)
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		return nil, false
+	}
+	if !endpointAllowed(u) {
+		return nil, false // refuse plaintext to a public host (SSRF/exfil guard)
 	}
 	region := strings.TrimSpace(get(HdrStorageRegion))
 	if region == "" {
@@ -283,6 +311,44 @@ func (s *s3Store) sign(req *http.Request, canonicalURI, payloadHash string, now 
 	req.Header.Set("Authorization", fmt.Sprintf(
 		"AWS4-HMAC-SHA256 Credential=%s/%s, SignedHeaders=%s, Signature=%s",
 		s.accessKey, scope, signedHeaders, signature))
+}
+
+// endpointAllowed enforces the seam's transport-safety rule: the injected S3
+// endpoint must use https, EXCEPT when it names a loopback or private-network
+// host (e.g. a sidecar MinIO at http://minio:9000 or http://127.0.0.1), where
+// plaintext is acceptable and TLS is often absent. This stops a forged/leaked
+// header from making lilmail POST credentials or attachment bytes in the clear
+// to an arbitrary public endpoint.
+func endpointAllowed(u *url.URL) bool {
+	switch strings.ToLower(u.Scheme) {
+	case "https":
+		return true
+	case "http":
+		return hostIsLocalOrPrivate(u.Hostname())
+	default:
+		return false
+	}
+}
+
+// hostIsLocalOrPrivate reports whether host is a loopback/private-network or
+// otherwise non-public name. IP literals are classified by range; "localhost",
+// single-label names (e.g. a docker-compose service like "minio"), and the
+// common internal suffixes ".local"/".internal" are treated as private.
+func hostIsLocalOrPrivate(host string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if host == "" {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast()
+	}
+	if !strings.Contains(host, ".") {
+		return true // single-label hostname is internal, never a public FQDN
+	}
+	return strings.HasSuffix(host, ".local") || strings.HasSuffix(host, ".internal")
 }
 
 // joinPrefix combines the gateway prefix and lilmail's sub-prefix into a single
