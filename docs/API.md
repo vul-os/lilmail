@@ -30,6 +30,49 @@ or unauthenticated, the API responds **`401` with a JSON body** (the HTMX UI
 
 Send requests with credentials included (e.g. `fetch(url, { credentials: 'include' })`).
 
+### CP-brokered credential mode (Vulos Cloud)
+
+In the Vulos Cloud deployment, lilmail runs **behind** the control plane (CP),
+which custodies each user's **external** mailbox credentials (Gmail / Outlook /
+generic IMAP) and reverse-proxies to `/v1`, injecting the per-request connection
+credentials as HTTP headers. In this mode lilmail has no session of its own — the
+mailbox identity and secret arrive on every request, and lilmail builds the IMAP/
+SMTP client **directly from the headers** instead of from a session.
+
+This path is **off by default** and is gated by a shared secret:
+
+- Set `LILMAIL_BROKER_SECRET` (environment variable) on the lilmail process.
+- The CP must send `X-Vulos-Broker-Auth: <secret>` on every brokered request.
+  lilmail compares it against `LILMAIL_BROKER_SECRET` in **constant time**.
+- **If `LILMAIL_BROKER_SECRET` is unset, or the presented secret does not match,
+  the `X-Vulos-Mail-*` headers are ignored entirely** and the request falls back
+  to normal session auth. Standalone lilmail therefore never trusts arbitrary
+  client-supplied connection headers.
+
+When the secret validates, lilmail reads the connection spec from these headers:
+
+| Header | Meaning |
+|--------|---------|
+| `X-Vulos-Mail-Provider`  | `gmail` \| `outlook` \| `imap` (informational) |
+| `X-Vulos-Mail-Email`     | mailbox address (used as MAIL FROM / identity) |
+| `X-Vulos-Mail-Username`  | IMAP/SMTP login username (defaults to the email) |
+| `X-Vulos-Mail-Auth`      | `xoauth2` (access token) \| `plain` (password) |
+| `X-Vulos-Mail-Secret`    | the XOAUTH2 access token, or the IMAP/SMTP password |
+| `X-Vulos-Mail-Imap-Host` | IMAP host (required) |
+| `X-Vulos-Mail-Imap-Port` | IMAP port (default `993`, implicit TLS) |
+| `X-Vulos-Mail-Smtp-Host` | SMTP host (defaults to the IMAP host) |
+| `X-Vulos-Mail-Smtp-Port` | SMTP port (default `587`; `465` ⇒ implicit TLS, else STARTTLS) |
+
+`xoauth2` builds the IMAP client via `NewClientOAuth(host, port, username, token,
+"xoauth2")` and the SMTP client via `NewSMTPClientOAuth`; `plain` uses
+`NewClient(host, port, username, password)` / `NewSMTPClient`. The brokered path
+covers the mail routes — folders, messages, single message, search, flags,
+delete, compose (`POST /v1/messages`) and drafts (`POST /v1/drafts`). Calendar
+and contacts remain session/CalDAV-gated for now (not yet brokered).
+
+The headers are only ever read **inside** the `/v1` group, after the broker
+secret has been validated — never on unauthenticated or HTMX paths.
+
 ## Conventions
 
 - **Folders** travel as the `folder` query parameter (default `INBOX`). This

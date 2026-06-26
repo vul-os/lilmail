@@ -46,7 +46,7 @@ func (h *Handler) handleSend(c *fiber.Ctx) error {
 		plain = stripHTMLForPlain(body.HTML)
 	}
 
-	from := h.auth.GetSessionEmail(c)
+	from := h.fromEmail(c)
 	rawMessage, err := api.BuildMIMEMessage(api.MIMEMessageOptions{
 		From:      from,
 		To:        body.To,
@@ -72,7 +72,7 @@ func (h *Handler) handleSend(c *fiber.Ctx) error {
 		allRcpts = append(allRcpts, a.Email)
 	}
 
-	smtpClient, err := h.auth.CreateSMTPClient(c)
+	smtpClient, err := h.smtpClient(c)
 	if err != nil {
 		return fail(c, fiber.StatusBadGateway, "failed to connect to mail server")
 	}
@@ -122,7 +122,7 @@ func (h *Handler) handleSaveDraft(c *fiber.Ctx) error {
 		plain = stripHTMLForPlain(body.HTML)
 	}
 
-	from := h.auth.GetSessionEmail(c)
+	from := h.fromEmail(c)
 	rawMessage, err := api.BuildMIMEMessage(api.MIMEMessageOptions{
 		From:      from,
 		To:        body.To,

@@ -28,17 +28,23 @@ import (
 )
 
 // Handler serves the JSON API. It owns no mail state of its own — every request
-// reconstructs a MailClient from the caller's session via the AuthHandler.
+// reconstructs a MailClient from the caller's session via the AuthHandler, or
+// (in CP-brokered mode) directly from validated X-Vulos-Mail-* request headers.
 type Handler struct {
 	store  *session.Store
 	config *config.Config
 	auth   *web.AuthHandler
+	// brokerSecret gates the CP-brokered credential path (see broker.go). When
+	// empty, brokered headers are never trusted and the API behaves identically
+	// to standalone lilmail. Read once from LILMAIL_BROKER_SECRET at construction.
+	brokerSecret string
 }
 
 // New builds a JSON API handler. auth is the same *web.AuthHandler the HTMX UI
 // uses, so both surfaces share one authentication + client-construction path.
+// The CP-brokered credential mode is enabled when LILMAIL_BROKER_SECRET is set.
 func New(store *session.Store, cfg *config.Config, auth *web.AuthHandler) *Handler {
-	return &Handler{store: store, config: cfg, auth: auth}
+	return &Handler{store: store, config: cfg, auth: auth, brokerSecret: readBrokerSecret()}
 }
 
 // Register mounts the API under /v1. Folder names travel as the `folder` query
@@ -46,7 +52,10 @@ func New(store *session.Store, cfg *config.Config, auth *web.AuthHandler) *Handl
 // delimiter — e.g. "INBOX/Archive" — need no special escaping. UIDs are numeric
 // and safe as path segments.
 func (h *Handler) Register(app *fiber.App) {
-	g := app.Group("/v1", h.requireAuth)
+	// brokerMiddleware runs first: it validates the broker secret and, if valid,
+	// parses the X-Vulos-Mail-* headers into a connection spec for this request.
+	// requireAuth then accepts either a brokered request or a valid session.
+	g := app.Group("/v1", h.brokerMiddleware, h.requireAuth)
 
 	g.Get("/me", h.handleMe)
 	g.Get("/folders", h.handleFolders)
@@ -78,23 +87,50 @@ func (h *Handler) Register(app *fiber.App) {
 }
 
 // requireAuth gates the group, returning 401 JSON (never a redirect) when the
-// session is missing or unauthenticated.
+// request is neither a validated CP-brokered request nor a valid session. The
+// broker middleware has already run, so a brokered request is trusted here.
 func (h *Handler) requireAuth(c *fiber.Ctx) error {
+	if _, ok := brokerSpecOf(c); ok {
+		return c.Next()
+	}
 	if _, err := api.ValidateSession(c, h.store); err != nil {
 		return fail(c, fiber.StatusUnauthorized, "not authenticated")
 	}
 	return c.Next()
 }
 
-// client opens a MailClient for the current session and returns it; the caller
-// must Close() it. Demo mode transparently yields the in-memory DemoClient.
+// client opens a MailClient for the request and returns it; the caller must
+// Close() it. For CP-brokered requests the client is built directly from the
+// validated X-Vulos-Mail-* headers; otherwise it comes from the session via the
+// AuthHandler. Demo mode transparently yields the in-memory DemoClient.
 func (h *Handler) client(c *fiber.Ctx) (api.MailClient, error) {
+	if spec, ok := brokerSpecOf(c); ok {
+		return brokerDialIMAP(spec)
+	}
 	return h.auth.CreateIMAPClient(c)
+}
+
+// smtpClient returns an SMTP client for the request: brokered SMTP host/port +
+// creds for CP-brokered requests, otherwise the session-derived client.
+func (h *Handler) smtpClient(c *fiber.Ctx) (*api.SMTPClient, error) {
+	if spec, ok := brokerSpecOf(c); ok {
+		return brokerSMTPClient(spec), nil
+	}
+	return h.auth.CreateSMTPClient(c)
+}
+
+// fromEmail returns the sender identity for the request: the brokered mailbox
+// address for CP-brokered requests, otherwise the session email.
+func (h *Handler) fromEmail(c *fiber.Ctx) string {
+	if spec, ok := brokerSpecOf(c); ok {
+		return spec.Email
+	}
+	return h.auth.GetSessionEmail(c)
 }
 
 func (h *Handler) handleMe(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
-		"email":    h.auth.GetSessionEmail(c),
+		"email":    h.fromEmail(c),
 		"username": c.Locals("username"),
 	})
 }

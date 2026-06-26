@@ -11,6 +11,20 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ### Added
 
+- **CP-brokered credential mode for `/v1`** — lets Vulos Cloud's control plane
+  (CP) reverse-proxy to lilmail and drive it against a per-request **external**
+  mailbox (Gmail / Outlook / IMAP) whose credentials the CP custodies. When a
+  `/v1` request presents a valid broker secret (`X-Vulos-Broker-Auth` matched
+  against the new `LILMAIL_BROKER_SECRET` env var via a constant-time compare),
+  lilmail builds the IMAP/SMTP client **directly** from the injected
+  `X-Vulos-Mail-*` headers (`xoauth2` access token or `plain` password) instead
+  of the session→`CreateIMAPClient` path. Wired through the mail routes
+  (folders, messages, single message, search, flags, delete, compose, drafts);
+  calendar/contacts remain session/CalDAV-gated. **Security:** if
+  `LILMAIL_BROKER_SECRET` is unset or the secret mismatches, the brokered headers
+  are ignored entirely and the request falls back to normal session auth, so
+  standalone lilmail never trusts arbitrary client-supplied connection headers.
+  New `handlers/jsonapi/broker.go`; documented in [docs/API.md](docs/API.md).
 - **JSON API (`/v1`)** — a clean JSON/REST surface served alongside the HTMX UI,
   for rich React clients (Vulos Mail, Vulos Workspace) and scripting. Endpoints:
   `GET /v1/me`, `GET /v1/folders`, `GET /v1/messages`, `GET /v1/messages/:uid`,
