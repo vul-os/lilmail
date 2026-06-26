@@ -80,6 +80,19 @@ type CacheConfig struct {
 	Folder string `toml:"folder"`
 }
 
+// StorageConfig selects the durable key-value backend used for caches and
+// shared state (thread metadata, recipients, push subscriptions, …).
+//
+// The default — and the standalone single-binary path — is "bolt": an embedded
+// bbolt file under cache.folder, zero external services. Set backend =
+// "postgres" (with a DSN) when several lilmail/Vulos instances must share one
+// store, or when another Vulos service wants to read the same data. Postgres is
+// strictly opt-in; it is never the default.
+type StorageConfig struct {
+	Backend     string `toml:"backend"`      // "bolt" (default) | "postgres"
+	PostgresDSN string `toml:"postgres_dsn"` // e.g. postgres://user:pw@host:5432/db?sslmode=require
+}
+
 type EncryptionConfig struct {
 	Key string `toml:"key"` // 32-byte key for AES encryption
 }
@@ -167,10 +180,10 @@ type AIConfig struct {
 //	vapid_key_file = "vapid.json" # path to persisted VAPID key-pair (auto-generated)
 type NotificationsConfig struct {
 	Enabled      bool   `toml:"enabled"`        // master switch; default false
-	Idle         bool   `toml:"idle"`            // IMAP IDLE watcher; default true when Enabled
-	Desktop      bool   `toml:"desktop"`         // native OS toasts via beeep; default false
-	WebPush      bool   `toml:"webpush"`         // VAPID Web Push; default false
-	VAPIDKeyFile string `toml:"vapid_key_file"`  // path to JSON key file; auto-generated
+	Idle         bool   `toml:"idle"`           // IMAP IDLE watcher; default true when Enabled
+	Desktop      bool   `toml:"desktop"`        // native OS toasts via beeep; default false
+	WebPush      bool   `toml:"webpush"`        // VAPID Web Push; default false
+	VAPIDKeyFile string `toml:"vapid_key_file"` // path to JSON key file; auto-generated
 }
 
 // AccountsConfig configures multi-account support.
@@ -203,21 +216,22 @@ type DemoConfig struct {
 }
 
 type Config struct {
-	Server        ServerConfig           `toml:"server"`
-	Auth          AuthConfig             `toml:"auth"`
-	IMAP          IMAPConfig             `toml:"imap"`
-	SMTP          SMTPConfig             `toml:"smtp"`
-	JWT           JWTConfig              `toml:"jwt"`
-	Cache         CacheConfig            `toml:"cache"`
-	Encryption    EncryptionConfig       `toml:"encryption"`
-	SSL           SSLConfig              `toml:"ssl"`
-	OAuth2        OAuth2Config           `toml:"oauth2"`
-	CalDAV        CalDAVConfig           `toml:"caldav"`
-	CardDAV       CardDAVContactsConfig  `toml:"carddav"`
-	Notifications NotificationsConfig    `toml:"notifications"`
-	AI            AIConfig               `toml:"ai"`
-	Accounts      AccountsConfig         `toml:"accounts"`
-	Demo          DemoConfig             `toml:"demo"`
+	Server        ServerConfig          `toml:"server"`
+	Auth          AuthConfig            `toml:"auth"`
+	IMAP          IMAPConfig            `toml:"imap"`
+	SMTP          SMTPConfig            `toml:"smtp"`
+	JWT           JWTConfig             `toml:"jwt"`
+	Cache         CacheConfig           `toml:"cache"`
+	Storage       StorageConfig         `toml:"storage"`
+	Encryption    EncryptionConfig      `toml:"encryption"`
+	SSL           SSLConfig             `toml:"ssl"`
+	OAuth2        OAuth2Config          `toml:"oauth2"`
+	CalDAV        CalDAVConfig          `toml:"caldav"`
+	CardDAV       CardDAVContactsConfig `toml:"carddav"`
+	Notifications NotificationsConfig   `toml:"notifications"`
+	AI            AIConfig              `toml:"ai"`
+	Accounts      AccountsConfig        `toml:"accounts"`
+	Demo          DemoConfig            `toml:"demo"`
 }
 
 func LoadConfig(filepath string) (*Config, error) {
@@ -225,6 +239,9 @@ func LoadConfig(filepath string) (*Config, error) {
 
 	config.Server.UsernameIsEmail = true
 	config.Server.Port = 3000
+	// Durable store defaults to the embedded bbolt backend (single-binary, no
+	// external services). Postgres is opt-in via [storage].
+	config.Storage.Backend = "bolt"
 	// Set default values
 	config.SMTP.Port = 587 // Default to STARTTLS port
 	config.SMTP.UseSTARTTLS = true

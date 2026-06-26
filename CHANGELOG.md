@@ -7,6 +7,28 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **JSON API (`/v1`)** — a clean JSON/REST surface served alongside the HTMX UI,
+  for rich React clients (Vulos Mail, Vulos Workspace) and scripting. Endpoints:
+  `GET /v1/me`, `GET /v1/folders`, `GET /v1/messages`, `GET /v1/messages/:uid`,
+  `GET /v1/search`, `PATCH /v1/messages/:uid/flags`, `DELETE /v1/messages/:uid`.
+  It reuses the existing mail engine and session auth (no duplicated mail logic),
+  folder names ride as the `folder` query param, and unauthenticated requests get
+  `401` JSON instead of an HTML redirect. New package `handlers/jsonapi`; the HTMX
+  UI is untouched. Documented in [docs/API.md](docs/API.md).
+- **Optional Postgres storage backend** — a new durable key-value seam
+  (`storage/` `KV` interface) with two backends: the embedded **bbolt** store
+  (default — keeps lilmail a single binary with nothing to run) and an optional
+  **Postgres** store for shared / multi-instance deploys, selected via the new
+  `[storage]` config section (`backend`, `postgres_dsn`). Postgres is strictly
+  opt-in; the schema auto-creates on first connect. Lets other Vulos services
+  share the same store. Documented in [docs/CONFIGURATION.md](docs/CONFIGURATION.md#storage).
+
+---
+
 ## [1.10.0] — 2026-06-22
 
 ### Added

@@ -31,6 +31,15 @@ tls = true
 [cache]
 folder = "./cache"
 
+# Durable key-value store for caches and shared state (thread metadata,
+# recipients, push subscriptions). Optional — omit this whole section to use the
+# default embedded bbolt backend (single binary, no external services).
+# Set backend = "postgres" only when several instances must share one store, or
+# when another Vulos service needs to read the same data.
+[storage]
+backend = "bolt"   # "bolt" (default) | "postgres"
+# postgres_dsn = "postgres://user:password@localhost:5432/lilmail?sslmode=require"
+
 [jwt]
 secret = "your-secure-jwt-secret"
 

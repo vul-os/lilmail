@@ -15,13 +15,17 @@ lilmail/
 │   └── config_test.go
 ├── handlers/
 │   ├── ai/                  # AI mail assistant endpoints
-│   ├── api/                 # JSON API handlers (email, attachments, search, …)
-│   └── web/                 # HTML page handlers (inbox, viewer, settings, …)
+│   ├── api/                 # Mail ENGINE: IMAP/SMTP client, MIME, threading, CalDAV
+│   ├── jsonapi/             # /v1 JSON REST API over the engine (for React clients)
+│   └── web/                 # HTML page handlers (inbox, viewer, settings, …) — HTMX
 ├── models/
 │   ├── email.go             # Email, Attachment, Thread model types
 │   └── calendar.go          # CalDAV event types
 ├── storage/
-│   └── session.go           # bbolt-backed session/credential store
+│   ├── session.go           # bbolt-backed session/credential store
+│   ├── kv.go                # Durable KV seam + backend selector (Open)
+│   ├── bolt.go              # Embedded bbolt backend (default)
+│   └── postgres.go          # Optional shared Postgres backend (opt-in)
 ├── sessions/                # Runtime session state (file-based)
 ├── utils/
 │   └── cache.go             # On-disk cache helpers
@@ -102,6 +106,25 @@ based on the sanitized username and folder name (path-traversal-safe).
 `storage/session.go` wraps a shared bbolt database per user (one file per
 session identity). Thread graphs are built using the JWZ algorithm over
 `Message-ID`, `References`, and `In-Reply-To` headers and stored in bbolt.
+
+### Durable storage seam
+
+`storage/` defines a small backend-agnostic `KV` interface (`kv.go`) with two
+implementations: `bolt.go` (embedded bbolt, the default — keeps lilmail a single
+binary with nothing to run) and `postgres.go` (an optional shared SQL store,
+opt-in via `[storage] backend = "postgres"`). `storage.Open(cfg, boltPath)`
+selects the backend so callers never branch on it. Postgres is reusable by other
+Vulos services that need to read the same store; it is never the default. See
+[CONFIGURATION.md](CONFIGURATION.md#storage).
+
+### JSON API (`handlers/jsonapi`)
+
+A clean `/v1` JSON/REST surface served alongside the HTMX UI. It reuses the same
+mail engine (`handlers/api`) and the same session auth path
+(`web.AuthHandler.CreateIMAPClient`), so there is no duplicated mail logic and
+the HTMX UI is untouched. Unlike the HTMX `SessionMiddleware` (which redirects to
+`/login`), the API returns `401` JSON. This is the contract consumed by the
+React clients (Vulos Mail, Vulos Workspace). See [API.md](API.md).
 
 ### Notifications
 

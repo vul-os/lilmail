@@ -131,6 +131,16 @@ we're going.
 - **CardDAV contacts** (`[carddav]` config) — optional; uses `go-vcard`
   `FN`/`EMAIL` fields from configured address book.
 
+## ✅ Recently shipped (unreleased)
+
+- **JSON API (`/v1`)** — a machine-readable REST surface (folders, messages,
+  search, flags, delete) served alongside the HTMX UI from the same engine and
+  session auth. This is the contract the Vulos Mail React webmail and Vulos
+  Workspace consume. See [docs/API.md](docs/API.md).
+- **Optional Postgres storage** — a durable KV seam with bbolt (default,
+  single-binary) and an opt-in Postgres backend for shared / multi-instance
+  deploys, configured via `[storage]`. See [docs/CONFIGURATION.md](docs/CONFIGURATION.md#storage).
+
 ## ✅ Recently shipped (v1.9.0)
 
 - **Unified inbox** — when `[accounts] enabled = true` and additional accounts

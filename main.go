@@ -8,6 +8,7 @@ import (
 	"lilmail/config"
 	"lilmail/handlers/ai"
 	"lilmail/handlers/api"
+	"lilmail/handlers/jsonapi"
 	"lilmail/handlers/web"
 	"lilmail/storage"
 	"log"
@@ -245,6 +246,11 @@ func main() {
 	webAuthHandler := web.NewAuthHandler(store, config)
 	webEmailHandler := web.NewEmailHandler(store, config, webAuthHandler)
 	webCalendarHandler := web.NewCalendarHandler(store, config, webAuthHandler)
+
+	// JSON/REST API (/v1/*) — machine-readable contract for rich React clients
+	// (Vulos Mail webmail, Vulos Workspace). Additive: reuses the same engine +
+	// session auth as the HTMX UI, returns 401 JSON instead of redirecting.
+	jsonapi.New(store, config, webAuthHandler).Register(app)
 
 	// Public routes
 	app.Get("/login", webAuthHandler.ShowLogin)

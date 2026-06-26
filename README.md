@@ -23,7 +23,7 @@
 lilmail is a self-hostable webmail client that connects to any IMAP/SMTP
 mailbox and ships as **one self-contained Go binary**. The UI is server-rendered
 HTML (Go templates + HTMX + Alpine.js) with every frontend asset embedded via
-`embed.FS` — no build step, no CDN, no database, and no external services to run.
+`embed.FS` — no build step, no CDN, and no external services to run by default.
 Drop the binary next to a `config.toml` and it runs, comfortably, on 64 MB of RAM.
 
 Log in with a classic username/password or **OAuth2 / OpenID Connect** (full
@@ -34,9 +34,14 @@ opt-in via config keys and adds zero overhead when disabled.
 
 ## Features
 
-- **Single binary, no database** — templates and vendored JS embedded with
-  `embed.FS`; runs fully offline/air-gapped with only `config.toml`
+- **Single binary, no external database** — templates and vendored JS embedded
+  with `embed.FS`; durable state uses an embedded [bbolt](https://github.com/etcd-io/bbolt)
+  file by default (nothing to run), with an **optional Postgres backend** for
+  shared / multi-instance deploys; runs fully offline/air-gapped with only `config.toml`
 - **IMAP** mailbox browsing and **SMTP** sending
+- **JSON API** (`/v1`) — a clean REST surface (folders, messages, search, flags,
+  delete) for rich clients, served alongside the HTMX UI from the same engine and
+  the same session auth. Powers the Vulos Mail React webmail and Vulos Workspace.
 - **OAuth2 / OpenID Connect** — authorization-code flow, PKCE (S256), automatic
   refresh-token handling, XOAUTH2 and OAUTHBEARER SASL; password login still works
 - **Conversation threading** — JWZ algorithm (`References` / `In-Reply-To` /
@@ -68,20 +73,27 @@ into the binary at build time, and HTMX swaps in server-rendered partials so the
 page never does a full reload.
 
 ```
-Browser ── HTMX/SSE ──> Fiber HTTP server (one Go binary)
-                              │
+ HTMX/Alpine UI ─┐                        ┌─ React clients (Vulos Mail, Workspace)
+   (HTMX/SSE)    │                        │   (fetch JSON)
+                 ▼                        ▼
+            Fiber HTTP server ──  HTMX routes  +  /v1 JSON API  (one Go binary)
+                              │   (same mail engine + session auth under both)
         ┌─────────────────────┼─────────────────────┐
         │                     │                     │
-     IMAP/SMTP          embedded bbolt          opt-in services
-  (your mail server)   (threads, drafts,     (CalDAV, CardDAV, AI,
-                        recipients, accounts)  Web Push) — off by default
+     IMAP/SMTP        durable store (seam)     opt-in services
+  (your mail server)  bbolt by default;       (CalDAV, CardDAV, AI,
+                      optional Postgres        Web Push) — off by default
+                      (threads, drafts,
+                       recipients, accounts)
 ```
 
 State that must survive a restart (conversation threads, recent recipients,
-extra-account credentials, VAPID keys) lives in small embedded bbolt files;
-session credentials are AES-256-GCM encrypted. See
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the request lifecycle and code
-layout.
+extra-account credentials, VAPID keys) lives in the durable store — an embedded
+bbolt file by default, or a shared Postgres database when configured; session
+credentials are AES-256-GCM encrypted. The same mail engine backs both the
+server-rendered HTMX UI and the `/v1` JSON API. See
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the request lifecycle and
+[docs/API.md](docs/API.md) for the JSON API reference.
 
 ## Quick start
 
@@ -140,6 +152,7 @@ key, or [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for the full walkthrough.
 |----------|-------------|
 | [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md) | Installation, first-run, and basic configuration walkthrough |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Code layout, request lifecycle, and subsystem overview |
+| [docs/API.md](docs/API.md) | `/v1` JSON API reference — endpoints, auth, payloads |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Complete `config.toml` reference — every key, section, and default |
 | [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md) | Screenshot gallery and how to regenerate them |
 | [ROADMAP.md](ROADMAP.md) | Shipped features, planned work, and exploratory ideas |

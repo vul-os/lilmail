@@ -52,6 +52,30 @@ All sections except `[server]`, `[imap]`, `[smtp]`, `[cache]`, `[jwt]`, and
 
 ---
 
+## `[storage]`
+
+Selects the durable key-value backend used for caches and shared state (thread
+metadata, recipients, push subscriptions). **Optional** — omit the section to use
+the default embedded backend.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `backend` | string | `"bolt"` | `"bolt"` (embedded bbolt, single binary, nothing to run) or `"postgres"` (shared SQL store) |
+| `postgres_dsn` | string | `""` | Connection string, required when `backend = "postgres"`. e.g. `postgres://user:pw@host:5432/db?sslmode=require` |
+
+Use `postgres` only when several lilmail/Vulos instances must share one store, or
+when another Vulos service needs to read the same data. The Postgres schema
+(a single `lilmail_kv` table) is created automatically on first connect.
+
+```toml
+[storage]
+backend = "bolt"   # default; omit the section entirely for the same effect
+# backend = "postgres"
+# postgres_dsn = "postgres://lilmail:secret@localhost:5432/lilmail?sslmode=require"
+```
+
+---
+
 ## `[jwt]`
 
 | Key | Type | Default | Description |
