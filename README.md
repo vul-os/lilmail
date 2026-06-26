@@ -8,7 +8,7 @@
 [![Latest release](https://img.shields.io/github/v/tag/exolutionza/lilmail?label=release&sort=semver)](https://github.com/exolutionza/lilmail/releases)
 [![CI](https://github.com/exolutionza/lilmail/actions/workflows/ci.yml/badge.svg)](https://github.com/exolutionza/lilmail/actions/workflows/ci.yml)
 
-<sub><img src="docs/assets/vulos-logo.png" height="14" alt="Vulos logo"> The default mail client of <strong><a href="https://vulos.org">Vulos</a></strong> OS — and a fully standalone webmail client.</sub>
+<sub><img src="docs/assets/vulos-logo.png" height="14" alt="VulOS"> Part of <strong><a href="https://vulos.org">VulOS</a></strong> — the open, self-hostable web OS &amp; app suite. Runs standalone, or combined under one login by <a href="https://vulos.org">Vulos Workspace</a>.</sub>
 
 <br>
 
@@ -31,6 +31,27 @@ PKCE flow with XOAUTH2 and OAUTHBEARER SASL and automatic token refresh).
 Everything beyond core mail — CalDAV calendar, CardDAV contacts, an AI mail
 assistant, real-time notifications, Web Push, and multi-account support — is
 opt-in via config keys and adds zero overhead when disabled.
+
+## Part of VulOS
+
+[VulOS](https://vulos.org) is an open, self-hostable web OS + app suite. Each
+product is self-hostable on its own and can be combined under one login by
+**Vulos Workspace**:
+
+- **Vulos Mail** — mail + calendar + contacts (engine: **lilmail**; UI: `@vulos/mail-ui`; server: vulos-mail)
+- **Vulos Talk** — team chat + channels/Spaces + huddles
+- **Vulos Meet** — video meetings (LiveKit SFU)
+- **Vulos Office** — documents: docs, sheets, slides, PDF
+- **Vulos Relay** — sovereign connectivity fabric (`@vulos/relay-client`)
+- **Vulos Workspace** — the open suite shell (one login, app switcher, admin)
+- **Vulos OS** — the web-native desktop
+
+**lilmail** is the **engine of the Vulos Mail product** (mail + calendar +
+contacts): a complete IMAP/SMTP webmail client that also exposes a clean `/v1`
+JSON API consumed by the shared `@vulos/mail-ui` React components and the
+vulos-mail server. It runs standalone **and** is combined by Vulos Workspace.
+Products link/embed each other only through clean seams (here, the `/v1` HTTP
+contract) — they never import one another's code.
 
 ## Features
 
