@@ -53,11 +53,11 @@ type userState struct {
 
 // NotificationHub manages SSE subscriptions and per-user IMAP IDLE watchers.
 type NotificationHub struct {
-	mu        sync.Mutex
-	users     map[string]*userState
-	config    *config.Config
-	store     *session.Store
-	auth      *AuthHandler
+	mu     sync.Mutex
+	users  map[string]*userState
+	config *config.Config
+	store  *session.Store
+	auth   *AuthHandler
 	// Optional Web Push fields — nil when webpush is disabled.
 	vapidKeys *VAPIDKeys
 	pushStore *PushStore

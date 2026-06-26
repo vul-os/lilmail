@@ -69,4 +69,3 @@ func LoadCache(filePath string, data interface{}) error {
 
 	return nil
 }
-

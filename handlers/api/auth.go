@@ -198,4 +198,3 @@ func SessionMiddleware(store *session.Store) fiber.Handler {
 		return c.Next()
 	}
 }
-

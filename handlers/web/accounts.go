@@ -27,10 +27,10 @@ import (
 
 // AccountsHandler manages multi-account operations.
 type AccountsHandler struct {
-	store      *session.Store
-	config     *config.Config
-	auth       *AuthHandler
-	acctStore  *AccountStore
+	store     *session.Store
+	config    *config.Config
+	auth      *AuthHandler
+	acctStore *AccountStore
 }
 
 // NewAccountsHandler creates a handler. acctStore must be non-nil.

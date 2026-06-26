@@ -23,10 +23,10 @@
 package ai
 
 import (
-	_ "embed"
 	"bufio"
 	"bytes"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io"

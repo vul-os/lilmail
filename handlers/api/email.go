@@ -644,4 +644,3 @@ func createPreview(text string) string {
 	}
 	return text
 }
-

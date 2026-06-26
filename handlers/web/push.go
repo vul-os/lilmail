@@ -2,9 +2,9 @@
 //
 // HTTP handlers for VAPID Web Push subscription management.
 //
-//   GET    /api/push/vapid-public  → returns {"publicKey":"<base64url>"}
-//   POST   /api/push/subscribe     → upserts a PushSubscription; body = browser JSON
-//   DELETE /api/push/subscribe     → removes a subscription by endpoint
+//	GET    /api/push/vapid-public  → returns {"publicKey":"<base64url>"}
+//	POST   /api/push/subscribe     → upserts a PushSubscription; body = browser JSON
+//	DELETE /api/push/subscribe     → removes a subscription by endpoint
 //
 // Push delivery is triggered from NotificationHub.Broadcast via SendPush.
 package web
@@ -140,4 +140,3 @@ func toWebpushSub(sub PushSubscription) *webpush.Subscription {
 		},
 	}
 }
-

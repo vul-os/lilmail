@@ -43,9 +43,9 @@ func subscriptionKey(endpoint string) []byte {
 
 // PushStore manages push subscriptions stored in per-user bbolt databases.
 type PushStore struct {
-	mu        sync.Mutex
-	cacheDir  string
-	openDBs   map[string]*bolt.DB
+	mu       sync.Mutex
+	cacheDir string
+	openDBs  map[string]*bolt.DB
 }
 
 // NewPushStore creates a PushStore that will keep bbolt files inside cacheDir.

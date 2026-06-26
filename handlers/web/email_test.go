@@ -31,13 +31,13 @@ func TestBuildThreadsInMemory(t *testing.T) {
 		Date:      time.Now().Add(-time.Hour),
 	}
 	reply := models.Email{
-		ID:        "2",
-		MessageID: "<reply@example.com>",
-		InReplyTo: "<root@example.com>",
+		ID:         "2",
+		MessageID:  "<reply@example.com>",
+		InReplyTo:  "<root@example.com>",
 		References: []string{"<root@example.com>"},
-		Subject:   "Re: Hello",
-		From:      "bob@example.com",
-		Date:      time.Now(),
+		Subject:    "Re: Hello",
+		From:       "bob@example.com",
+		Date:       time.Now(),
 	}
 
 	emails := []models.Email{root, reply}
