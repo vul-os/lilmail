@@ -23,8 +23,26 @@ func fetchCardDAVContacts(serverURL, username, password, query string, limit int
 	if serverURL == "" {
 		return nil, nil
 	}
-
 	hc := webdav.HTTPClientWithBasicAuth(http.DefaultClient, username, password)
+	return queryCardDAVContacts(hc, serverURL, query, limit)
+}
+
+// fetchCardDAVContactsBearer is the OAuth2/Bearer-token variant of
+// fetchCardDAVContacts, used by the CP-brokered path: the access token is sent as
+// an HTTP Authorization: Bearer header (reusing bearerHTTPClient from caldav.go)
+// instead of basic auth.
+func fetchCardDAVContactsBearer(serverURL, token, query string, limit int) ([]RecipientEntry, error) {
+	if serverURL == "" || token == "" {
+		return nil, nil
+	}
+	hc := &bearerHTTPClient{inner: http.DefaultClient, token: token}
+	return queryCardDAVContacts(hc, serverURL, query, limit)
+}
+
+// queryCardDAVContacts performs address-book discovery and querying against an
+// already-authenticated webdav.HTTPClient. It is the shared core of both the
+// basic-auth and bearer-token entry points.
+func queryCardDAVContacts(hc webdav.HTTPClient, serverURL, query string, limit int) ([]RecipientEntry, error) {
 	client, err := carddav.NewClient(hc, serverURL)
 	if err != nil {
 		return nil, fmt.Errorf("carddav client: %w", err)
@@ -98,4 +116,3 @@ func parseVCardEntry(card vcard.Card) (name string, emails []string) {
 	}
 	return name, emails
 }
-

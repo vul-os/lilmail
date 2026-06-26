@@ -16,17 +16,29 @@ import (
 // handleContacts searches the configured CardDAV address book.
 // GET /v1/contacts?q= → { contacts: [{ email, name }] }
 // An empty q returns up to `limit` contacts.
+//
+// For CP-brokered requests the address book is queried from the per-account
+// X-Vulos-Mail-Carddav-Url + bearer-token headers (never the session config). A
+// brokered account without a CardDAV URL returns an empty list.
 func (h *Handler) handleContacts(c *fiber.Ctx) error {
 	query := strings.TrimSpace(c.Query("q"))
 	limit := int(uintQuery(c, "limit", 50))
 
-	results := api.CardDAVContacts(
-		h.config.CardDAV.URL,
-		h.config.CardDAV.Username,
-		h.config.CardDAV.Password,
-		query,
-		limit,
-	)
+	var results []api.RecipientEntry
+	if spec, ok := brokerSpecOf(c); ok {
+		if spec.CardDAVURL != "" {
+			results = brokerCardDAVContacts(spec, query, limit)
+		}
+		// else: brokered account without CardDAV → empty list (no session).
+	} else {
+		results = api.CardDAVContacts(
+			h.config.CardDAV.URL,
+			h.config.CardDAV.Username,
+			h.config.CardDAV.Password,
+			query,
+			limit,
+		)
+	}
 
 	type contact struct {
 		Email string `json:"email"`

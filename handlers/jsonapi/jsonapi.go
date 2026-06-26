@@ -71,17 +71,23 @@ func (h *Handler) Register(app *fiber.App) {
 	g.Post("/messages", h.handleSend)    // body {to, cc?, bcc?, subject, text?, html?, inReplyTo?}
 	g.Post("/drafts", h.handleSaveDraft) // body {to, cc?, subject, text?, html?, inReplyTo?}
 
-	// Calendar — only when CalDAV is enabled. Reuses the CalDAV client +
-	// models.Calendar* types from the HTMX calendar surface.
-	if h.config.CalDAV.Enabled {
+	// Calendar — registered when CalDAV is enabled OR the broker path is active.
+	// In CP-brokered deployments the per-account CalDAV URL arrives per request
+	// (X-Vulos-Mail-Caldav-Url), so the routes must exist even when the local
+	// [caldav] block is not enabled; the brokered handlers build the client from
+	// the headers. Reuses the CalDAV client + models.Calendar* types from the
+	// HTMX calendar surface.
+	if h.config.CalDAV.Enabled || h.brokerSecret != "" {
 		g.Get("/calendar/events", h.handleCalendarEvents)      // ?start=&end=
 		g.Post("/calendar/events", h.handleCreateEvent)        // body {summary,start,end,...}
 		g.Delete("/calendar/events/:uid", h.handleDeleteEvent) // by UID
 		g.Get("/calendar/freebusy", h.handleFreeBusy)          // ?start=&end=
 	}
 
-	// Contacts — only when CardDAV is enabled. Reuses the CardDAV query path.
-	if h.config.CardDAV.Enabled {
+	// Contacts — registered when CardDAV is enabled OR the broker path is active
+	// (per-account X-Vulos-Mail-Carddav-Url arrives per request). Reuses the
+	// CardDAV query path.
+	if h.config.CardDAV.Enabled || h.brokerSecret != "" {
 		g.Get("/contacts", h.handleContacts) // ?q=&limit=
 	}
 }

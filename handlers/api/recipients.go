@@ -172,3 +172,19 @@ func CardDAVContacts(cardDavURL, username, password, query string, limit int) []
 	}
 	return results
 }
+
+// CardDAVContactsBearer is the OAuth2/Bearer-token variant of CardDAVContacts,
+// used by the CP-brokered path: it authenticates with the supplied access token
+// as an HTTP Bearer header instead of basic auth. Returns nil (degrading
+// gracefully) when the URL or token is empty, or on any CardDAV failure.
+func CardDAVContactsBearer(cardDavURL, token, query string, limit int) []RecipientEntry {
+	if cardDavURL == "" || token == "" {
+		return nil
+	}
+	results, err := fetchCardDAVContactsBearer(cardDavURL, token, query, limit)
+	if err != nil {
+		log.Printf("recipients: CardDAV (bearer) search %q: %v", query, err)
+		return nil
+	}
+	return results
+}

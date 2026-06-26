@@ -19,12 +19,16 @@
 package jsonapi
 
 import (
+	"context"
 	"crypto/subtle"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
+	"lilmail/config"
 	"lilmail/handlers/api"
+	"lilmail/models"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -42,6 +46,14 @@ const (
 	hdrMailIMAPPort = "X-Vulos-Mail-Imap-Port"
 	hdrMailSMTPHost = "X-Vulos-Mail-Smtp-Host"
 	hdrMailSMTPPort = "X-Vulos-Mail-Smtp-Port"
+
+	// CalDAV/CardDAV base URLs for the brokered account. Optional: the CP only
+	// sends them for accounts that actually expose DAV (e.g. Gmail/IMAP). When
+	// absent, the calendar/contacts routes report "not available for this
+	// account" rather than touching the session. Auth reuses X-Vulos-Mail-Auth=
+	// xoauth2 + X-Vulos-Mail-Secret as an HTTP Bearer token.
+	hdrMailCalDAVURL  = "X-Vulos-Mail-Caldav-Url"
+	hdrMailCardDAVURL = "X-Vulos-Mail-Carddav-Url"
 )
 
 // brokerEnvSecret is the env var that gates the whole brokered path. When empty,
@@ -71,6 +83,10 @@ type brokerSpec struct {
 	IMAPPort int
 	SMTPHost string
 	SMTPPort int
+	// CalDAVURL / CardDAVURL are the per-account DAV base URLs. Empty when the
+	// brokered account has no calendar/contacts surface (e.g. plain IMAP).
+	CalDAVURL  string
+	CardDAVURL string
 }
 
 // brokerDialIMAP builds a live MailClient from a validated broker spec. It is a
@@ -91,6 +107,37 @@ func brokerSMTPClient(spec brokerSpec) *api.SMTPClient {
 		return api.NewSMTPClientOAuth(spec.SMTPHost, spec.SMTPPort, spec.Email, spec.Secret, brokerAuthXOAuth2, useStartTLS)
 	}
 	return api.NewSMTPClient(spec.SMTPHost, spec.SMTPPort, spec.Email, spec.Secret, useStartTLS)
+}
+
+// calDAVClient is the subset of *api.CalDAVClient the JSON calendar handlers use.
+// Declaring it here lets the brokered dial seam be mocked in tests without a live
+// CalDAV server; *api.CalDAVClient (and the session path) satisfy it directly.
+type calDAVClient interface {
+	ListEvents(ctx context.Context, start, end time.Time) ([]models.CalendarEvent, error)
+	CreateEvent(ctx context.Context, ev models.CalendarEvent) error
+	DeleteEvent(ctx context.Context, uid string) error
+	FreeBusy(ctx context.Context, start, end time.Time) ([]models.FreeBusySlot, error)
+}
+
+// brokerDialCalDAV builds a CalDAV client from a validated broker spec, using the
+// account's CalDAV base URL and the XOAUTH2 access token as an HTTP Bearer token.
+// It reuses api.NewCalDAVClient's oauth2/bearer mode (handlers/api/caldav.go); no
+// new DAV library is introduced. It is a package var so tests can substitute a
+// mock and assert on the spec without a live CalDAV server.
+var brokerDialCalDAV = func(spec brokerSpec) (calDAVClient, error) {
+	cfg := config.CalDAVConfig{
+		Enabled: true,
+		URL:     spec.CalDAVURL,
+		Auth:    "oauth2",
+	}
+	return api.NewCalDAVClient(cfg, spec.Secret)
+}
+
+// brokerCardDAVContacts queries the brokered account's CardDAV address book using
+// the CardDAV base URL and the XOAUTH2 access token as an HTTP Bearer token. It
+// reuses the CardDAV query path in handlers/api. Package var for test seam.
+var brokerCardDAVContacts = func(spec brokerSpec, query string, limit int) []api.RecipientEntry {
+	return api.CardDAVContactsBearer(spec.CardDAVURL, spec.Secret, query, limit)
 }
 
 // brokerMiddleware validates the broker secret and, if valid, parses the
@@ -136,6 +183,9 @@ func (h *Handler) parseBroker(c *fiber.Ctx) (brokerSpec, bool) {
 		IMAPPort: atoiDefault(c.Get(hdrMailIMAPPort), 993),
 		SMTPHost: strings.TrimSpace(c.Get(hdrMailSMTPHost)),
 		SMTPPort: atoiDefault(c.Get(hdrMailSMTPPort), 587),
+		// Optional DAV URLs — never required to validate the spec.
+		CalDAVURL:  strings.TrimSpace(c.Get(hdrMailCalDAVURL)),
+		CardDAVURL: strings.TrimSpace(c.Get(hdrMailCardDAVURL)),
 	}
 
 	if spec.Auth == "" {

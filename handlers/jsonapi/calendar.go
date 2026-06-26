@@ -39,12 +39,34 @@ func parseRange(c *fiber.Ctx) (time.Time, time.Time) {
 	return start, end
 }
 
+// calDAVClient returns a CalDAV client for the request. For CP-brokered requests
+// it is built directly from the X-Vulos-Mail-Caldav-Url + bearer-token headers
+// (never the session); otherwise it comes from the session via the AuthHandler.
+// The returned bool is false when the request is brokered but the account has no
+// CalDAV URL — the caller must respond "not available for this account" WITHOUT
+// touching the session.
+func (h *Handler) calDAVClient(c *fiber.Ctx) (calDAVClient, bool, error) {
+	if spec, ok := brokerSpecOf(c); ok {
+		if spec.CalDAVURL == "" {
+			return nil, false, nil
+		}
+		cl, err := brokerDialCalDAV(spec)
+		return cl, true, err
+	}
+	cl, err := h.auth.CalDAVClient(c)
+	return cl, true, err
+}
+
 // handleCalendarEvents lists events in a time range.
 // GET /v1/calendar/events?start=&end= → { events: CalendarEvent[] }
 func (h *Handler) handleCalendarEvents(c *fiber.Ctx) error {
 	start, end := parseRange(c)
 
-	cl, err := h.auth.CalDAVClient(c)
+	cl, ok, err := h.calDAVClient(c)
+	if !ok {
+		// Brokered account without a CalDAV URL: empty result, no session.
+		return c.JSON(fiber.Map{"events": []models.CalendarEvent{}})
+	}
 	if err != nil {
 		return fail(c, fiber.StatusBadGateway, "calendar not available")
 	}
@@ -90,7 +112,10 @@ func (h *Handler) handleCreateEvent(c *fiber.Ctx) error {
 		end = start.Add(time.Hour)
 	}
 
-	cl, err := h.auth.CalDAVClient(c)
+	cl, ok, err := h.calDAVClient(c)
+	if !ok {
+		return fail(c, fiber.StatusNotImplemented, "calendar not available for this account")
+	}
 	if err != nil {
 		return fail(c, fiber.StatusBadGateway, "calendar not available")
 	}
@@ -118,7 +143,10 @@ func (h *Handler) handleDeleteEvent(c *fiber.Ctx) error {
 		return fail(c, fiber.StatusBadRequest, "event uid required")
 	}
 
-	cl, err := h.auth.CalDAVClient(c)
+	cl, ok, err := h.calDAVClient(c)
+	if !ok {
+		return fail(c, fiber.StatusNotImplemented, "calendar not available for this account")
+	}
 	if err != nil {
 		return fail(c, fiber.StatusBadGateway, "calendar not available")
 	}
@@ -134,7 +162,10 @@ func (h *Handler) handleDeleteEvent(c *fiber.Ctx) error {
 func (h *Handler) handleFreeBusy(c *fiber.Ctx) error {
 	start, end := parseRange(c)
 
-	cl, err := h.auth.CalDAVClient(c)
+	cl, ok, err := h.calDAVClient(c)
+	if !ok {
+		return c.JSON(fiber.Map{"busy": []models.FreeBusySlot{}})
+	}
 	if err != nil {
 		return fail(c, fiber.StatusBadGateway, "calendar not available")
 	}

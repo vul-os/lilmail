@@ -11,6 +11,22 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ### Added
 
+- **Brokered calendar & contacts for `/v1`** — extends the CP-brokered credential
+  mode to `/v1/calendar/*` and `/v1/contacts`. When the CP sends the new
+  `X-Vulos-Mail-Caldav-Url` / `X-Vulos-Mail-Carddav-Url` headers (only honored
+  behind the same valid-broker-secret gate), lilmail builds the CalDAV/CardDAV
+  client **directly from those per-account URLs**, authenticating with the
+  `X-Vulos-Mail-Secret` access token as an HTTP `Authorization: Bearer` header —
+  reusing the existing oauth2/bearer mode in `handlers/api` (`NewCalDAVClient`,
+  new `CardDAVContactsBearer`), no new DAV library. When a brokered request omits
+  the relevant DAV URL, the read routes return an empty result and the
+  create/delete-event routes return `501 Not Implemented` ("not available for this
+  account") **without touching the session**. The calendar/contacts routes are now
+  registered when CalDAV/CardDAV is enabled **or** the broker path is active, so
+  they exist in CP deployments. **Security:** same gate as the mail routes — if
+  `LILMAIL_BROKER_SECRET` is unset or the secret mismatches, the DAV URL headers
+  are ignored entirely. Standalone/session behaviour is unchanged. Outlook/
+  Microsoft Graph calendars are not covered (CalDAV/CardDAV only).
 - **CP-brokered credential mode for `/v1`** — lets Vulos Cloud's control plane
   (CP) reverse-proxy to lilmail and drive it against a per-request **external**
   mailbox (Gmail / Outlook / IMAP) whose credentials the CP custodies. When a

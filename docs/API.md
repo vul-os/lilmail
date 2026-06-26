@@ -62,13 +62,33 @@ When the secret validates, lilmail reads the connection spec from these headers:
 | `X-Vulos-Mail-Imap-Port` | IMAP port (default `993`, implicit TLS) |
 | `X-Vulos-Mail-Smtp-Host` | SMTP host (defaults to the IMAP host) |
 | `X-Vulos-Mail-Smtp-Port` | SMTP port (default `587`; `465` ⇒ implicit TLS, else STARTTLS) |
+| `X-Vulos-Mail-Caldav-Url`  | CalDAV base URL for the account (optional; enables `/v1/calendar/*`) |
+| `X-Vulos-Mail-Carddav-Url` | CardDAV base URL for the account (optional; enables `/v1/contacts`) |
 
 `xoauth2` builds the IMAP client via `NewClientOAuth(host, port, username, token,
 "xoauth2")` and the SMTP client via `NewSMTPClientOAuth`; `plain` uses
 `NewClient(host, port, username, password)` / `NewSMTPClient`. The brokered path
 covers the mail routes — folders, messages, single message, search, flags,
-delete, compose (`POST /v1/messages`) and drafts (`POST /v1/drafts`). Calendar
-and contacts remain session/CalDAV-gated for now (not yet brokered).
+delete, compose (`POST /v1/messages`) and drafts (`POST /v1/drafts`).
+
+**Calendar & contacts (brokered).** When the CP also sends
+`X-Vulos-Mail-Caldav-Url` / `X-Vulos-Mail-Carddav-Url`, the `/v1/calendar/*` and
+`/v1/contacts` routes are served from those per-account DAV base URLs instead of
+the session. Authentication reuses `X-Vulos-Mail-Auth: xoauth2` +
+`X-Vulos-Mail-Secret`: the access token is presented to CalDAV/CardDAV as an HTTP
+`Authorization: Bearer <token>` header (via `api.NewCalDAVClient(cfg, token)` in
+oauth2 mode and `api.CardDAVContactsBearer`). If the relevant DAV URL header is
+**absent** in a brokered request, the read routes return an empty result
+(`{ "events": [] }` / `{ "busy": [] }` / `{ "contacts": [] }`) and the write
+routes (create/delete event) return `501 Not Implemented`
+(`{ "error": "calendar not available for this account" }`) — the session is never
+touched. These routes are registered whenever CalDAV/CardDAV is enabled **or** the
+broker path is active (`LILMAIL_BROKER_SECRET` set), so they exist in CP
+deployments even when the local `[caldav]`/`[carddav]` blocks are off.
+
+Note: Outlook/Microsoft 365 calendar & contacts (Microsoft Graph) are **not**
+covered by this CalDAV/CardDAV path; only accounts that expose CalDAV/CardDAV
+(e.g. Gmail, generic DAV) work in brokered calendar/contacts mode.
 
 The headers are only ever read **inside** the `/v1` group, after the broker
 secret has been validated — never on unauthenticated or HTMX paths.
