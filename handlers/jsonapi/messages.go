@@ -150,6 +150,41 @@ func (h *Handler) handleSaveDraft(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{"saved": true})
 }
 
+// handleMove moves a message to another folder (e.g. archive). The source
+// folder comes from the `folder` query param (default INBOX), but an optional
+// non-empty `folder` field in the JSON body overrides it.
+// POST /v1/messages/:uid/move  ?folder=  body {toFolder, folder?}
+func (h *Handler) handleMove(c *fiber.Ctx) error {
+	uid := c.Params("uid")
+	src := folderParam(c)
+
+	var body struct {
+		Folder   string `json:"folder"`
+		ToFolder string `json:"toFolder"`
+	}
+	if err := c.BodyParser(&body); err != nil {
+		return fail(c, fiber.StatusBadRequest, "invalid JSON body")
+	}
+	if strings.TrimSpace(body.Folder) != "" {
+		src = body.Folder
+	}
+	if strings.TrimSpace(body.ToFolder) == "" {
+		return fail(c, fiber.StatusBadRequest, "toFolder is required")
+	}
+
+	cl, err := h.client(c)
+	if err != nil {
+		return fail(c, fiber.StatusBadGateway, "mail server connection failed")
+	}
+	defer cl.Close()
+
+	if err := cl.MoveMessage(src, uid, body.ToFolder); err != nil {
+		log.Printf("jsonapi: move: %v", err)
+		return fail(c, fiber.StatusBadGateway, "could not move message")
+	}
+	return c.SendStatus(fiber.StatusNoContent)
+}
+
 // stripHTMLForPlain produces a minimal plain-text fallback from an HTML body by
 // dropping tags and collapsing whitespace. Used when only an HTML body is given.
 func stripHTMLForPlain(html string) string {

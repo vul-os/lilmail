@@ -32,6 +32,7 @@ func TestRequireAuthReturnsJSON401(t *testing.T) {
 		{"GET", "/v1/messages"},
 		{"GET", "/v1/me"},
 		{"POST", "/v1/messages"},
+		{"POST", "/v1/messages/42/move"},
 		{"POST", "/v1/drafts"},
 	}
 	for _, c := range cases {
@@ -79,9 +80,10 @@ func TestCalendarContactsAreConfigGated(t *testing.T) {
 			t.Fatalf("%s: registered while integration disabled", p)
 		}
 	}
-	// The always-on compose routes must always be registered.
-	if !hasRoute(appOff, "/v1/messages") || !hasRoute(appOff, "/v1/drafts") {
-		t.Fatalf("compose/draft routes missing")
+	// The always-on compose + move routes must always be registered.
+	if !hasRoute(appOff, "/v1/messages") || !hasRoute(appOff, "/v1/drafts") ||
+		!hasRoute(appOff, "/v1/messages/:uid/move") {
+		t.Fatalf("compose/draft/move routes missing")
 	}
 
 	// Enabled: gated routes must be registered.

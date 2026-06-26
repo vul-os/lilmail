@@ -37,11 +37,13 @@ func (f *fakeMailClient) FetchAttachment(string, string, string) ([]byte, string
 }
 func (f *fakeMailClient) DeleteMessage(string, string) error                { return nil }
 func (f *fakeMailClient) SetMessageFlag(string, string, string, bool) error { return nil }
+func (f *fakeMailClient) MoveMessage(string, string, string) error          { return nil }
 func (f *fakeMailClient) SaveToSent(string, string, string, []byte) error   { return nil }
 func (f *fakeMailClient) SaveDraft([]byte) error                            { return nil }
 func (f *fakeMailClient) DeleteDraft(string) error                          { return nil }
 func (f *fakeMailClient) DeleteMessageFromFolder(string, string) error      { return nil }
 func (f *fakeMailClient) DiscoverDraftsFolder() (string, error)             { return "Drafts", nil }
+func (f *fakeMailClient) DiscoverTrashFolder() (string, error)              { return "Trash", nil }
 func (f *fakeMailClient) WatchInbox(<-chan struct{}, func(models.Email)) error {
 	return nil
 }

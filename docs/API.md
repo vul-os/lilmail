@@ -69,7 +69,7 @@ When the secret validates, lilmail reads the connection spec from these headers:
 "xoauth2")` and the SMTP client via `NewSMTPClientOAuth`; `plain` uses
 `NewClient(host, port, username, password)` / `NewSMTPClient`. The brokered path
 covers the mail routes — folders, messages, single message, search, flags,
-delete, compose (`POST /v1/messages`) and drafts (`POST /v1/drafts`).
+delete, move, compose (`POST /v1/messages`) and drafts (`POST /v1/drafts`).
 
 **Calendar & contacts (brokered).** When the CP also sends
 `X-Vulos-Mail-Caldav-Url` / `X-Vulos-Mail-Carddav-Url`, the `/v1/calendar/*` and
@@ -115,9 +115,21 @@ secret has been validated — never on unauthenticated or HTMX paths.
 | `GET`    | `/v1/messages/:uid`            | `folder`                | —              | `Email` |
 | `GET`    | `/v1/search`                   | `folder`, `q`, `limit` (100) | —         | `{ folder, query, messages: Email[] }` |
 | `PATCH`  | `/v1/messages/:uid/flags`      | `folder`                | `{ flag, add }`| `204` |
-| `DELETE` | `/v1/messages/:uid`            | `folder`                | —              | `204` |
+| `DELETE` | `/v1/messages/:uid`            | `folder`, `hard`        | —              | `204` |
+| `POST`   | `/v1/messages/:uid/move`       | `folder`                | `{ toFolder, folder? }` | `204` |
 | `POST`   | `/v1/messages`                 | —                       | `{ to, cc?, bcc?, subject, text?, html?, inReplyTo? }` | `201 { sent: true }` |
 | `POST`   | `/v1/drafts`                   | —                       | `{ to?, cc?, subject?, text?, html?, inReplyTo? }`     | `201 { saved: true }` |
+
+`DELETE /v1/messages/:uid` MOVES the message to the Trash folder by default
+(discovered via the `\Trash` special-use, with name fallbacks Trash / Deleted /
+Deleted Items / Bin). Pass `?hard=true` (or `?hard=1`) to permanently expunge
+instead. If the source folder already IS the Trash folder, or no Trash folder
+can be located, the delete falls back to a permanent expunge.
+
+`POST /v1/messages/:uid/move` moves a message between folders (e.g. archive).
+The source folder comes from the `folder` query param (default `INBOX`); an
+optional non-empty `folder` field in the body overrides it. `toFolder` is
+required.
 
 ### Calendar (only when `[caldav] enabled`)
 
@@ -157,8 +169,15 @@ curl -b cookies.txt 'http://localhost:3000/v1/search?folder=INBOX&q=invoice'
 curl -b cookies.txt -X PATCH 'http://localhost:3000/v1/messages/42/flags?folder=INBOX' \
   -H 'Content-Type: application/json' -d '{"flag":"\\Seen","add":true}'
 
-# Delete
+# Delete (moves to Trash by default)
 curl -b cookies.txt -X DELETE 'http://localhost:3000/v1/messages/42?folder=INBOX'
+
+# Permanently delete (expunge, skip Trash)
+curl -b cookies.txt -X DELETE 'http://localhost:3000/v1/messages/42?folder=INBOX&hard=true'
+
+# Move / archive a message
+curl -b cookies.txt -X POST 'http://localhost:3000/v1/messages/42/move?folder=INBOX' \
+  -H 'Content-Type: application/json' -d '{"toFolder":"Archive"}'
 
 # Send a message
 curl -b cookies.txt -X POST http://localhost:3000/v1/messages \

@@ -334,6 +334,9 @@ func (d *DemoClient) SetMessageFlag(folderName, uid string, flag string, add boo
 	return nil
 }
 
+// MoveMessage is a no-op in demo mode (the seed data is in-memory and immutable).
+func (d *DemoClient) MoveMessage(srcFolder, uid, destFolder string) error { return nil }
+
 // SaveToSent is a no-op in demo mode.
 func (d *DemoClient) SaveToSent(to, subject, body string, rawMessage []byte) error { return nil }
 
@@ -348,6 +351,9 @@ func (d *DemoClient) DeleteMessageFromFolder(folder, uid string) error { return 
 
 // DiscoverDraftsFolder returns the canonical demo drafts folder name.
 func (d *DemoClient) DiscoverDraftsFolder() (string, error) { return "Drafts", nil }
+
+// DiscoverTrashFolder returns the canonical demo trash folder name.
+func (d *DemoClient) DiscoverTrashFolder() (string, error) { return "Trash", nil }
 
 // WatchInbox is a no-op in demo mode; it blocks until stop is closed.
 func (d *DemoClient) WatchInbox(stop <-chan struct{}, onNewMail func(email models.Email)) error {

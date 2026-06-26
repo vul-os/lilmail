@@ -53,6 +53,58 @@ func (c *Client) discoverDraftsFolder() (string, error) {
 	return "", fmt.Errorf("could not locate Drafts folder")
 }
 
+// discoverTrashFolder uses IMAP LIST to find the Trash folder by the \Trash
+// special-use attribute, then falls back to common name guesses, then SELECT
+// probing. Mirrors discoverDraftsFolder.
+func (c *Client) discoverTrashFolder() (string, error) {
+	mailboxChan := make(chan *imap.MailboxInfo, 20)
+	done := make(chan error, 1)
+	go func() {
+		done <- c.client.List("", "*", mailboxChan)
+	}()
+
+	var bySpecialUse string
+	var candidates []string
+	for mb := range mailboxChan {
+		for _, attr := range mb.Attributes {
+			if strings.EqualFold(attr, `\Trash`) {
+				if bySpecialUse == "" {
+					bySpecialUse = mb.Name
+				}
+			}
+		}
+		lc := strings.ToLower(mb.Name)
+		if lc == "trash" || lc == "deleted" || lc == "deleted items" || lc == "bin" ||
+			strings.HasSuffix(lc, "/trash") {
+			candidates = append(candidates, mb.Name)
+		}
+	}
+	if err := <-done; err != nil {
+		return "", fmt.Errorf("LIST error: %w", err)
+	}
+
+	if bySpecialUse != "" {
+		return bySpecialUse, nil
+	}
+	if len(candidates) > 0 {
+		return candidates[0], nil
+	}
+
+	// Phase 2: try selecting common names in order.
+	for _, name := range []string{"Trash", "Deleted", "Deleted Items", "Bin"} {
+		if _, err := c.client.Select(name, false); err == nil {
+			return name, nil
+		}
+	}
+	return "", fmt.Errorf("could not locate Trash folder")
+}
+
+// DiscoverTrashFolder is the public wrapper around discoverTrashFolder, so
+// handlers can find the Trash folder name without accessing private methods.
+func (c *Client) DiscoverTrashFolder() (string, error) {
+	return c.discoverTrashFolder()
+}
+
 // SaveDraft appends a draft message to the user's Drafts folder with the \Draft
 // and \Seen flags set. The raw RFC 2822 message bytes are provided by the caller
 // so that the same MIME message can be built for both Send and SaveDraft.

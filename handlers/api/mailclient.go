@@ -22,11 +22,13 @@ type MailClient interface {
 	// Mutating operations
 	DeleteMessage(folderName, uid string) error
 	SetMessageFlag(folderName, uid string, flag string, add bool) error
+	MoveMessage(srcFolder, uid, destFolder string) error
 	SaveToSent(to, subject, body string, rawMessage []byte) error
 	SaveDraft(rawMessage []byte) error
 	DeleteDraft(uid string) error
 	DeleteMessageFromFolder(folder, uid string) error
 	DiscoverDraftsFolder() (string, error)
+	DiscoverTrashFolder() (string, error)
 
 	// Real-time notifications
 	WatchInbox(stop <-chan struct{}, onNewMail func(email models.Email)) error

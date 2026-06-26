@@ -18,6 +18,7 @@ package jsonapi
 
 import (
 	"strconv"
+	"strings"
 
 	"lilmail/config"
 	"lilmail/handlers/api"
@@ -63,7 +64,8 @@ func (h *Handler) Register(app *fiber.App) {
 	g.Get("/messages/:uid", h.handleMessage)         // ?folder=
 	g.Get("/search", h.handleSearch)                 // ?folder=&q=&limit=
 	g.Patch("/messages/:uid/flags", h.handleSetFlag) // ?folder=  body {flag,add}
-	g.Delete("/messages/:uid", h.handleDelete)       // ?folder=
+	g.Delete("/messages/:uid", h.handleDelete)       // ?folder=&hard=
+	g.Post("/messages/:uid/move", h.handleMove)      // ?folder=  body {toFolder, folder?}
 
 	// Compose / drafts — JSON transport over the same SMTP/MIME engine as the
 	// HTMX compose path. The :uid Delete above is registered first so it is not
@@ -234,15 +236,33 @@ func (h *Handler) handleSetFlag(c *fiber.Ctx) error {
 	return c.SendStatus(fiber.StatusNoContent)
 }
 
+// handleDelete deletes a message. By default it MOVES the message to the Trash
+// folder (discovered via the \Trash special-use). With ?hard=true (or =1) it
+// permanently expunges the message. If the source folder already IS the Trash
+// folder, or no Trash folder can be found, it falls back to a hard delete.
+// DELETE /v1/messages/:uid  ?folder=&hard=
 func (h *Handler) handleDelete(c *fiber.Ctx) error {
 	folder := folderParam(c)
 	uid := c.Params("uid")
+	hard := boolQuery(c, "hard")
 
 	cl, err := h.client(c)
 	if err != nil {
 		return fail(c, fiber.StatusBadGateway, "mail server connection failed")
 	}
 	defer cl.Close()
+
+	if !hard {
+		// Soft delete: move to Trash when we can resolve a distinct Trash folder.
+		if trash, terr := cl.DiscoverTrashFolder(); terr == nil &&
+			trash != "" && !strings.EqualFold(trash, folder) {
+			if err := cl.MoveMessage(folder, uid, trash); err != nil {
+				return fail(c, fiber.StatusBadGateway, "could not delete message")
+			}
+			return c.SendStatus(fiber.StatusNoContent)
+		}
+		// No usable Trash folder (or already in Trash): fall through to hard delete.
+	}
 
 	if err := cl.DeleteMessage(folder, uid); err != nil {
 		return fail(c, fiber.StatusBadGateway, "could not delete message")
@@ -268,6 +288,13 @@ func uintQuery(c *fiber.Ctx, key string, def uint32) uint32 {
 		return def
 	}
 	return uint32(n)
+}
+
+// boolQuery parses a query param as a boolean flag: "1" or "true"
+// (case-insensitive) => true; anything else (including absent) => false.
+func boolQuery(c *fiber.Ctx, key string) bool {
+	v := strings.ToLower(c.Query(key))
+	return v == "1" || v == "true"
 }
 
 func fail(c *fiber.Ctx, status int, msg string) error {

@@ -244,6 +244,44 @@ func (c *Client) DeleteMessage(folderName, uid string) error {
 	return nil
 }
 
+// MoveMessage moves a message identified by its UID from srcFolder to
+// destFolder. It first tries the IMAP MOVE extension (UidMove); if the server
+// does not support it, it falls back to a copy + mark \Deleted + Expunge, which
+// achieves the same effect on servers without RFC 6851.
+func (c *Client) MoveMessage(srcFolder, uid, destFolder string) error {
+	uidNum, err := parseUID(uid)
+	if err != nil {
+		return fmt.Errorf("invalid UID: %v", err)
+	}
+
+	if _, err := c.client.Select(srcFolder, false); err != nil {
+		return fmt.Errorf("error selecting folder %s: %v", srcFolder, err)
+	}
+
+	seqSet := new(imap.SeqSet)
+	seqSet.AddNum(uidNum)
+
+	// Preferred path: server-side MOVE (RFC 6851).
+	if err := c.client.UidMove(seqSet, destFolder); err == nil {
+		return nil
+	}
+
+	// Fallback: copy to destination, then mark the source as deleted and expunge.
+	if err := c.client.UidCopy(seqSet, destFolder); err != nil {
+		return fmt.Errorf("error copying message to %s: %v", destFolder, err)
+	}
+
+	item := imap.FormatFlagsOp(imap.AddFlags, true)
+	flags := []interface{}{imap.DeletedFlag}
+	if err := c.client.UidStore(seqSet, item, flags, nil); err != nil {
+		return fmt.Errorf("error marking message as deleted: %v", err)
+	}
+	if err := c.client.Expunge(nil); err != nil {
+		return fmt.Errorf("error expunging mailbox: %v", err)
+	}
+	return nil
+}
+
 // SetMessageFlag sets or removes the given IMAP flag on a message identified
 // by its UID in folderName.  add=true adds the flag; add=false removes it.
 func (c *Client) SetMessageFlag(folderName, uid string, flag string, add bool) error {
