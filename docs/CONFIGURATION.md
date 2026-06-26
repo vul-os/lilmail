@@ -74,6 +74,26 @@ backend = "bolt"   # default; omit the section entirely for the same effect
 # postgres_dsn = "postgres://lilmail:secret@localhost:5432/lilmail?sslmode=require"
 ```
 
+### Shared object storage (`LILMAIL_STORAGE_SEAM`)
+
+lilmail's primary stores are IMAP (the mail) and the KV seam above; it does **not**
+keep mail or state in object storage. The only object-storage use is a **supplementary
+read-through cache of immutable attachment blobs**, avoiding repeated IMAP pulls of the
+same MIME part.
+
+This is **off by default**. It activates only when **both** of these hold:
+
+1. The operator sets the environment variable `LILMAIL_STORAGE_SEAM` to `1`/`true`
+   (set only in deployments behind the Vulos OS gateway). When unset, injected
+   storage headers are ignored entirely — standalone lilmail never trusts them.
+2. The Vulos OS gateway injects per-request `X-Vulos-Storage-*` headers
+   (`-Endpoint`, `-Bucket`, `-Prefix`, `-Region`, `-Access-Key`, `-Secret-Key`,
+   optional `-Session-Token`). An absent/empty `-Endpoint` means "do nothing new".
+
+Objects are written under `<X-Vulos-Storage-Prefix>/mail/attachments/<id>`. A cache
+miss or any S3 error transparently falls back to IMAP and is never shown to the user.
+No config file keys are involved; there is nothing to set for standalone use.
+
 ---
 
 ## `[jwt]`

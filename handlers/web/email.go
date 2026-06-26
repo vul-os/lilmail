@@ -7,6 +7,7 @@ import (
 	"lilmail/config"
 	"lilmail/handlers/api"
 	"lilmail/models"
+	"lilmail/storage"
 	"lilmail/utils"
 	"log"
 	"net/url"
@@ -339,6 +340,29 @@ func (h *EmailHandler) HandleAttachment(c *fiber.Ctx) error {
 		return c.Status(400).SendString("Invalid attachment ID")
 	}
 
+	// Enforce a 25 MiB limit on attachment downloads to avoid unbounded memory use.
+	const maxAttachmentBytes = 25 * 1024 * 1024
+
+	// Optional supplementary cache: when the Vulos OS gateway has provisioned an
+	// object bucket for this request (and the seam is enabled), serve immutable
+	// attachment blobs from it to avoid re-pulling the full MIME part from IMAP.
+	// Absent the headers this is a no-op and behaviour is identical to before.
+	// IMAP remains the source of truth; the bucket is a pure read-through cache.
+	objStore, useCache := storage.ObjectStoreFromHeaders(func(k string) string { return c.Get(k) })
+	cacheKey := "attachments/" + id
+	if useCache {
+		if obj, cerr := objStore.Get(c.UserContext(), cacheKey); cerr == nil {
+			if obj.ContentType != "" {
+				c.Set("Content-Type", obj.ContentType)
+			}
+			c.Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", obj.Meta["filename"]))
+			return c.SendStream(bytes.NewReader(obj.Body), len(obj.Body))
+		} else if cerr != storage.ErrNotFound {
+			// Cache trouble must never break downloads — log and fall through.
+			log.Printf("attachment cache get %s: %v", cacheKey, cerr)
+		}
+	}
+
 	client, err := h.auth.CreateIMAPClient(c)
 	if err != nil {
 		return c.Status(500).SendString("Error connecting to email server")
@@ -351,10 +375,16 @@ func (h *EmailHandler) HandleAttachment(c *fiber.Ctx) error {
 		return c.Status(500).SendString("Error fetching attachment")
 	}
 
-	// Enforce a 25 MiB limit on attachment downloads to avoid unbounded memory use.
-	const maxAttachmentBytes = 25 * 1024 * 1024
 	if len(content) > maxAttachmentBytes {
 		return c.Status(413).SendString("Attachment exceeds maximum allowed size")
+	}
+
+	// Best-effort populate the cache (within the size cap). Failures are logged
+	// but never surfaced to the user — the download has already succeeded.
+	if useCache {
+		if perr := objStore.Put(c.UserContext(), cacheKey, content, contentType, map[string]string{"filename": filename}); perr != nil {
+			log.Printf("attachment cache put %s: %v", cacheKey, perr)
+		}
 	}
 
 	if contentType != "" {
@@ -508,8 +538,8 @@ func (h *EmailHandler) HandleComposeEmail(c *fiber.Ctx) error {
 	// Required fields.
 	to := c.FormValue("to")
 	subject := c.FormValue("subject")
-	plainBody := c.FormValue("body")       // plain-text body
-	htmlBody := c.FormValue("html_body")   // optional HTML body (rich-text editor)
+	plainBody := c.FormValue("body")     // plain-text body
+	htmlBody := c.FormValue("html_body") // optional HTML body (rich-text editor)
 
 	if to == "" || subject == "" || (plainBody == "" && htmlBody == "") {
 		return c.Status(400).JSON(fiber.Map{
@@ -720,14 +750,14 @@ func (h *EmailHandler) HandleSaveDraft(c *fiber.Ctx) error {
 	fromEmail := h.auth.GetSessionEmail(c)
 
 	mimeOpts := api.MIMEMessageOptions{
-		From:      fromEmail,
-		To:        to,
-		Cc:        cc,
-		Subject:   subject,
-		InReplyTo: inReplyTo,
+		From:       fromEmail,
+		To:         to,
+		Cc:         cc,
+		Subject:    subject,
+		InReplyTo:  inReplyTo,
 		References: references,
-		PlainBody: plainBody,
-		HTMLBody:  htmlBody,
+		PlainBody:  plainBody,
+		HTMLBody:   htmlBody,
 	}
 	rawMessage, err := api.BuildMIMEMessage(mimeOpts)
 	if err != nil {

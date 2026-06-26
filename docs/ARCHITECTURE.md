@@ -25,7 +25,8 @@ lilmail/
 │   ├── session.go           # bbolt-backed session/credential store
 │   ├── kv.go                # Durable KV seam + backend selector (Open)
 │   ├── bolt.go              # Embedded bbolt backend (default)
-│   └── postgres.go          # Optional shared Postgres backend (opt-in)
+│   ├── postgres.go          # Optional shared Postgres backend (opt-in)
+│   └── object.go            # Optional shared-object (S3) seam — attachment cache only
 ├── sessions/                # Runtime session state (file-based)
 ├── utils/
 │   └── cache.go             # On-disk cache helpers
@@ -116,6 +117,29 @@ opt-in via `[storage] backend = "postgres"`). `storage.Open(cfg, boltPath)`
 selects the backend so callers never branch on it. Postgres is reusable by other
 Vulos services that need to read the same store; it is never the default. See
 [CONFIGURATION.md](CONFIGURATION.md#storage).
+
+### Shared object storage (supplementary only)
+
+lilmail's primary stores are **IMAP** (the mail itself — the durable source of
+truth) and the **KV seam** above (threads, recipients, push state). Neither
+needs object storage, so lilmail's participation in the Vulos unified object
+store is deliberately **light and supplementary**.
+
+`storage/object.go` adds an optional S3 `ObjectStore` seam that is used for one
+thing only: a **read-through cache of immutable attachment blobs**, so repeated
+downloads of the same MIME part don't re-pull it from IMAP. It activates **only**
+when the Vulos OS gateway injects `X-Vulos-Storage-*` headers on a request *and*
+the operator has opted in with `LILMAIL_STORAGE_SEAM` (see
+[CONFIGURATION.md](CONFIGURATION.md#storage)). Absent either, the
+attachment route behaves exactly as before (fetch from IMAP every time).
+
+Properties: objects live under the gateway-provided prefix in a `mail/`
+sub-space (`<prefix>/mail/attachments/<id>`); the cache is pure read-through
+(IMAP stays authoritative; a cache miss or any S3 error falls back to IMAP and is
+never surfaced to the user); the client is a minimal self-contained AWS SigV4
+GET/PUT (no new dependency, single binary preserved). The seam is **off by
+default** so standalone lilmail never trusts injected storage headers — the same
+fail-closed posture as the CP credential broker.
 
 ### JSON API (`handlers/jsonapi`)
 
