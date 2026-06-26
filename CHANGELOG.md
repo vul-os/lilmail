@@ -19,6 +19,15 @@ Versioning: [Semantic Versioning](https://semver.org/)
   folder names ride as the `folder` query param, and unauthenticated requests get
   `401` JSON instead of an HTML redirect. New package `handlers/jsonapi`; the HTMX
   UI is untouched. Documented in [docs/API.md](docs/API.md).
+- **JSON API compose, calendar & contacts (`/v1`)** — additive endpoints over the
+  same engine as the HTMX surfaces: `POST /v1/messages` (send) and `POST /v1/drafts`
+  (save draft) build messages with `api.BuildMIMEMessage` and send via the existing
+  SMTP client; when `[caldav] enabled`, `GET/POST /v1/calendar/events`,
+  `DELETE /v1/calendar/events/:uid` and `GET /v1/calendar/freebusy` reuse the CalDAV
+  client and `models.Calendar*` types; when `[carddav] enabled`, `GET /v1/contacts`
+  reuses the CardDAV query path. CalDAV client construction is now shared via
+  `AuthHandler.CalDAVClient`, and `CalDAVClient` gained `DeleteEvent` + `FreeBusy`
+  helpers. Documented in [docs/API.md](docs/API.md).
 - **Optional Postgres storage backend** — a new durable key-value seam
   (`storage/` `KV` interface) with two backends: the embedded **bbolt** store
   (default — keeps lilmail a single binary with nothing to run) and an optional

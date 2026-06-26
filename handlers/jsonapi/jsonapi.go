@@ -55,6 +55,26 @@ func (h *Handler) Register(app *fiber.App) {
 	g.Get("/search", h.handleSearch)                 // ?folder=&q=&limit=
 	g.Patch("/messages/:uid/flags", h.handleSetFlag) // ?folder=  body {flag,add}
 	g.Delete("/messages/:uid", h.handleDelete)       // ?folder=
+
+	// Compose / drafts — JSON transport over the same SMTP/MIME engine as the
+	// HTMX compose path. The :uid Delete above is registered first so it is not
+	// shadowed; these add new paths.
+	g.Post("/messages", h.handleSend)    // body {to, cc?, bcc?, subject, text?, html?, inReplyTo?}
+	g.Post("/drafts", h.handleSaveDraft) // body {to, cc?, subject, text?, html?, inReplyTo?}
+
+	// Calendar — only when CalDAV is enabled. Reuses the CalDAV client +
+	// models.Calendar* types from the HTMX calendar surface.
+	if h.config.CalDAV.Enabled {
+		g.Get("/calendar/events", h.handleCalendarEvents)      // ?start=&end=
+		g.Post("/calendar/events", h.handleCreateEvent)        // body {summary,start,end,...}
+		g.Delete("/calendar/events/:uid", h.handleDeleteEvent) // by UID
+		g.Get("/calendar/freebusy", h.handleFreeBusy)          // ?start=&end=
+	}
+
+	// Contacts — only when CardDAV is enabled. Reuses the CardDAV query path.
+	if h.config.CardDAV.Enabled {
+		g.Get("/contacts", h.handleContacts) // ?q=&limit=
+	}
 }
 
 // requireAuth gates the group, returning 401 JSON (never a redirect) when the

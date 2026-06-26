@@ -53,6 +53,27 @@ Send requests with credentials included (e.g. `fetch(url, { credentials: 'includ
 | `GET`    | `/v1/search`                   | `folder`, `q`, `limit` (100) | —         | `{ folder, query, messages: Email[] }` |
 | `PATCH`  | `/v1/messages/:uid/flags`      | `folder`                | `{ flag, add }`| `204` |
 | `DELETE` | `/v1/messages/:uid`            | `folder`                | —              | `204` |
+| `POST`   | `/v1/messages`                 | —                       | `{ to, cc?, bcc?, subject, text?, html?, inReplyTo? }` | `201 { sent: true }` |
+| `POST`   | `/v1/drafts`                   | —                       | `{ to?, cc?, subject?, text?, html?, inReplyTo? }`     | `201 { saved: true }` |
+
+### Calendar (only when `[caldav] enabled`)
+
+Times are RFC 3339 strings. The `start`/`end` range defaults to the current
+month when omitted. These reuse the same CalDAV client + `models.Calendar*`
+types as the HTMX calendar UI.
+
+| Method | Path | Query | Body | Returns |
+|--------|------|-------|------|---------|
+| `GET`    | `/v1/calendar/events`          | `start`, `end` | —          | `{ events: CalendarEvent[] }` |
+| `POST`   | `/v1/calendar/events`          | —              | `{ summary, start, end, description?, location?, allDay? }` | `201 { created: true }` |
+| `DELETE` | `/v1/calendar/events/:uid`     | —              | —          | `204` |
+| `GET`    | `/v1/calendar/freebusy`        | `start`, `end` | —          | `{ busy: { start, end }[] }` |
+
+### Contacts (only when `[carddav] enabled`)
+
+| Method | Path | Query | Body | Returns |
+|--------|------|-------|------|---------|
+| `GET`    | `/v1/contacts`                 | `q`, `limit` (50) | —       | `{ contacts: { email, name }[] }` |
 
 ### Examples
 
@@ -75,6 +96,22 @@ curl -b cookies.txt -X PATCH 'http://localhost:3000/v1/messages/42/flags?folder=
 
 # Delete
 curl -b cookies.txt -X DELETE 'http://localhost:3000/v1/messages/42?folder=INBOX'
+
+# Send a message
+curl -b cookies.txt -X POST http://localhost:3000/v1/messages \
+  -H 'Content-Type: application/json' \
+  -d '{"to":"alice@example.com","subject":"Hi","text":"Hello from /v1"}'
+
+# Save a draft
+curl -b cookies.txt -X POST http://localhost:3000/v1/drafts \
+  -H 'Content-Type: application/json' \
+  -d '{"to":"alice@example.com","subject":"WIP","text":"unfinished…"}'
+
+# List calendar events for a range (CalDAV must be enabled)
+curl -b cookies.txt 'http://localhost:3000/v1/calendar/events?start=2026-06-01T00:00:00Z&end=2026-07-01T00:00:00Z'
+
+# Search contacts (CardDAV must be enabled)
+curl -b cookies.txt 'http://localhost:3000/v1/contacts?q=alice'
 ```
 
 ### `Email` shape (abridged)
@@ -106,6 +143,7 @@ clients without a live mailbox.
 
 ## Not yet exposed
 
-Compose/send, draft save, and attachment download are currently HTMX-only; they
-involve MIME assembly and are the next endpoints planned for `/v1`. Track this in
-[ROADMAP.md](../ROADMAP.md).
+Attachment upload/download over `/v1` is still HTMX-only (compose accepts text +
+HTML bodies via JSON; multipart attachment handling remains on the web routes).
+Calendar event editing (`PUT`) and recurring-event expansion are not yet exposed.
+Track these in [ROADMAP.md](../ROADMAP.md).

@@ -1,0 +1,150 @@
+// handlers/jsonapi/calendar.go — JSON calendar endpoints over CalDAV.
+//
+// These reuse the same CalDAV client (api.CalDAVClient) and models.Calendar*
+// types as the HTMX calendar UI (handlers/web/calendar.go); only the transport
+// is JSON. They are registered only when [caldav] enabled = true.
+//
+// Times travel as RFC 3339 strings (e.g. 2026-06-26T10:00:00Z). The start/end
+// range defaults to the current month when omitted.
+package jsonapi
+
+import (
+	"context"
+	"time"
+
+	"lilmail/models"
+
+	"github.com/gofiber/fiber/v2"
+)
+
+// parseRange parses ?start= and ?end= as RFC 3339, defaulting to the current
+// calendar month when either is absent or unparseable.
+func parseRange(c *fiber.Ctx) (time.Time, time.Time) {
+	now := time.Now()
+	defStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.Local)
+	defEnd := defStart.AddDate(0, 1, 0)
+
+	start := defStart
+	if s := c.Query("start"); s != "" {
+		if t, err := time.Parse(time.RFC3339, s); err == nil {
+			start = t
+		}
+	}
+	end := defEnd
+	if e := c.Query("end"); e != "" {
+		if t, err := time.Parse(time.RFC3339, e); err == nil {
+			end = t
+		}
+	}
+	return start, end
+}
+
+// handleCalendarEvents lists events in a time range.
+// GET /v1/calendar/events?start=&end= → { events: CalendarEvent[] }
+func (h *Handler) handleCalendarEvents(c *fiber.Ctx) error {
+	start, end := parseRange(c)
+
+	cl, err := h.auth.CalDAVClient(c)
+	if err != nil {
+		return fail(c, fiber.StatusBadGateway, "calendar not available")
+	}
+
+	events, err := cl.ListEvents(context.Background(), start, end)
+	if err != nil {
+		return fail(c, fiber.StatusBadGateway, "could not list events")
+	}
+	if events == nil {
+		events = []models.CalendarEvent{}
+	}
+	return c.JSON(fiber.Map{"events": events})
+}
+
+// eventBody is the JSON payload for creating an event. Times are RFC 3339.
+type eventBody struct {
+	UID         string `json:"uid"`
+	Summary     string `json:"summary"`
+	Description string `json:"description"`
+	Location    string `json:"location"`
+	Start       string `json:"start"`
+	End         string `json:"end"`
+	AllDay      bool   `json:"allDay"`
+}
+
+// handleCreateEvent creates a calendar event.
+// POST /v1/calendar/events  body {summary, start, end, description?, location?, allDay?}
+func (h *Handler) handleCreateEvent(c *fiber.Ctx) error {
+	var body eventBody
+	if err := c.BodyParser(&body); err != nil {
+		return fail(c, fiber.StatusBadRequest, "invalid JSON body")
+	}
+	if body.Summary == "" {
+		return fail(c, fiber.StatusBadRequest, "summary is required")
+	}
+
+	start, err := time.Parse(time.RFC3339, body.Start)
+	if err != nil {
+		return fail(c, fiber.StatusBadRequest, "start must be an RFC 3339 timestamp")
+	}
+	end, err := time.Parse(time.RFC3339, body.End)
+	if err != nil || !end.After(start) {
+		end = start.Add(time.Hour)
+	}
+
+	cl, err := h.auth.CalDAVClient(c)
+	if err != nil {
+		return fail(c, fiber.StatusBadGateway, "calendar not available")
+	}
+
+	ev := models.CalendarEvent{
+		UID:         body.UID,
+		Summary:     body.Summary,
+		Description: body.Description,
+		Location:    body.Location,
+		Start:       start,
+		End:         end,
+		AllDay:      body.AllDay,
+	}
+	if err := cl.CreateEvent(context.Background(), ev); err != nil {
+		return fail(c, fiber.StatusBadGateway, "could not create event")
+	}
+	return c.Status(fiber.StatusCreated).JSON(fiber.Map{"created": true})
+}
+
+// handleDeleteEvent removes a calendar event by UID.
+// DELETE /v1/calendar/events/:uid → 204
+func (h *Handler) handleDeleteEvent(c *fiber.Ctx) error {
+	uid := c.Params("uid")
+	if uid == "" {
+		return fail(c, fiber.StatusBadRequest, "event uid required")
+	}
+
+	cl, err := h.auth.CalDAVClient(c)
+	if err != nil {
+		return fail(c, fiber.StatusBadGateway, "calendar not available")
+	}
+
+	if err := cl.DeleteEvent(context.Background(), uid); err != nil {
+		return fail(c, fiber.StatusNotFound, "event not found")
+	}
+	return c.SendStatus(fiber.StatusNoContent)
+}
+
+// handleFreeBusy returns busy intervals in a time range.
+// GET /v1/calendar/freebusy?start=&end= → { busy: FreeBusySlot[] }
+func (h *Handler) handleFreeBusy(c *fiber.Ctx) error {
+	start, end := parseRange(c)
+
+	cl, err := h.auth.CalDAVClient(c)
+	if err != nil {
+		return fail(c, fiber.StatusBadGateway, "calendar not available")
+	}
+
+	slots, err := cl.FreeBusy(context.Background(), start, end)
+	if err != nil {
+		return fail(c, fiber.StatusBadGateway, "could not compute free/busy")
+	}
+	if slots == nil {
+		slots = []models.FreeBusySlot{}
+	}
+	return c.JSON(fiber.Map{"busy": slots})
+}

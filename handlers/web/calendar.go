@@ -33,24 +33,10 @@ func NewCalendarHandler(store *session.Store, cfg *config.Config, auth *AuthHand
 }
 
 // caldavClient returns a CalDAVClient authenticated for the current session.
-// For OAuth2 sessions the bearer token is retrieved and refreshed transparently.
-// For basic-auth sessions the config credentials are used.
+// It delegates to AuthHandler.CalDAVClient so the HTMX calendar routes and the
+// JSON API (/v1/calendar) share one CalDAV client-construction path.
 func (h *CalendarHandler) caldavClient(c *fiber.Ctx) (*api.CalDAVClient, error) {
-	sess, err := h.store.Get(c)
-	if err != nil {
-		return nil, fmt.Errorf("calendar: failed to get session: %w", err)
-	}
-
-	bearerToken := ""
-	if authType, _ := sess.Get("auth_type").(string); authType == "oauth2" {
-		_, token, err := h.auth.validOAuthToken(c)
-		if err != nil {
-			return nil, fmt.Errorf("calendar: failed to get OAuth token: %w", err)
-		}
-		bearerToken = token
-	}
-
-	return api.NewCalDAVClient(h.config.CalDAV, bearerToken)
+	return h.auth.CalDAVClient(c)
 }
 
 // monthBounds returns the first moment of a given month and the first moment
@@ -274,8 +260,8 @@ func (h *CalendarHandler) HandleCreateEvent(c *fiber.Ctx) error {
 // minimal METHOD:REPLY iCalendar body and delivers it via the session's SMTP
 // client, giving real RSVP semantics (RFC 5546).
 func (h *CalendarHandler) HandleRSVP(c *fiber.Ctx) error {
-	status := c.FormValue("status")    // "accepted", "declined", "tentative"
-	uid := c.FormValue("uid")          // iCalendar UID of the event
+	status := c.FormValue("status")       // "accepted", "declined", "tentative"
+	uid := c.FormValue("uid")             // iCalendar UID of the event
 	organizer := c.FormValue("organizer") // MAILTO: of the organiser
 
 	if uid == "" {

@@ -16,6 +16,7 @@ import (
 	"lilmail/models"
 	"net/http"
 	"path"
+	"sort"
 	"time"
 
 	"github.com/emersion/go-ical"
@@ -275,4 +276,98 @@ func (cc *CalDAVClient) CreateEvent(ctx context.Context, ev models.CalendarEvent
 		return fmt.Errorf("caldav: put calendar object: %w", err)
 	}
 	return nil
+}
+
+// DeleteEvent removes the calendar object identified by uid. CalDAV objects are
+// addressed by an opaque server path, so we first locate the event in a wide
+// time window to discover its path, then DELETE it via the underlying WebDAV
+// client. Returns an error wrapping "not found" when no matching event exists.
+func (cc *CalDAVClient) DeleteEvent(ctx context.Context, uid string) error {
+	if uid == "" {
+		return fmt.Errorf("caldav: empty event UID")
+	}
+
+	// Search a wide window (±5 years) to find the object path for this UID.
+	now := time.Now()
+	start := now.AddDate(-5, 0, 0)
+	end := now.AddDate(5, 0, 0)
+
+	events, err := cc.ListEvents(ctx, start, end)
+	if err != nil {
+		return err
+	}
+
+	objPath := ""
+	for _, ev := range events {
+		if ev.UID == uid {
+			objPath = ev.Path
+			break
+		}
+	}
+	if objPath == "" {
+		return fmt.Errorf("caldav: event %q not found", uid)
+	}
+
+	// caldav.Client embeds *webdav.Client, which exposes RemoveAll (HTTP DELETE).
+	if err := cc.c.RemoveAll(ctx, objPath); err != nil {
+		return fmt.Errorf("caldav: delete calendar object: %w", err)
+	}
+	return nil
+}
+
+// FreeBusy returns the busy intervals between start and end, derived from the
+// user's calendar events. go-webdav v0.7.0 has no free-busy REPORT helper, so
+// we compute busy blocks from the event list and merge overlapping intervals.
+// All-day events are skipped (they do not block specific times).
+func (cc *CalDAVClient) FreeBusy(ctx context.Context, start, end time.Time) ([]models.FreeBusySlot, error) {
+	events, err := cc.ListEvents(ctx, start, end)
+	if err != nil {
+		return nil, err
+	}
+
+	// Collect timed busy intervals, clamped to the requested range.
+	slots := make([]models.FreeBusySlot, 0, len(events))
+	for _, ev := range events {
+		if ev.AllDay {
+			continue
+		}
+		s, e := ev.Start, ev.End
+		if !e.After(s) {
+			continue
+		}
+		if s.Before(start) {
+			s = start
+		}
+		if e.After(end) {
+			e = end
+		}
+		if e.After(s) {
+			slots = append(slots, models.FreeBusySlot{Start: s, End: e})
+		}
+	}
+
+	return mergeBusySlots(slots), nil
+}
+
+// mergeBusySlots sorts slots by start time and merges any that overlap or touch,
+// producing a minimal set of non-overlapping busy intervals.
+func mergeBusySlots(slots []models.FreeBusySlot) []models.FreeBusySlot {
+	if len(slots) <= 1 {
+		return slots
+	}
+	sort.Slice(slots, func(i, j int) bool {
+		return slots[i].Start.Before(slots[j].Start)
+	})
+	merged := []models.FreeBusySlot{slots[0]}
+	for _, s := range slots[1:] {
+		last := &merged[len(merged)-1]
+		if !s.Start.After(last.End) { // overlaps or touches
+			if s.End.After(last.End) {
+				last.End = s.End
+			}
+			continue
+		}
+		merged = append(merged, s)
+	}
+	return merged
 }

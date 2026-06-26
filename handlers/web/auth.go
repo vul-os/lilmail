@@ -378,6 +378,29 @@ func (h *AuthHandler) CreateSMTPClientForAccount(entry AccountEntry) (*api.SMTPC
 	return client, nil
 }
 
+// CalDAVClient returns a CalDAVClient authenticated for the current session.
+// For OAuth2 sessions the bearer token is retrieved (and refreshed) transparently;
+// for basic-auth sessions the [caldav] config credentials are used. This is the
+// single CalDAV client-construction path shared by the HTMX calendar routes and
+// the JSON API (/v1/calendar).
+func (h *AuthHandler) CalDAVClient(c *fiber.Ctx) (*api.CalDAVClient, error) {
+	sess, err := h.store.Get(c)
+	if err != nil {
+		return nil, fmt.Errorf("calendar: failed to get session: %w", err)
+	}
+
+	bearerToken := ""
+	if authType, _ := sess.Get("auth_type").(string); authType == "oauth2" {
+		_, token, err := h.validOAuthToken(c)
+		if err != nil {
+			return nil, fmt.Errorf("calendar: failed to get OAuth token: %w", err)
+		}
+		bearerToken = token
+	}
+
+	return api.NewCalDAVClient(h.config.CalDAV, bearerToken)
+}
+
 // GetSessionEmail returns the authenticated user's email address from the
 // session, or an empty string if the session is unavailable.
 func (h *AuthHandler) GetSessionEmail(c *fiber.Ctx) string {
