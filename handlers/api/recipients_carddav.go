@@ -7,7 +7,6 @@ package api
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
@@ -27,7 +26,7 @@ func fetchCardDAVContacts(serverURL, username, password, query string, limit int
 	if err := validateDAVURL(serverURL); err != nil {
 		return nil, err
 	}
-	hc := webdav.HTTPClientWithBasicAuth(http.DefaultClient, username, password)
+	hc := webdav.HTTPClientWithBasicAuth(safeDAVHTTPClient(), username, password)
 	return queryCardDAVContacts(hc, serverURL, query, limit)
 }
 
@@ -44,7 +43,7 @@ func fetchCardDAVContactsBearer(serverURL, token, query string, limit int) ([]Re
 	if err := validateDAVURL(serverURL); err != nil {
 		return nil, err
 	}
-	hc := &bearerHTTPClient{inner: http.DefaultClient, token: token}
+	hc := &bearerHTTPClient{inner: safeDAVHTTPClient(), token: token}
 	return queryCardDAVContacts(hc, serverURL, query, limit)
 }
 

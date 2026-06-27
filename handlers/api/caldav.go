@@ -41,7 +41,9 @@ func (b *bearerHTTPClient) Do(req *http.Request) (*http.Response, error) {
 //   - auth = "basic"  → uses go-webdav's BasicAuth helper.
 //   - auth = "oauth2" → injects a bearer token (the caller must supply it).
 func newHTTPClient(cfg config.CalDAVConfig, bearerToken string) webdav.HTTPClient {
-	base := webdav.HTTPClient(http.DefaultClient)
+	// Use the SSRF-hardened client (redirect re-validation + per-dial IP screening
+	// / rebind pinning) rather than http.DefaultClient. See dav_url.go.
+	base := webdav.HTTPClient(safeDAVHTTPClient())
 	if cfg.Auth == "oauth2" {
 		if bearerToken != "" {
 			return &bearerHTTPClient{inner: base, token: bearerToken}
