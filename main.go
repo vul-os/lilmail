@@ -272,6 +272,14 @@ func main() {
 		app.Get("/auth/oauth/callback", webAuthHandler.HandleOAuthCallback)
 	}
 
+	// Health check endpoint — MUST be registered BEFORE the protected group.
+	// The protected group uses an empty prefix (app.Group("", SessionMiddleware)),
+	// so its middleware attaches to every route registered AFTER it. Registering
+	// /health here keeps it public (no 302 to /login) for liveness probes.
+	app.Get("/health", func(c *fiber.Ctx) error {
+		return c.SendString("OK")
+	})
+
 	// Protected routes group
 	protected := app.Group("", api.SessionMiddleware(store))
 
@@ -396,11 +404,6 @@ func main() {
 		protected.Post("/calendar/event", webCalendarHandler.HandleCreateEvent)
 		protected.Post("/calendar/rsvp", webCalendarHandler.HandleRSVP)
 	}
-
-	// Health check endpoint
-	app.Get("/health", func(c *fiber.Ctx) error {
-		return c.SendString("OK")
-	})
 
 	// 404 Handler for undefined routes
 	app.Use(func(c *fiber.Ctx) error {

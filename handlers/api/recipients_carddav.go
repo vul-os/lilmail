@@ -23,6 +23,10 @@ func fetchCardDAVContacts(serverURL, username, password, query string, limit int
 	if serverURL == "" {
 		return nil, nil
 	}
+	// SSRF guard: validate the URL before dialing (see dav_url.go).
+	if err := validateDAVURL(serverURL); err != nil {
+		return nil, err
+	}
 	hc := webdav.HTTPClientWithBasicAuth(http.DefaultClient, username, password)
 	return queryCardDAVContacts(hc, serverURL, query, limit)
 }
@@ -34,6 +38,11 @@ func fetchCardDAVContacts(serverURL, username, password, query string, limit int
 func fetchCardDAVContactsBearer(serverURL, token, query string, limit int) ([]RecipientEntry, error) {
 	if serverURL == "" || token == "" {
 		return nil, nil
+	}
+	// SSRF / token-exfil guard: validate the (header-injected) URL BEFORE the
+	// bearer token is attached to any request (see dav_url.go).
+	if err := validateDAVURL(serverURL); err != nil {
+		return nil, err
 	}
 	hc := &bearerHTTPClient{inner: http.DefaultClient, token: token}
 	return queryCardDAVContacts(hc, serverURL, query, limit)

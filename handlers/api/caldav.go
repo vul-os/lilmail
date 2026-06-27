@@ -68,6 +68,11 @@ func NewCalDAVClient(cfg config.CalDAVConfig, bearerToken string) (*CalDAVClient
 	if cfg.URL == "" {
 		return nil, fmt.Errorf("caldav: URL is required")
 	}
+	// SSRF / token-exfil guard: validate the (possibly header-injected) URL before
+	// building the client or attaching any bearer token. See dav_url.go.
+	if err := validateDAVURL(cfg.URL); err != nil {
+		return nil, err
+	}
 	hc := newHTTPClient(cfg, bearerToken)
 	c, err := caldav.NewClient(hc, cfg.URL)
 	if err != nil {

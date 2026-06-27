@@ -80,6 +80,39 @@ func TestAllowFullEmailUsername_AuthSectionWins(t *testing.T) {
 	}
 }
 
+// TestLoadConfig_EncryptionKeyValidation asserts LoadConfig fails fast on a
+// wrong-length [encryption] key, accepts valid AES lengths, and tolerates an
+// empty key (warning only) so the minimal standalone config still loads.
+func TestLoadConfig_EncryptionKeyValidation(t *testing.T) {
+	cases := []struct {
+		name    string
+		key     string
+		wantErr bool
+	}{
+		{"empty key warns not fatal", "", false},
+		{"16-byte ok", "0123456789abcdef", false},
+		{"24-byte ok", "0123456789abcdef01234567", false},
+		{"32-byte ok", "0123456789abcdef0123456789abcdef", false},
+		{"wrong length fatal", "too-short", true},
+		{"31-byte fatal", "0123456789abcdef0123456789abcde", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := minimalIMAP
+			if tc.key != "" {
+				body += "\n[encryption]\nkey = \"" + tc.key + "\"\n"
+			}
+			_, err := LoadConfig(writeTempConfig(t, body))
+			if tc.wantErr && err == nil {
+				t.Fatalf("LoadConfig with key %q = nil; want error", tc.key)
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("LoadConfig with key %q = %v; want nil", tc.key, err)
+			}
+		})
+	}
+}
+
 // makeConfig builds a Config struct directly (no TOML file) so tests are
 // fast and hermetic.
 func makeConfig(frameAncestors string, sslEnabled bool, sslDomain string) *Config {

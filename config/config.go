@@ -3,6 +3,7 @@ package config
 import (
 	"crypto/tls"
 	"fmt"
+	"log"
 
 	"github.com/BurntSushi/toml"
 )
@@ -315,6 +316,25 @@ func LoadConfig(filepath string) (*Config, error) {
 		if err := config.ValidateSSL(); err != nil {
 			return nil, fmt.Errorf("SSL configuration error: %w", err)
 		}
+	}
+
+	// Fail fast on a misconfigured encryption key rather than surfacing an opaque
+	// AES error (and a 500) on the first login. AES accepts only 16/24/32-byte
+	// keys (AES-128/192/256). A wrong-length non-empty key is always a mistake; an
+	// empty key disables credential encryption (login will fail), so warn loudly.
+	switch n := len(config.Encryption.Key); n {
+	case 0:
+		log.Println("warning: [encryption] key is empty; credential encryption is unavailable and login will fail — set a 16, 24, or 32-byte key")
+	case 16, 24, 32:
+		// valid AES-128/192/256 key length
+	default:
+		return nil, fmt.Errorf("[encryption] key must be 16, 24, or 32 bytes for AES-128/192/256, got %d", n)
+	}
+
+	// JWT secret is used to sign session/API tokens; an empty secret means tokens
+	// are not securely signed. Warn rather than fail so standalone dev still runs.
+	if config.JWT.Secret == "" {
+		log.Println("warning: [jwt] secret is empty; tokens will not be securely signed — set a strong random secret for any non-dev deployment")
 	}
 
 	return &config, nil

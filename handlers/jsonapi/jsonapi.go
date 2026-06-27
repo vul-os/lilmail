@@ -60,12 +60,15 @@ func (h *Handler) Register(app *fiber.App) {
 
 	g.Get("/me", h.handleMe)
 	g.Get("/folders", h.handleFolders)
-	g.Get("/messages", h.handleMessages)             // ?folder=&limit=
-	g.Get("/messages/:uid", h.handleMessage)         // ?folder=
-	g.Get("/search", h.handleSearch)                 // ?folder=&q=&limit=
-	g.Patch("/messages/:uid/flags", h.handleSetFlag) // ?folder=  body {flag,add}
-	g.Delete("/messages/:uid", h.handleDelete)       // ?folder=&hard=
-	g.Post("/messages/:uid/move", h.handleMove)      // ?folder=  body {toFolder, folder?}
+	g.Get("/messages", h.handleMessages)     // ?folder=&limit=
+	g.Get("/messages/:uid", h.handleMessage) // ?folder=
+	// Attachment download — streams a single MIME part. Works in both session and
+	// CP-brokered modes; engages the object-storage attachment cache when present.
+	g.Get("/messages/:uid/attachments/:partId", h.handleAttachment) // ?folder=
+	g.Get("/search", h.handleSearch)                                // ?folder=&q=&limit=
+	g.Patch("/messages/:uid/flags", h.handleSetFlag)                // ?folder=  body {flag,add}
+	g.Delete("/messages/:uid", h.handleDelete)                      // ?folder=&hard=
+	g.Post("/messages/:uid/move", h.handleMove)                     // ?folder=  body {toFolder, folder?}
 
 	// Compose / drafts — JSON transport over the same SMTP/MIME engine as the
 	// HTMX compose path. The :uid Delete above is registered first so it is not

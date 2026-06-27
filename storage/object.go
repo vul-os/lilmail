@@ -330,6 +330,15 @@ func endpointAllowed(u *url.URL) bool {
 	}
 }
 
+// EndpointAllowed is the exported form of endpointAllowed so other Vulos seams
+// that dial header-injected URLs (e.g. the CP-brokered CalDAV/CardDAV clients in
+// handlers/api) can enforce the SAME transport-safety rule without duplicating
+// the logic: require https unless the host is loopback/private.
+func EndpointAllowed(u *url.URL) bool { return endpointAllowed(u) }
+
+// HostIsLocalOrPrivate is the exported form of hostIsLocalOrPrivate.
+func HostIsLocalOrPrivate(host string) bool { return hostIsLocalOrPrivate(host) }
+
 // hostIsLocalOrPrivate reports whether host is a loopback/private-network or
 // otherwise non-public name. IP literals are classified by range; "localhost",
 // single-label names (e.g. a docker-compose service like "minio"), and the
