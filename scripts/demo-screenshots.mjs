@@ -131,30 +131,47 @@ async function main() {
     });
     await msgPage.waitForTimeout(300);
 
-    // Click a single-message email row to open the viewer (not a thread which
-    // would just expand). Pick the second visible row (GitHub, single message).
+    // Open a single-message row to show the reading pane. Prefer a rich HTML
+    // message with attachments (Bob Osei — "Moodboard") to showcase the
+    // content rendering; fall back to any non-thread row. Threads (rows with a
+    // count chevron) only expand on click, so we skip those.
     const allRows = await msgPage.$$('.email-row');
-    const targetRow = allRows.length > 1 ? allRows[1] : allRows[0];
+    let targetRow = null;
+    for (const row of allRows) {
+      const isThread = await row.evaluate(el => !!el.querySelector('.email-row__chevron'));
+      const subject = await row.evaluate(el => (el.querySelector('.email-row__subject')?.textContent || ''));
+      if (!isThread && /moodboard/i.test(subject)) { targetRow = row; break; }
+    }
+    if (!targetRow) {
+      for (const row of allRows) {
+        const isThread = await row.evaluate(el => !!el.querySelector('.email-row__chevron'));
+        if (!isThread) { targetRow = row; break; }
+      }
+    }
     if (targetRow) {
       await targetRow.click();
-      // Wait for the viewer pane to load — the HTMX response populates
-      // #email-viewer-pane; wait until it has child content.
+      // Wait for the viewer to load — the HTMX response replaces the
+      // placeholder. We must explicitly exclude .viewer-placeholder, whose own
+      // text is long enough to satisfy a naive length check.
       try {
         await msgPage.waitForFunction(
           () => {
             const pane = document.querySelector('#email-viewer-pane');
-            return pane && pane.children.length > 0 && pane.textContent.trim().length > 10;
+            return pane && pane.querySelector('.email-view')
+              && !pane.querySelector('.viewer-placeholder');
           },
           { timeout: 5000 }
         );
       } catch (_) {
         await msgPage.waitForTimeout(1500);
       }
+      // Give the iframe a moment to auto-size to its content.
+      await msgPage.waitForTimeout(900);
       const msgPath = resolve(OUT_DIR, 'message.png');
       await msgPage.screenshot({ path: msgPath, fullPage: false });
       console.log('  [ok] message.png — Message viewer — seeded email open');
     } else {
-      console.warn('  [skip] message — no .email-row found; inbox may still be loading');
+      console.warn('  [skip] message — no single-message .email-row found');
     }
     await msgPage.close();
 

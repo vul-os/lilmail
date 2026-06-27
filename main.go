@@ -4,6 +4,7 @@ import (
 	"embed"
 	"flag"
 	"fmt"
+	"html/template"
 	"io/fs"
 	"lilmail/config"
 	"lilmail/handlers/ai"
@@ -14,6 +15,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 	"unicode"
@@ -46,6 +48,45 @@ func titleCase(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// linkifyRe matches, in a single left-to-right pass, bare http(s) URLs, www.
+// hosts, and email addresses in plain text. A single combined pass means each
+// character is consumed once, so a URL containing "@" is never re-matched as an
+// email.
+var linkifyRe = regexp.MustCompile(
+	`(https?://[^\s<>"]+)` + // 1: absolute URL
+		`|(\bwww\.[^\s<>"]+)` + // 2: www. host
+		`|(\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b)`) // 3: email
+
+// linkifyText HTML-escapes a plain-text email body and converts bare URLs and
+// email addresses into safe anchors. The result is marked template.HTML so the
+// anchors render; everything else has already been escaped, so this does not
+// introduce an injection vector. Trailing sentence punctuation on URLs is kept
+// out of the link target so "see https://x.com." behaves sensibly. Newlines are
+// preserved by the white-space: pre-wrap CSS on the container.
+func linkifyText(s string) template.HTML {
+	esc := template.HTMLEscapeString(s)
+
+	out := linkifyRe.ReplaceAllStringFunc(esc, func(m string) string {
+		if strings.Contains(m, "@") && !strings.Contains(m, "/") {
+			// Bare email address.
+			return `<a href="mailto:` + m + `" class="text-link">` + m + `</a>`
+		}
+		// URL — pull trailing sentence punctuation back out of the link.
+		trail := ""
+		for len(m) > 0 && strings.ContainsRune(".,;:!?)", rune(m[len(m)-1])) {
+			trail = string(m[len(m)-1]) + trail
+			m = m[:len(m)-1]
+		}
+		href := m
+		if strings.HasPrefix(strings.ToLower(m), "www.") {
+			href = "http://" + m
+		}
+		return `<a href="` + href + `" class="text-link" target="_blank" rel="noopener noreferrer">` + m + `</a>` + trail
+	})
+
+	return template.HTML(out)
 }
 
 //go:embed all:templates
@@ -117,6 +158,11 @@ func main() {
 	engine.AddFunc("trim", strings.TrimSpace)
 	engine.AddFunc("hasPrefix", strings.HasPrefix)
 	engine.AddFunc("urlEncode", url.QueryEscape)
+
+	// linkify HTML-escapes a plain-text body and turns bare URLs and email
+	// addresses into clickable links. Newlines are preserved by the
+	// white-space: pre-wrap CSS on the container, so we only inject anchors.
+	engine.AddFunc("linkify", linkifyText)
 
 	// Date formatting function
 	engine.AddFunc("formatDate", func(t time.Time) string {

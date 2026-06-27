@@ -50,6 +50,8 @@
              data-inreplyto="{{.Email.InReplyTo}}"
              data-references="{{join .Email.References " "}}"
              data-emailid="{{.Email.ID}}"
+             data-to="{{.Email.To}}"
+             data-attachments="{{range $i, $a := .Email.Attachments}}{{if $i}}, {{end}}{{$a.Filename}}{{end}}"
              x-data="{
                  quoted() {
                      const d = $root.dataset;
@@ -122,8 +124,23 @@
                                  quoted(), mid, newRefs.trim(), '', '');
                             $nextTick(() => {
                                 const cc = document.getElementById('compose-cc');
-                                const extra = [{{printf "%q" .Email.To}}{{with .Email.Cc}}, {{printf "%q" .}}{{end}}].filter(Boolean).join(', ');
-                                if (cc && extra) cc.value = extra;
+                                const self = {{printf "%q" .Self}}.toLowerCase();
+                                const sender = (d.from || '').toLowerCase();
+                                const seen = {};
+                                const extra = [{{printf "%q" .Email.To}}{{with .Email.Cc}}, {{printf "%q" .}}{{end}}]
+                                    .join(',').split(',').map(s => s.trim()).filter(Boolean)
+                                    .filter(a => {
+                                        const m = ((a.match(/<([^>]+)>/) || [])[1] || a).toLowerCase().trim();
+                                        if (!m || m === self || m === sender || seen[m]) return false;
+                                        seen[m] = true;
+                                        return true;
+                                    });
+                                if (cc) {
+                                    cc.value = extra.join(', ');
+                                    // Reveal the CC/BCC section so the user sees the recipients.
+                                    const wrap = cc.closest('[x-data]');
+                                    if (extra.length && wrap && Alpine.$data(wrap)) Alpine.$data(wrap).showCcBcc = true;
+                                }
                             })">
                 <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10H5a8 8 0 00-3 6m6-6L4 6m4 4L4 14m11-4h2a8 8 0 018 8v0M15 10l-4-4m4 4l-4 4"/>
@@ -134,9 +151,10 @@
             <!-- Forward (wired) -->
             <button class="rt-btn" data-action="forward" title="Forward"
                     @click="const d = $root.dataset;
+                            const att = d.attachments ? '\nAttachments: ' + d.attachments : '';
                             fill('',
                                  /^fwd:/i.test(d.subject) ? d.subject : 'Fwd: ' + d.subject,
-                                 '\n\n---------- Forwarded message ----------\nFrom: ' + d.fromname + '\nDate: ' + d.date + '\nSubject: ' + d.subject + '\n\n' + (d.body || ''),
+                                 '\n\n---------- Forwarded message ----------\nFrom: ' + d.fromname + '\nDate: ' + d.date + '\nSubject: ' + d.subject + '\nTo: ' + (d.to || '') + att + '\n\n' + (d.body || ''),
                                  '', '', '', '')">
                 <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"/>
@@ -293,18 +311,83 @@
     {{end}}
 
     <!-- ===== BODY ===== -->
-    <div class="email-body">
-        {{if .Email.HTML}}
+    {{if .Email.HTML}}
+    <!--
+      HTML mail renders in a sandboxed iframe. The sandbox grants
+      allow-same-origin (so the parent can read contentDocument.body.scrollHeight
+      and auto-size the frame to its natural content height) but deliberately
+      NOT allow-scripts — with scripts disabled the email cannot run JS, so
+      same-origin access is safe. Remote images are blocked server-side and
+      restored on demand via the "Display images" banner.
+    -->
+    <div class="email-body"
+         x-data="{
+            blocked: {{if .HasRemote}}true{{else}}false{{end}},
+            imagesLoaded: false,
+            size() {
+                const f = $refs.frame;
+                if (!f) return;
+                try {
+                    const doc = f.contentDocument;
+                    if (!doc || !doc.body) return;
+                    const h = Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight);
+                    if (h > 0) f.style.height = (h + 8) + 'px';
+                } catch (e) {}
+            },
+            onLoad() {
+                this.size();
+                try {
+                    const doc = $refs.frame.contentDocument;
+                    if (!doc) return;
+                    doc.querySelectorAll('img').forEach(img => img.addEventListener('load', () => this.size()));
+                    if (window.ResizeObserver) new ResizeObserver(() => this.size()).observe(doc.body);
+                } catch (e) {}
+                [120, 400, 1000].forEach(t => setTimeout(() => this.size(), t));
+            },
+            loadImages() {
+                this.imagesLoaded = true;
+                try {
+                    const doc = $refs.frame.contentDocument;
+                    if (doc) {
+                        doc.querySelectorAll('img[data-blocked-src]').forEach(img => {
+                            img.src = img.getAttribute('data-blocked-src');
+                            img.removeAttribute('data-blocked-src');
+                            img.addEventListener('load', () => this.size());
+                        });
+                        doc.querySelectorAll('[data-blocked-srcset]').forEach(el => {
+                            el.setAttribute('srcset', el.getAttribute('data-blocked-srcset'));
+                            el.removeAttribute('data-blocked-srcset');
+                        });
+                    }
+                } catch (e) {}
+                this.size();
+            }
+         }"
+         @resize.window="size()">
+
+        <!-- Remote-image privacy banner -->
+        <div class="remote-img-banner" x-show="blocked && !imagesLoaded" x-cloak>
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+            </svg>
+            <span class="remote-img-banner__text">Images in this message are blocked to protect your privacy.</span>
+            <button type="button" class="remote-img-banner__btn" @click="loadImages()">Display images</button>
+        </div>
+
         <iframe
-            class="email-body"
-            sandbox="allow-popups allow-popups-to-escape-sandbox"
-            srcdoc="{{.Email.HTML}}"
+            x-ref="frame"
+            class="email-iframe"
+            sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+            srcdoc="{{.EmailHTML}}"
             title="Email content"
             referrerpolicy="no-referrer"
-            loading="lazy"
+            @load="onLoad()"
         ></iframe>
-        {{else}}
-        <div class="email-body--text email-content">{{.Email.Body}}</div>
-        {{end}}
     </div>
+    {{else}}
+    <div class="email-body">
+        <div class="email-body--text email-content">{{linkify .Email.Body}}</div>
+    </div>
+    {{end}}
 </div>

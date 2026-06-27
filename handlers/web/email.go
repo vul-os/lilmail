@@ -317,9 +317,29 @@ func (h *EmailHandler) HandleEmailView(c *fiber.Ctx) error {
 		email.AccountEmail = accountEmail
 	}
 
+	// "self" is the address that should be excluded from Reply-All recipients.
+	sessionEmail, _ := c.Locals("email").(string)
+	self := sessionEmail
+	if accountEmail != "" {
+		self = accountEmail
+	}
+
+	// Prepare the HTML body for the sandboxed reading-pane iframe: inject a
+	// readable baseline stylesheet, a <base target="_blank">, and block remote
+	// images/backgrounds until the user opts in (privacy). hasRemote drives the
+	// "Display images" banner.
+	var preparedHTML string
+	var hasRemote bool
+	if email.HTML != "" {
+		preparedHTML, hasRemote = prepareEmailHTML(email.HTML)
+	}
+
 	// Important: Set empty layout and only render the partial
 	return c.Render("partials/email-viewer", fiber.Map{
 		"Email":         email,
+		"EmailHTML":     preparedHTML,
+		"HasRemote":     hasRemote,
+		"Self":          self,
 		"CurrentFolder": folderName,
 		"IsDrafts":      isDrafts,
 		"Layout":        "", // This is crucial to prevent full HTML rendering

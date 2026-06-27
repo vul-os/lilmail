@@ -190,6 +190,7 @@ func NewDemoClient() *DemoClient {
 			Subject:   "This week in open source: Go 1.24, the SFU debate, and HTMX hits 30k stars",
 			Preview:   "Go 1.24 ships with range-over functions and improved PGO. The HTMX project crosses 30k GitHub stars. Plus: why SSE is back in fashion.",
 			Body:      "Go 1.24 ships with range-over functions and improved PGO.\n\nThe HTMX project crosses 30k GitHub stars.\n\nPlus: why SSE is back in fashion for real-time web apps, a deep-dive on SFU vs mesh WebRTC, and the best new crates for Rust CLI tooling.",
+			HTML:      "<div style=\"font-family:sans-serif\"><img src=\"https://techdigest.io/assets/header-banner.png\" alt=\"Tech Digest\" width=\"600\"><h2>This week in open source</h2><p><strong>Go 1.24</strong> ships with range-over functions and improved PGO.</p><p>The <strong>HTMX</strong> project crosses 30k GitHub stars.</p><p>Plus: why SSE is back in fashion for real-time web apps, a deep-dive on SFU vs mesh WebRTC, and the best new crates for Rust CLI tooling.</p><p><a href=\"https://techdigest.io/week24\">Read the full issue →</a></p></div>",
 			Date:      now.Add(-7 * day),
 			Flags:     []string{"\\Seen"},
 			MessageID: "<techdigest-2026-week24@techdigest.io>",

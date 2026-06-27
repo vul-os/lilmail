@@ -22,6 +22,7 @@ func TestTemplatesParse(t *testing.T) {
 	engine.AddFunc("trim", strings.TrimSpace)
 	engine.AddFunc("hasPrefix", strings.HasPrefix)
 	engine.AddFunc("urlEncode", func(s string) string { return s })
+	engine.AddFunc("linkify", linkifyText)
 	engine.AddFunc("formatDate", func(tm time.Time) string { return tm.String() })
 	engine.AddFunc("formatSize", func(n int) string { return fmt.Sprintf("%d", n) })
 	engine.AddFunc("initial", func(name, email string) string { return "?" })
