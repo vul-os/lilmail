@@ -221,12 +221,44 @@ Real-time new-mail notifications. All keys are opt-in; setting
 AI mail assistant. All five AI routes return `404 {"error":"ai_disabled"}` when
 `enabled = false`.
 
+LilMail does **no local inference** — it forwards mail content to a configurable
+**OpenAI-compatible SSE chat-completion endpoint** (just a base URL + Bearer
+token). That endpoint can be a provider directly, the Vulos OS *airouter*
+(`/api/ai/chat`), or the central **llmux** gateway (`/v1/chat/completions`).
+There is no hard dependency on llmux: it is simply a URL you can point `endpoint`
+at.
+
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `enabled` | bool | `false` | Master switch |
-| `endpoint` | string | `"http://localhost:8080/api/ai/chat"` | OpenAI-compatible SSE chat-completion endpoint |
-| `api_key` | string | `""` | Bearer token sent as `Authorization: Bearer <key>`. Leave empty when the endpoint handles auth separately |
+| `endpoint` | string | `"http://localhost:8080/api/ai/chat"` | OpenAI-compatible SSE chat-completion endpoint. Set to llmux's `/v1/chat/completions` to route through the central gateway |
+| `api_key` | string | `""` | Static Bearer token sent as `Authorization: Bearer <key>` when no per-request account token is present. For llmux this is typically a standalone virtual key. Leave empty when the endpoint handles auth separately |
+| `account_header` | string | `""` | Inbound request header carrying the caller's account token. When set and present, its value is forwarded as `Authorization: Bearer <token>` so a central gateway (llmux) can resolve it to an account and apply BYOK-vs-central + metering. Falls back to `api_key` when absent. Leave empty for standalone |
 | `model` | string | `""` | Model slug forwarded to the endpoint. Empty = endpoint default |
+
+### Routing through the central llmux gateway (Vulos suite)
+
+In a Vulos suite deployment, point LilMail at llmux so each account's AI usage is
+powered per its own choice (BYOK or central) and metered/billed centrally:
+
+```toml
+[ai]
+enabled        = true
+endpoint       = "http://llmux:4000/v1/chat/completions"
+account_header = "X-Vulos-Account-Token"   # header the host shell injects per request
+# api_key is used only as a fallback when the header is absent
+```
+
+LilMail forwards the per-request account token from `account_header` as the
+`Authorization: Bearer <token>`. llmux resolves it to an account and decides
+**BYOK vs central** and metering on the account's behalf — **LilMail never
+decides BYOK/central, it only forwards the token**. See llmux's
+`docs/LLM-ACCESS.md` ("Product consumption contract").
+
+For **standalone / BYO** use, leave `account_header` empty and set `endpoint`
+straight at a provider (or airouter) with a static `api_key`. With
+`enabled = false` (the default) the feature is fully off and no AI routes are
+served.
 
 ### AI routes (registered only when `enabled = true`)
 

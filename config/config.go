@@ -138,17 +138,25 @@ type CardDAVContactsConfig struct {
 // AIConfig configures the mail-AI assistant endpoints.
 //
 // LilMail is a standalone mail client; all LLM inference is delegated to a
-// configurable completion endpoint rather than performed locally. When running
-// embedded inside Vulos OS, the default endpoint points at the OS airouter's
-// /api/ai/chat (POST, SSE), which handles provider routing, metering, and
-// rate-limiting. For standalone use, point at any OpenAI-compatible SSE
-// completion endpoint.
+// configurable OpenAI-compatible completion endpoint rather than performed
+// locally. The endpoint is just a base URL + Bearer token, so LilMail has no
+// hard dependency on any particular gateway:
 //
-//	[ai]
-//	enabled  = true
-//	endpoint = "http://localhost:8080/api/ai/chat"
-//	api_key  = ""      # Bearer token — leave empty when calling local airouter
-//	model    = ""      # forwarded to the endpoint; leave empty to use endpoint default
+//   - Standalone / BYO: point at any OpenAI-compatible SSE chat endpoint
+//     (the provider directly, the Vulos OS airouter's /api/ai/chat, etc.).
+//
+//   - Vulos suite: point at the central llmux gateway's
+//     /v1/chat/completions endpoint. llmux resolves the forwarded Bearer
+//     token to an account and applies BYOK-vs-central key selection plus
+//     metering/billing on the account's behalf — LilMail itself does not
+//     decide BYOK vs central, it only forwards the account's token.
+//
+//     [ai]
+//     enabled        = true
+//     endpoint       = "http://llmux:4000/v1/chat/completions"  # or airouter /api/ai/chat
+//     api_key        = ""      # static Bearer token (e.g. an llmux virtual key) for standalone
+//     account_header = ""      # inbound request header whose value is forwarded as the Bearer (suite)
+//     model          = ""      # forwarded to the endpoint; leave empty to use endpoint default
 type AIConfig struct {
 	// Enabled is the master switch. When false, all /api/ai/* routes return
 	// 404 {"error":"ai_disabled"}. Default: false (opt-in).
@@ -156,12 +164,26 @@ type AIConfig struct {
 
 	// Endpoint is the URL of the OpenAI-compatible SSE chat-completion API.
 	// Defaults to the Vulos OS airouter URL so LilMail works out of the box
-	// when embedded in Vulos; override for standalone or BYO use.
+	// when embedded in Vulos; set it to llmux's /v1/chat/completions to route
+	// through the central gateway, or to any OpenAI-compatible endpoint for
+	// standalone / BYO use.
 	Endpoint string `toml:"endpoint"`
 
-	// APIKey is sent as "Authorization: Bearer <key>" when non-empty.
-	// Leave empty when calling the local Vulos airouter (it uses session auth).
+	// APIKey is the static Bearer token sent as "Authorization: Bearer <key>"
+	// when no per-request account token is available (see AccountHeader).
+	// For llmux this is typically a standalone virtual key. Leave empty when
+	// calling the local Vulos airouter (it uses session auth).
 	APIKey string `toml:"api_key"`
+
+	// AccountHeader names an inbound HTTP request header that carries the
+	// caller's account token (e.g. one injected by the host shell when LilMail
+	// is embedded in the Vulos suite). When set and present on the incoming
+	// request, its value is forwarded as the "Authorization: Bearer <token>"
+	// to the completion endpoint, so a central gateway such as llmux can
+	// resolve it to an account and apply BYOK-vs-central + metering. When the
+	// header is empty or absent, LilMail falls back to the static APIKey.
+	// Leave empty for standalone deployments.
+	AccountHeader string `toml:"account_header"`
 
 	// Model is the model slug forwarded to the completion endpoint.
 	// Leave empty to use the endpoint's configured default.
@@ -282,6 +304,7 @@ func LoadConfig(filepath string) (*Config, error) {
 	config.AI.Enabled = false
 	config.AI.Endpoint = "http://localhost:8080/api/ai/chat"
 	config.AI.APIKey = ""
+	config.AI.AccountHeader = ""
 	config.AI.Model = ""
 
 	// Load config file

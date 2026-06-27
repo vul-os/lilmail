@@ -133,7 +133,7 @@ func TestCompletionClient_ParsesSSE(t *testing.T) {
 	cfg := config.AIConfig{Enabled: true, Endpoint: srv.URL, Model: "test-model"}
 	client := newCompletionClient(cfg)
 
-	got, err := client.complete(nil, "system prompt", "")
+	got, err := client.complete(nil, "", "system prompt", "")
 	if err != nil {
 		t.Fatalf("complete error: %v", err)
 	}
@@ -155,12 +155,104 @@ func TestCompletionClient_ForwardsAPIKey(t *testing.T) {
 
 	cfg := config.AIConfig{Enabled: true, Endpoint: srv.URL, APIKey: "my-secret-key", Model: "m"}
 	client := newCompletionClient(cfg)
-	_, err := client.complete(nil, "p", "")
+	_, err := client.complete(nil, "", "p", "")
 	if err != nil {
 		t.Fatalf("complete: %v", err)
 	}
 	if capturedAuth != "Bearer my-secret-key" {
 		t.Errorf("Authorization = %q, want %q", capturedAuth, "Bearer my-secret-key")
+	}
+}
+
+// TestCompletionClient_ExplicitBearerOverridesAPIKey verifies the per-request
+// account token (forwarded by resolveBearer from the inbound account_header)
+// takes precedence over the static api_key when calling the endpoint.
+func TestCompletionClient_ExplicitBearerOverridesAPIKey(t *testing.T) {
+	var capturedAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "text/event-stream")
+		lit, _ := json.Marshal("ok")
+		fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":%s}}]}\n\n", string(lit))
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+
+	cfg := config.AIConfig{Enabled: true, Endpoint: srv.URL, APIKey: "static-key", Model: "m"}
+	client := newCompletionClient(cfg)
+	_, err := client.complete(nil, "account-token", "p", "")
+	if err != nil {
+		t.Fatalf("complete: %v", err)
+	}
+	if capturedAuth != "Bearer account-token" {
+		t.Errorf("Authorization = %q, want %q", capturedAuth, "Bearer account-token")
+	}
+}
+
+// TestAccountHeader_ForwardedAsBearer verifies that, end-to-end through the
+// Fiber handler, the inbound account_header value is forwarded to the
+// completion endpoint as the Bearer token (the llmux account-context passthrough).
+func TestAccountHeader_ForwardedAsBearer(t *testing.T) {
+	var capturedAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+
+	cfg := config.AIConfig{
+		Enabled:       true,
+		Endpoint:      srv.URL,
+		APIKey:        "static-fallback",
+		AccountHeader: "X-Vulos-Account-Token",
+		Model:         "m",
+	}
+	app := buildTestApp(cfg)
+
+	b, _ := json.Marshal(map[string]any{"context": "x", "draft_so_far": "y"})
+	req := httptest.NewRequest(http.MethodPost, "/ai/compose", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Vulos-Account-Token", "acct-token-123")
+	resp, err := app.Test(req, 5000)
+	if err != nil {
+		t.Fatalf("fiber test: %v", err)
+	}
+	resp.Body.Close()
+
+	if capturedAuth != "Bearer acct-token-123" {
+		t.Errorf("forwarded Authorization = %q, want %q", capturedAuth, "Bearer acct-token-123")
+	}
+}
+
+// TestAccountHeader_FallsBackToAPIKey verifies that when account_header is
+// configured but absent on the request, the static api_key is used instead.
+func TestAccountHeader_FallsBackToAPIKey(t *testing.T) {
+	var capturedAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n")
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+
+	cfg := config.AIConfig{
+		Enabled:       true,
+		Endpoint:      srv.URL,
+		APIKey:        "static-fallback",
+		AccountHeader: "X-Vulos-Account-Token",
+		Model:         "m",
+	}
+	app := buildTestApp(cfg)
+
+	status, _ := fiberPost(t, app, "/ai/compose", map[string]any{"context": "x", "draft_so_far": "y"})
+	if status != http.StatusOK {
+		t.Fatalf("compose status = %d, want 200", status)
+	}
+	if capturedAuth != "Bearer static-fallback" {
+		t.Errorf("fallback Authorization = %q, want %q", capturedAuth, "Bearer static-fallback")
 	}
 }
 
@@ -171,7 +263,7 @@ func TestCompletionClient_ForwardsAPIKey(t *testing.T) {
 func TestCompletionClient_NoEndpoint_ReturnsError(t *testing.T) {
 	cfg := config.AIConfig{Enabled: true, Endpoint: ""}
 	client := newCompletionClient(cfg)
-	_, err := client.complete(nil, "p", "")
+	_, err := client.complete(nil, "", "p", "")
 	if err == nil {
 		t.Fatal("expected error when endpoint is empty")
 	}

@@ -12,11 +12,19 @@
 // All routes are gated on AIConfig.Enabled. When disabled they return
 // {"error":"ai_disabled","hint":"set [ai] enabled=true in config.toml"}.
 //
-// The completion client speaks the OpenAI-compatible SSE wire format that the
-// Vulos airouter /api/ai/chat endpoint emits:
+// The completion client speaks the OpenAI-compatible SSE wire format used by
+// both the Vulos airouter /api/ai/chat endpoint and the central llmux gateway's
+// /v1/chat/completions endpoint:
 //
 //	data: {"choices":[{"delta":{"content":"..."}}]}
 //	data: [DONE]
+//
+// Account context: when [ai] account_header is configured, the value of that
+// inbound request header is forwarded as the "Authorization: Bearer <token>" so
+// a central gateway (llmux) can resolve it to an account and apply BYOK-vs-central
+// key selection plus metering. When no per-request token is present, the static
+// [ai] api_key is used. LilMail does not decide BYOK vs central — it only
+// forwards the account's token.
 //
 // Privacy: mail content is never written to any persistent store in this
 // package. It is forwarded to the configured endpoint and discarded.
@@ -77,6 +85,22 @@ func NewHandler(cfg config.AIConfig) *Handler {
 	}
 }
 
+// resolveBearer determines the Bearer token to forward to the completion
+// endpoint for this request. When [ai] account_header is configured and that
+// header is present on the inbound request, its value (the caller's account
+// token) is forwarded so a central gateway such as llmux can resolve it to an
+// account and apply BYOK-vs-central + metering. Otherwise it falls back to the
+// static [ai] api_key. Returns "" when neither is available (no Authorization
+// header is then sent).
+func (h *Handler) resolveBearer(c *fiber.Ctx) string {
+	if h.cfg.AccountHeader != "" {
+		if v := strings.TrimSpace(c.Get(h.cfg.AccountHeader)); v != "" {
+			return v
+		}
+	}
+	return h.cfg.APIKey
+}
+
 // disabledResponse writes the standard "AI disabled" JSON body.
 func disabledResponse(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
@@ -125,7 +149,7 @@ func (h *Handler) HandleCompose(c *fiber.Ctx) error {
 		"{{INSTRUCTION}}", escapeForPrompt(req.Instruction),
 	).Replace(mailComposePrompt)
 
-	completion, err := h.client.complete(c.Context(), prompt, "")
+	completion, err := h.client.complete(c.Context(), h.resolveBearer(c), prompt, "")
 	if err != nil {
 		log.Printf("[mail_ai] compose error: %v", err)
 		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": "service_unavailable"})
@@ -158,7 +182,7 @@ func (h *Handler) HandleSummarize(c *fiber.Ctx) error {
 	}
 
 	prompt := strings.ReplaceAll(mailSummarizePrompt, "{{THREAD}}", escapeForPrompt(req.Thread))
-	raw, err := h.client.complete(c.Context(), prompt, "")
+	raw, err := h.client.complete(c.Context(), h.resolveBearer(c), prompt, "")
 	if err != nil {
 		log.Printf("[mail_ai] summarize error: %v", err)
 		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": "service_unavailable"})
@@ -207,7 +231,7 @@ func (h *Handler) HandleReply(c *fiber.Ctx) error {
 	}
 
 	prompt := strings.ReplaceAll(mailReplyPrompt, "{{THREAD}}", escapeForPrompt(req.Thread))
-	raw, err := h.client.complete(c.Context(), prompt, "")
+	raw, err := h.client.complete(c.Context(), h.resolveBearer(c), prompt, "")
 	if err != nil {
 		log.Printf("[mail_ai] reply error: %v", err)
 		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": "service_unavailable"})
@@ -253,7 +277,7 @@ func (h *Handler) HandleExtractActions(c *fiber.Ctx) error {
 	}
 
 	prompt := strings.ReplaceAll(mailExtractActionsPrompt, "{{THREAD}}", escapeForPrompt(req.Thread))
-	raw, err := h.client.complete(c.Context(), prompt, "")
+	raw, err := h.client.complete(c.Context(), h.resolveBearer(c), prompt, "")
 	if err != nil {
 		log.Printf("[mail_ai] extract-actions error: %v", err)
 		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": "service_unavailable"})
@@ -297,7 +321,7 @@ func (h *Handler) HandlePhishing(c *fiber.Ctx) error {
 	}
 
 	userContent := buildPhishingUserContent(req)
-	completion, err := h.client.complete(c.Context(), phishingPrompt, userContent)
+	completion, err := h.client.complete(c.Context(), h.resolveBearer(c), phishingPrompt, userContent)
 	if err != nil {
 		log.Printf("[mail_ai] phishing error: %v", err)
 		return c.Status(fiber.StatusBadGateway).JSON(fiber.Map{"error": "service_unavailable"})
@@ -426,14 +450,19 @@ func newCompletionClient(cfg config.AIConfig) *completionClient {
 // endpoint and returns the concatenated completion text.
 //
 // It mirrors the drainSSEText logic from the vulos airouter mail_handler.go,
-// parsing the SSE wire format emitted by POST /api/ai/chat:
+// parsing the OpenAI-compatible SSE wire format used by both POST /api/ai/chat
+// and llmux's POST /v1/chat/completions:
 //
 //	data: {"choices":[{"delta":{"content":"..."}}]}
 //	data: [DONE]
 //
+// bearer is the per-request account token forwarded as "Authorization: Bearer
+// <bearer>"; when empty, the client's static api_key is used instead, and when
+// that is also empty no Authorization header is sent.
+//
 // When userContent is empty, only the system message is sent (the prompt
 // itself carries all the necessary context for mail AI tasks).
-func (c *completionClient) complete(ctx context.Context, systemPrompt, userContent string) (string, error) {
+func (c *completionClient) complete(ctx context.Context, bearer, systemPrompt, userContent string) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -463,8 +492,11 @@ func (c *completionClient) complete(ctx context.Context, systemPrompt, userConte
 		return "", fmt.Errorf("ai: build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if c.apiKey != "" {
-		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	if bearer == "" {
+		bearer = c.apiKey
+	}
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
 	}
 
 	resp, err := c.http.Do(req)
