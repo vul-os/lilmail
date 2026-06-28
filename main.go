@@ -288,6 +288,20 @@ func main() {
 		return c.Send(swBytes)
 	})
 
+	// Standalone marketing site (landing + docs viewer) for lilmail.vulos.org.
+	// Mounted at /site/* and registered BEFORE the protected group so it stays
+	// public and never shadows the webmail app at / (which is behind sign-in).
+	// The embedded docs viewer fetches ./docs/<slug>.md from this same route.
+	if siteSub, subErr := fs.Sub(siteFS, "site"); subErr == nil {
+		app.Use("/site", filesystem.New(filesystem.Config{
+			Root:   http.FS(siteSub),
+			Index:  "index.html",
+			MaxAge: int(time.Hour / time.Second),
+		}))
+	} else {
+		log.Printf("marketing site unavailable: %v", subErr)
+	}
+
 	// Initialize web handlers
 	webAuthHandler := web.NewAuthHandler(store, config)
 	webEmailHandler := web.NewEmailHandler(store, config, webAuthHandler)
