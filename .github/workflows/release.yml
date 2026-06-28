@@ -41,7 +41,7 @@ jobs:
       run: |
         TAG="${GITHUB_REF_NAME}"
         VERSION="${TAG#v}"
-        LDFLAGS="-X main.Version=${VERSION}"
+        LDFLAGS="-s -w -X main.Version=${VERSION}"   # strip symbols/DWARF — smaller binary
         mkdir -p builds/lilmail
 
         # Copy example config into bundle (templates + assets are embedded)

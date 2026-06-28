@@ -55,8 +55,8 @@ contract) — they never import one another's code.
 
 ## Features
 
-- **Single binary, no external database** — templates and vendored JS embedded
-  with `embed.FS`; durable state uses an embedded [bbolt](https://github.com/etcd-io/bbolt)
+- **Single binary (~18 MB), no external database** — templates and vendored JS
+  embedded with `embed.FS`; durable state uses an embedded [bbolt](https://github.com/etcd-io/bbolt)
   file by default (nothing to run), with an **optional Postgres backend** for
   shared / multi-instance deploys; runs fully offline/air-gapped with only `config.toml`
 - **IMAP** mailbox browsing and **SMTP** sending
