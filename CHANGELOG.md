@@ -9,6 +9,10 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+---
+
+## [1.11.0] — 2026-06-28
+
 ### Added
 
 - **Brokered calendar & contacts for `/v1`** — extends the CP-brokered credential
