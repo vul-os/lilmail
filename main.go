@@ -340,11 +340,31 @@ func main() {
 		return c.SendString("OK")
 	})
 
+	// Auth-gated root: logged-out visitors see the marketing landing (200);
+	// logged-in users are redirected to the inbox.
+	app.Get("/", func(c *fiber.Ctx) error {
+		sess, err := store.Get(c)
+		if err == nil {
+			if v := sess.Get("authenticated"); v == true {
+				return c.Redirect("/inbox")
+			}
+		}
+		// Unauthenticated: serve the marketing landing.
+		// Inject <base href="/site/"> so all ./assets/... refs resolve to /site/assets/...
+		data, readErr := siteFS.ReadFile("site/index.html")
+		if readErr != nil {
+			return c.Redirect("/login")
+		}
+		html := strings.Replace(string(data), "<head>", `<head><base href="/site/">`, 1)
+		c.Set("Content-Type", "text/html; charset=utf-8")
+		c.Set("Cache-Control", "no-store")
+		return c.SendString(html)
+	})
+
 	// Protected routes group
 	protected := app.Group("", api.SessionMiddleware(store))
 
 	// Main web routes
-	protected.Get("/", webEmailHandler.HandleInbox)      // Default to inbox
 	protected.Get("/inbox", webEmailHandler.HandleInbox) // Explicit inbox route
 	protected.Get("/folder/:name", webEmailHandler.HandleFolder)
 
