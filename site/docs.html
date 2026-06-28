@@ -225,6 +225,12 @@ async function load(slug){
     if(!res.ok) throw new Error('HTTP '+res.status);
     const md = await res.text();
     content.innerHTML = marked.parse(md);
+    content.querySelectorAll('img').forEach(img=>{
+      const s=img.getAttribute('src')||'';
+      if(/^https?:/i.test(s)) return;
+      const m=s.match(/(?:\.\.\/)*(?:docs\/)?screenshots\/(.+)$/);
+      if(m) img.setAttribute('src','screenshots/'+m[1]);
+    });
     content.querySelectorAll('a[href^="http"]').forEach(a=>{a.target='_blank';a.rel='noopener';});
     await renderMermaid();
     window.scrollTo({top:0});
