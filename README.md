@@ -93,19 +93,14 @@ no SPA and no asset pipeline — HTML templates and vendored JS/CSS are compiled
 into the binary at build time, and HTMX swaps in server-rendered partials so the
 page never does a full reload.
 
-```
- HTMX/Alpine UI ─┐                        ┌─ React clients (Vulos Mail, Workspace)
-   (HTMX/SSE)    │                        │   (fetch JSON)
-                 ▼                        ▼
-            Fiber HTTP server ──  HTMX routes  +  /v1 JSON API  (one Go binary)
-                              │   (same mail engine + session auth under both)
-        ┌─────────────────────┼─────────────────────┐
-        │                     │                     │
-     IMAP/SMTP        durable store (seam)     opt-in services
-  (your mail server)  bbolt by default;       (CalDAV, CardDAV, AI,
-                      optional Postgres        Web Push) — off by default
-                      (threads, drafts,
-                       recipients, accounts)
+```mermaid
+flowchart TD
+    UI["HTMX/Alpine UI (HTMX/SSE)"] --> Server
+    React["React clients (Vulos Mail, Workspace) (fetch JSON)"] --> Server
+    Server["Fiber HTTP server — HTMX routes + /v1 JSON API (one Go binary);<br/>same mail engine + session auth under both"]
+    Server --> IMAP["IMAP/SMTP (your mail server)"]
+    Server --> Store["durable store (seam): bbolt by default;<br/>optional Postgres (threads, drafts, recipients, accounts)"]
+    Server --> Services["opt-in services (CalDAV, CardDAV, AI, Web Push) — off by default"]
 ```
 
 State that must survive a restart (conversation threads, recent recipients,

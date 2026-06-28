@@ -52,23 +52,21 @@ lilmail/
 
 ## Request lifecycle
 
-```
-Browser
-  │
-  ▼
-Fiber HTTP server (main.go)
-  │
-  ├─ Middleware: JWT session auth (except /login, /health, /sw.js)
-  │
-  ├─ Web routes  → handlers/web/   → Go templates → HTML response
-  │
-  ├─ API routes  → handlers/api/   → JSON response
-  │                  │
-  │                  └─ IMAP/SMTP clients (created per request from session creds)
-  │
-  ├─ AI routes   → handlers/ai/    → proxies to configured SSE endpoint
-  │
-  └─ SSE route   → IMAP IDLE watcher → SSE stream → browser Web Notifications
+```mermaid
+flowchart TD
+    Browser --> Server["Fiber HTTP server (main.go)"]
+    Server --> MW["Middleware: JWT session auth (except /login, /health, /sw.js)"]
+    Server --> Web["Web routes → handlers/web/"]
+    Web --> Tmpl["Go templates"]
+    Tmpl --> HTML["HTML response"]
+    Server --> API["API routes → handlers/api/"]
+    API --> JSON["JSON response"]
+    API --> Clients["IMAP/SMTP clients (created per request from session creds)"]
+    Server --> AI["AI routes → handlers/ai/"]
+    AI --> Proxy["proxies to configured SSE endpoint"]
+    Server --> SSE["SSE route → IMAP IDLE watcher"]
+    SSE --> Stream["SSE stream"]
+    Stream --> Notif["browser Web Notifications"]
 ```
 
 ## Key subsystems
