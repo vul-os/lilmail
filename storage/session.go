@@ -23,7 +23,7 @@ type sessionData struct {
 // NewFileStorage creates a new file storage instance
 func NewFileStorage(directory string) (*FileStorage, error) {
 	// Create directory if it doesn't exist
-	if err := os.MkdirAll(directory, 0755); err != nil {
+	if err := os.MkdirAll(directory, 0700); err != nil {
 		return nil, err
 	}
 
@@ -132,5 +132,5 @@ func (s *FileStorage) writeFile(key string, data sessionData) error {
 		return err
 	}
 
-	return os.WriteFile(s.getPath(key), jsonData, 0644)
+	return os.WriteFile(s.getPath(key), jsonData, 0600)
 }

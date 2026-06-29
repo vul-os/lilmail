@@ -221,6 +221,32 @@ type AccountsConfig struct {
 	StoreFile string `toml:"store_file"` // bbolt path; default accounts.db
 }
 
+// RateLimitConfig configures per-IP rate limits on high-risk endpoints to
+// guard against brute-force and abuse. All three surfaces are tuned
+// independently because their cost and risk profiles differ:
+//
+//   - Login: brute-force protection; tight window, low max.
+//
+//   - Send (POST /v1/messages): spam/abuse; medium limits.
+//
+//   - AI (/api/ai/*): compute cost + abuse; medium limits.
+//
+//     [rate_limit]
+//     login_max    = 10    # attempts per window per IP
+//     login_window = 60    # seconds
+//     send_max     = 30
+//     send_window  = 60
+//     ai_max       = 20
+//     ai_window    = 60
+type RateLimitConfig struct {
+	LoginMax    int `toml:"login_max"`    // default 10
+	LoginWindow int `toml:"login_window"` // seconds, default 60
+	SendMax     int `toml:"send_max"`     // default 30
+	SendWindow  int `toml:"send_window"`  // seconds, default 60
+	AIMax       int `toml:"ai_max"`       // default 20
+	AIWindow    int `toml:"ai_window"`    // seconds, default 60
+}
+
 // DemoConfig configures the optional demo / screenshot mode.
 //
 // When enabled, a POST /demo-login route is registered that accepts the
@@ -255,6 +281,7 @@ type Config struct {
 	AI            AIConfig              `toml:"ai"`
 	Accounts      AccountsConfig        `toml:"accounts"`
 	Demo          DemoConfig            `toml:"demo"`
+	RateLimit     RateLimitConfig       `toml:"rate_limit"`
 }
 
 func LoadConfig(filepath string) (*Config, error) {
@@ -306,6 +333,16 @@ func LoadConfig(filepath string) (*Config, error) {
 	config.AI.APIKey = ""
 	config.AI.AccountHeader = ""
 	config.AI.Model = ""
+
+	// Default rate-limit configuration.
+	// Login: tight (brute-force surface). Send + AI: moderate (abuse/cost).
+	// Override via [rate_limit] in config.toml.
+	config.RateLimit.LoginMax = 10
+	config.RateLimit.LoginWindow = 60
+	config.RateLimit.SendMax = 30
+	config.RateLimit.SendWindow = 60
+	config.RateLimit.AIMax = 20
+	config.RateLimit.AIWindow = 60
 
 	// Load config file
 	_, err := toml.DecodeFile(filepath, &config)

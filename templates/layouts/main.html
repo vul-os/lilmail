@@ -80,7 +80,10 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
             </svg>
         </a>
-        <a href="/logout" class="topbar__logout">Sign out</a>
+        <button type="button" class="topbar__logout"
+                hx-post="/logout"
+                hx-swap="none"
+                title="Sign out">Sign out</button>
     </div>
 </header>
 {{end}}
@@ -320,6 +323,10 @@
     document.body.addEventListener('htmx:configRequest', function(evt) {
         const token = '{{.Token}}';
         if (token) evt.detail.headers['Authorization'] = 'Bearer ' + token;
+        // Double-submit CSRF: read the "_csrf" cookie set by the server and
+        // echo it back as a header so the CSRF middleware can validate it.
+        var csrfMatch = document.cookie.match(/(?:^|;\s*)_csrf=([^;]+)/);
+        if (csrfMatch) evt.detail.headers['X-CSRF-Token'] = decodeURIComponent(csrfMatch[1]);
     });
 
     (function() {

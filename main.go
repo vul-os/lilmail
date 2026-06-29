@@ -21,7 +21,9 @@ import (
 	"unicode"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/csrf"
 	"github.com/gofiber/fiber/v2/middleware/filesystem"
+	"github.com/gofiber/fiber/v2/middleware/limiter"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/fiber/v2/middleware/session"
@@ -312,10 +314,25 @@ func main() {
 	// session auth as the HTMX UI, returns 401 JSON instead of redirecting.
 	jsonapi.New(store, config, webAuthHandler).Register(app)
 
+	// Rate limiters — applied to the three highest-risk surfaces.
+	// Login: tight (brute-force). Send + AI: moderate (abuse/cost).
+	// All limits are configurable via [rate_limit] in config.toml.
+	loginLimiter := limiter.New(limiter.Config{
+		Max:        config.RateLimit.LoginMax,
+		Expiration: time.Duration(config.RateLimit.LoginWindow) * time.Second,
+		KeyGenerator: func(c *fiber.Ctx) string {
+			return c.IP()
+		},
+		LimitReached: func(c *fiber.Ctx) error {
+			return c.Status(fiber.StatusTooManyRequests).Render("login", fiber.Map{
+				"Error": "Too many login attempts. Please wait and try again.",
+			})
+		},
+	})
+
 	// Public routes
 	app.Get("/login", webAuthHandler.ShowLogin)
-	app.Post("/login", webAuthHandler.HandleLogin)
-	app.Get("/logout", webAuthHandler.HandleLogout)
+	app.Post("/login", loginLimiter, webAuthHandler.HandleLogin)
 
 	// Demo / screenshot mode — registered only when [demo] enabled = true.
 	// Both GET and POST /demo-login immediately establish a demo session
@@ -361,8 +378,33 @@ func main() {
 		return c.SendString(html)
 	})
 
-	// Protected routes group
-	protected := app.Group("", api.SessionMiddleware(store))
+	// CSRF middleware for all web (cookie-session) protected routes.
+	// Uses the double-submit cookie pattern:
+	//   1. Middleware sets a JS-readable "_csrf" cookie on GET responses.
+	//   2. HTMX's htmx:configRequest handler reads the cookie and sends its
+	//      value as "X-CSRF-Token" on every mutating request.
+	//   3. Middleware validates header == cookie value before the handler runs.
+	// WebPush subscribe/unsubscribe routes are skipped: they carry
+	// "Authorization: Bearer" headers which already prevent cross-origin CSRF.
+	csrfMiddleware := csrf.New(csrf.Config{
+		KeyLookup:      "header:X-CSRF-Token",
+		CookieName:     "_csrf",
+		CookieHTTPOnly: false, // must be JS-readable for double-submit pattern
+		CookieSameSite: "Lax",
+		CookieSecure:   config.Server.SecureCookies,
+		Expiration:     24 * time.Hour,
+		Next: func(c *fiber.Ctx) bool {
+			// Skip for WebPush routes (Bearer-token-authenticated)
+			return strings.HasPrefix(c.Path(), "/api/push/")
+		},
+	})
+
+	// Protected routes group — session-gated + CSRF-protected
+	protected := app.Group("", api.SessionMiddleware(store), csrfMiddleware)
+
+	// Logout MUST be POST to prevent forced-logout via a crafted GET link
+	// (CSRF attack). Placed in the protected group so CSRF middleware covers it.
+	protected.Post("/logout", webAuthHandler.HandleLogout)
 
 	// Main web routes
 	protected.Get("/inbox", webEmailHandler.HandleInbox) // Explicit inbox route
@@ -400,6 +442,21 @@ func main() {
 
 	// AI mail-assistant routes — registered always (gated internally on config.AI.Enabled).
 	// When disabled, all /api/ai/* routes return 404 {"error":"ai_disabled"}.
+	// Rate-limit AI routes before registration to guard against compute-cost abuse
+	// and brute-force of the AI endpoint (limits configurable via [rate_limit]).
+	aiLimiter := limiter.New(limiter.Config{
+		Max:        config.RateLimit.AIMax,
+		Expiration: time.Duration(config.RateLimit.AIWindow) * time.Second,
+		KeyGenerator: func(c *fiber.Ctx) string {
+			return c.IP()
+		},
+		LimitReached: func(c *fiber.Ctx) error {
+			return c.Status(fiber.StatusTooManyRequests).JSON(fiber.Map{
+				"error": "rate limit exceeded",
+			})
+		},
+	})
+	apiRoutes.Use("/ai", aiLimiter)
 	ai.RegisterRoutes(apiRoutes, config.AI)
 
 	// Notifications routes — registered only when notifications.enabled = true.

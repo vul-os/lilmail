@@ -136,7 +136,10 @@ func (h *AuthHandler) HandleLogin(c *fiber.Ctx) error {
 	return c.Redirect("/inbox")
 }
 
-// HandleLogout processes user logout
+// HandleLogout processes user logout. Must be called via POST to prevent
+// CSRF-triggered forced-logout attacks on GET. For HTMX callers the handler
+// returns an HX-Redirect header so the client navigates without a full-page
+// reload; for regular POST callers a 302 redirect is returned.
 func (h *AuthHandler) HandleLogout(c *fiber.Ctx) error {
 	sess, err := h.store.Get(c)
 	if err != nil {
@@ -158,6 +161,12 @@ func (h *AuthHandler) HandleLogout(c *fiber.Ctx) error {
 		return c.Status(500).SendString("Error during logout")
 	}
 
+	// HTMX callers: use the HX-Redirect response header so the client performs
+	// a full-page navigation without swapping content into an element.
+	if c.Get("HX-Request") != "" {
+		c.Set("HX-Redirect", "/login")
+		return c.SendStatus(fiber.StatusOK)
+	}
 	return c.Redirect("/login")
 }
 

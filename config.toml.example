@@ -9,8 +9,9 @@ username_is_email = true
 # Example for the Vulos OS shell:  frame_ancestors = "'self' http://localhost:8080"
 frame_ancestors = ""
 # Set to true when serving over HTTPS (direct [ssl] or TLS reverse proxy) to
-# add the Secure flag to session cookies. Default false for local HTTP dev.
-secure_cookies = false
+# add the Secure flag to session cookies. STRONGLY recommended for any
+# internet-facing deployment; set to false only for plain-HTTP local dev.
+secure_cookies = true
 
 # Authentication / login preferences.
 [auth]
@@ -139,6 +140,17 @@ use_pkce = true           # PKCE (S256); recommended
 # endpoint = "http://localhost:8080/api/ai/chat"  # Vulos OS airouter (default)
 # api_key  = ""    # Bearer token — leave empty for local Vulos airouter
 # model    = ""    # model slug forwarded to endpoint; empty = endpoint default
+
+# Optional: per-IP rate limits for brute-force / abuse protection.
+# All limits are sane-defaulted in code; this section is purely for override.
+#
+# [rate_limit]
+# login_max    = 10    # POST /login — attempts per window per source IP
+# login_window = 60    # window in seconds
+# send_max     = 30    # POST /v1/messages (send) — messages per window per IP
+# send_window  = 60
+# ai_max       = 20    # /api/ai/* routes — requests per window per IP
+# ai_window    = 60
 
 # Optional: Multi-account support. When enabled, users can add and switch
 # between multiple IMAP/SMTP accounts from the Settings page (GET /settings).

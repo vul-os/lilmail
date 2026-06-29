@@ -19,12 +19,14 @@ package jsonapi
 import (
 	"strconv"
 	"strings"
+	"time"
 
 	"lilmail/config"
 	"lilmail/handlers/api"
 	"lilmail/handlers/web"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/limiter"
 	"github.com/gofiber/fiber/v2/middleware/session"
 )
 
@@ -73,8 +75,21 @@ func (h *Handler) Register(app *fiber.App) {
 	// Compose / drafts — JSON transport over the same SMTP/MIME engine as the
 	// HTMX compose path. The :uid Delete above is registered first so it is not
 	// shadowed; these add new paths.
-	g.Post("/messages", h.handleSend)    // body {to, cc?, bcc?, subject, text?, html?, inReplyTo?}
-	g.Post("/drafts", h.handleSaveDraft) // body {to, cc?, subject, text?, html?, inReplyTo?}
+	//
+	// POST /v1/messages is rate-limited per IP to prevent spam/relay abuse.
+	// The limit is read from [rate_limit] in config.toml (default 30/60 s).
+	sendLimiter := limiter.New(limiter.Config{
+		Max:        h.config.RateLimit.SendMax,
+		Expiration: time.Duration(h.config.RateLimit.SendWindow) * time.Second,
+		KeyGenerator: func(c *fiber.Ctx) string {
+			return c.IP()
+		},
+		LimitReached: func(c *fiber.Ctx) error {
+			return fail(c, fiber.StatusTooManyRequests, "rate limit exceeded")
+		},
+	})
+	g.Post("/messages", sendLimiter, h.handleSend) // body {to, cc?, bcc?, subject, text?, html?, inReplyTo?}
+	g.Post("/drafts", h.handleSaveDraft)           // body {to, cc?, subject, text?, html?, inReplyTo?}
 
 	// Calendar — registered when CalDAV is enabled OR the broker path is active.
 	// In CP-brokered deployments the per-account CalDAV URL arrives per request

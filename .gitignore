@@ -30,5 +30,8 @@ go.work.sum
 # Local config — contains secrets; copy config.toml.example → config.toml and edit
 config.toml
 
+# macOS metadata
+.DS_Store
+
 # Compiled binary
 /lilmail
