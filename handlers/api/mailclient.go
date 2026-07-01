@@ -13,6 +13,10 @@ type MailClient interface {
 	// Folder & message listing
 	FetchFolders() ([]*MailboxInfo, error)
 	FetchMessages(folderName string, limit uint32) ([]models.Email, error)
+	// FetchMessagesPaged lists messages newest-first, skipping the newest
+	// `offset` before taking `limit`. It backs scroll/cursor pagination for large
+	// mailboxes. offset=0 is identical to FetchMessages.
+	FetchMessagesPaged(folderName string, limit, offset uint32) ([]models.Email, error)
 	FetchSingleMessage(folderName, uid string) (models.Email, error)
 	SearchMessages(folderName, query string, limit uint32) ([]models.Email, error)
 

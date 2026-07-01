@@ -273,7 +273,17 @@ func (d *DemoClient) FetchFolders() ([]*MailboxInfo, error) {
 
 // FetchMessages returns seed messages for the given folder (capped at limit).
 func (d *DemoClient) FetchMessages(folderName string, limit uint32) ([]models.Email, error) {
+	return d.FetchMessagesPaged(folderName, limit, 0)
+}
+
+// FetchMessagesPaged returns seed messages for the folder, skipping the first
+// `offset` and capping at `limit`. Mirrors the IMAP paging contract in demo mode.
+func (d *DemoClient) FetchMessagesPaged(folderName string, limit, offset uint32) ([]models.Email, error) {
 	msgs := d.folderMessages(folderName)
+	if offset >= uint32(len(msgs)) {
+		return []models.Email{}, nil
+	}
+	msgs = msgs[offset:]
 	if uint32(len(msgs)) > limit {
 		msgs = msgs[:limit]
 	}

@@ -88,8 +88,12 @@ func (h *Handler) Register(app *fiber.App) {
 			return fail(c, fiber.StatusTooManyRequests, "rate limit exceeded")
 		},
 	})
-	g.Post("/messages", sendLimiter, h.handleSend) // body {to, cc?, bcc?, subject, text?, html?, inReplyTo?}
-	g.Post("/drafts", h.handleSaveDraft)           // body {to, cc?, subject, text?, html?, inReplyTo?}
+	g.Post("/messages", sendLimiter, h.handleSend) // body {to, cc?, bcc?, subject, text?, html?, inReplyTo?, attachments?}
+	g.Post("/drafts", h.handleSaveDraft)           // body {to, cc?, subject, text?, html?, inReplyTo?, attachments?}
+
+	// Attachment staging for compose: upload a file, get back a token to reference
+	// in the attachments array of a later /v1/messages or /v1/drafts POST.
+	g.Post("/attachments", h.handleUploadAttachment) // multipart form, file field "file"
 
 	// Calendar — registered when CalDAV is enabled OR the broker path is active.
 	// In CP-brokered deployments the per-account CalDAV URL arrives per request
@@ -141,11 +145,22 @@ func (h *Handler) client(c *fiber.Ctx) (api.MailClient, error) {
 	return h.auth.CreateIMAPClient(c)
 }
 
-// smtpClient returns an SMTP client for the request: brokered SMTP host/port +
+// smtpSender is the subset of *api.SMTPClient the send path uses. Declaring it
+// here lets the brokered SMTP builder be swapped in tests (via brokerSMTPSender)
+// so the compose/send flow — including attachment assembly — can be exercised
+// without a live SMTP server. Both *api.SMTPClient and the session client satisfy it.
+type smtpSender interface {
+	SendRawMessage(allRcpts []string, rawMessage []byte) error
+}
+
+// brokerSMTPSender builds the brokered SMTP sender. Package var for the test seam.
+var brokerSMTPSender = func(spec brokerSpec) smtpSender { return brokerSMTPClient(spec) }
+
+// smtpClient returns an SMTP sender for the request: brokered SMTP host/port +
 // creds for CP-brokered requests, otherwise the session-derived client.
-func (h *Handler) smtpClient(c *fiber.Ctx) (*api.SMTPClient, error) {
+func (h *Handler) smtpClient(c *fiber.Ctx) (smtpSender, error) {
 	if spec, ok := brokerSpecOf(c); ok {
-		return brokerSMTPClient(spec), nil
+		return brokerSMTPSender(spec), nil
 	}
 	return h.auth.CreateSMTPClient(c)
 }
@@ -180,9 +195,15 @@ func (h *Handler) handleFolders(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"folders": folders})
 }
 
+// handleMessages lists a folder newest-first. `limit` caps the page size and
+// `offset` skips the newest N messages, so a client can scroll-load a large
+// mailbox: page k = ?limit=L&offset=k*L. The response echoes the effective
+// limit/offset and sets nextOffset to the offset for the following page (null
+// when the returned page was smaller than the limit, i.e. no more to fetch).
 func (h *Handler) handleMessages(c *fiber.Ctx) error {
 	folder := folderParam(c)
 	limit := uintQuery(c, "limit", 50)
+	offset := uintQuery(c, "offset", 0)
 
 	cl, err := h.client(c)
 	if err != nil {
@@ -190,11 +211,24 @@ func (h *Handler) handleMessages(c *fiber.Ctx) error {
 	}
 	defer cl.Close()
 
-	emails, err := cl.FetchMessages(folder, limit)
+	emails, err := cl.FetchMessagesPaged(folder, limit, offset)
 	if err != nil {
 		return fail(c, fiber.StatusBadGateway, "could not fetch messages")
 	}
-	return c.JSON(fiber.Map{"folder": folder, "messages": emails})
+
+	// nextOffset advances the window only when this page was full; a short page
+	// means the end of the mailbox was reached, so there is nothing more to load.
+	var nextOffset interface{}
+	if limit > 0 && uint32(len(emails)) >= limit {
+		nextOffset = offset + limit
+	}
+	return c.JSON(fiber.Map{
+		"folder":     folder,
+		"limit":      limit,
+		"offset":     offset,
+		"nextOffset": nextOffset,
+		"messages":   emails,
+	})
 }
 
 func (h *Handler) handleMessage(c *fiber.Ctx) error {
@@ -235,16 +269,43 @@ func (h *Handler) handleSearch(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"folder": folder, "query": query, "messages": emails})
 }
 
+// handleSetFlag adds or removes IMAP flags/keywords on a message. It accepts a
+// single flag ({flag, add}) or a batch ({flags:[...], add}) — the two forms are
+// merged. Beyond the system flags (\Seen, \Flagged, \Answered, \Deleted, …) this
+// applies arbitrary custom KEYWORDS, which is how a client sets user labels
+// (e.g. "Important", "$Label1") or a "snoozed" marker: the mechanism is standard
+// IMAP STORE with a keyword atom. Whether custom keywords PERSIST is a
+// server-side property — the mailbox must advertise PERMANENTFLAGS containing
+// \* (most modern servers, incl. Dovecot/Gmail, do). If it does not, the STORE
+// is accepted for the session but not retained; that is the server's limitation,
+// not the API's, and we surface the server's response as-is.
+// PATCH /v1/messages/:uid/flags  ?folder=  body {flag|flags[], add}
 func (h *Handler) handleSetFlag(c *fiber.Ctx) error {
 	folder := folderParam(c)
 	uid := c.Params("uid")
 
 	var body struct {
-		Flag string `json:"flag"`
-		Add  bool   `json:"add"`
+		Flag  string   `json:"flag"`
+		Flags []string `json:"flags"`
+		Add   bool     `json:"add"`
 	}
-	if err := c.BodyParser(&body); err != nil || body.Flag == "" {
-		return fail(c, fiber.StatusBadRequest, "body must be {flag, add}")
+	if err := c.BodyParser(&body); err != nil {
+		return fail(c, fiber.StatusBadRequest, "body must be {flag|flags[], add}")
+	}
+
+	// Merge single + batch forms, de-duplicating and dropping blanks.
+	seen := map[string]bool{}
+	var flags []string
+	for _, f := range append(body.Flags, body.Flag) {
+		f = strings.TrimSpace(f)
+		if f == "" || seen[f] {
+			continue
+		}
+		seen[f] = true
+		flags = append(flags, f)
+	}
+	if len(flags) == 0 {
+		return fail(c, fiber.StatusBadRequest, "at least one flag is required")
 	}
 
 	cl, err := h.client(c)
@@ -253,8 +314,10 @@ func (h *Handler) handleSetFlag(c *fiber.Ctx) error {
 	}
 	defer cl.Close()
 
-	if err := cl.SetMessageFlag(folder, uid, body.Flag, body.Add); err != nil {
-		return fail(c, fiber.StatusBadGateway, "could not update flag")
+	for _, f := range flags {
+		if err := cl.SetMessageFlag(folder, uid, f, body.Add); err != nil {
+			return fail(c, fiber.StatusBadGateway, "could not update flag")
+		}
 	}
 	return c.SendStatus(fiber.StatusNoContent)
 }
@@ -322,4 +385,14 @@ func boolQuery(c *fiber.Ctx, key string) bool {
 
 func fail(c *fiber.Ctx, status int, msg string) error {
 	return c.Status(status).JSON(fiber.Map{"error": msg})
+}
+
+// failErr renders an error as JSON. A *fiber.Error keeps its status + message;
+// anything else becomes a generic 500. Lets helpers return typed errors that the
+// handler surfaces uniformly (see resolveAttachments).
+func failErr(c *fiber.Ctx, err error) error {
+	if fe, ok := err.(*fiber.Error); ok {
+		return fail(c, fe.Code, fe.Message)
+	}
+	return fail(c, fiber.StatusInternalServerError, "internal error")
 }

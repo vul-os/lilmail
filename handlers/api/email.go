@@ -40,24 +40,34 @@ var referencesSection = &imap.BodySectionName{
 	Peek: true,
 }
 
-// FetchMessages retrieves messages from a specified folder
+// FetchMessages retrieves the newest `limit` messages from a specified folder.
 func (c *Client) FetchMessages(folderName string, limit uint32) ([]models.Email, error) {
+	return c.FetchMessagesPaged(folderName, limit, 0)
+}
+
+// FetchMessagesPaged retrieves up to `limit` messages from folderName, skipping
+// the newest `offset` messages first. IMAP sequence numbers ascend oldest→newest,
+// so the window [end-limit+1, end] where end = total-offset yields a newest-first
+// page. offset=0 returns the newest `limit` (identical to FetchMessages); larger
+// offsets scroll further back, letting a client page a large mailbox.
+func (c *Client) FetchMessagesPaged(folderName string, limit, offset uint32) ([]models.Email, error) {
 	mbox, err := c.client.Select(folderName, false)
 	if err != nil {
 		return nil, fmt.Errorf("error selecting folder %s: %v", folderName, err)
 	}
 
-	if mbox.Messages == 0 {
+	if mbox.Messages == 0 || offset >= mbox.Messages {
 		return []models.Email{}, nil
 	}
 
+	end := mbox.Messages - offset
 	from := uint32(1)
-	if mbox.Messages > limit {
-		from = mbox.Messages - limit + 1
+	if end > limit {
+		from = end - limit + 1
 	}
 
 	seqSet := new(imap.SeqSet)
-	seqSet.AddRange(from, mbox.Messages)
+	seqSet.AddRange(from, end)
 
 	messages := make(chan *imap.Message, limit)
 	items := []imap.FetchItem{

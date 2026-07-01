@@ -26,6 +26,9 @@ func (f *fakeMailClient) FetchFolders() ([]*api.MailboxInfo, error) { return f.f
 func (f *fakeMailClient) FetchMessages(string, uint32) ([]models.Email, error) {
 	return nil, nil
 }
+func (f *fakeMailClient) FetchMessagesPaged(string, uint32, uint32) ([]models.Email, error) {
+	return nil, nil
+}
 func (f *fakeMailClient) FetchSingleMessage(string, string) (models.Email, error) {
 	return models.Email{}, nil
 }

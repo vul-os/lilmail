@@ -18,14 +18,17 @@ import (
 )
 
 // composeBody is the JSON payload for POST /v1/messages and POST /v1/drafts.
+// Attachments references previously-staged uploads (by token, from
+// POST /v1/attachments) and/or inline base64 files; see compose_attachments.go.
 type composeBody struct {
-	To        string `json:"to"`
-	Cc        string `json:"cc"`
-	Bcc       string `json:"bcc"`
-	Subject   string `json:"subject"`
-	Text      string `json:"text"`
-	HTML      string `json:"html"`
-	InReplyTo string `json:"inReplyTo"`
+	To          string          `json:"to"`
+	Cc          string          `json:"cc"`
+	Bcc         string          `json:"bcc"`
+	Subject     string          `json:"subject"`
+	Text        string          `json:"text"`
+	HTML        string          `json:"html"`
+	InReplyTo   string          `json:"inReplyTo"`
+	Attachments []attachmentRef `json:"attachments"`
 }
 
 // handleSend builds a MIME message from the JSON body and sends it over SMTP,
@@ -46,15 +49,21 @@ func (h *Handler) handleSend(c *fiber.Ctx) error {
 		plain = stripHTMLForPlain(body.HTML)
 	}
 
+	atts, err := h.resolveAttachments(c, body.Attachments)
+	if err != nil {
+		return failErr(c, err)
+	}
+
 	from := h.fromEmail(c)
 	rawMessage, err := api.BuildMIMEMessage(api.MIMEMessageOptions{
-		From:      from,
-		To:        body.To,
-		Cc:        body.Cc,
-		Subject:   body.Subject,
-		InReplyTo: body.InReplyTo,
-		PlainBody: plain,
-		HTMLBody:  body.HTML,
+		From:        from,
+		To:          body.To,
+		Cc:          body.Cc,
+		Subject:     body.Subject,
+		InReplyTo:   body.InReplyTo,
+		PlainBody:   plain,
+		HTMLBody:    body.HTML,
+		Attachments: atts,
 	})
 	if err != nil {
 		return fail(c, fiber.StatusInternalServerError, "failed to build message")
@@ -122,15 +131,21 @@ func (h *Handler) handleSaveDraft(c *fiber.Ctx) error {
 		plain = stripHTMLForPlain(body.HTML)
 	}
 
+	atts, err := h.resolveAttachments(c, body.Attachments)
+	if err != nil {
+		return failErr(c, err)
+	}
+
 	from := h.fromEmail(c)
 	rawMessage, err := api.BuildMIMEMessage(api.MIMEMessageOptions{
-		From:      from,
-		To:        body.To,
-		Cc:        body.Cc,
-		Subject:   body.Subject,
-		InReplyTo: body.InReplyTo,
-		PlainBody: plain,
-		HTMLBody:  body.HTML,
+		From:        from,
+		To:          body.To,
+		Cc:          body.Cc,
+		Subject:     body.Subject,
+		InReplyTo:   body.InReplyTo,
+		PlainBody:   plain,
+		HTMLBody:    body.HTML,
+		Attachments: atts,
 	})
 	if err != nil {
 		return fail(c, fiber.StatusInternalServerError, "failed to build draft")
