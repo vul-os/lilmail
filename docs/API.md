@@ -140,15 +140,28 @@ types as the HTMX calendar UI.
 | Method | Path | Query | Body | Returns |
 |--------|------|-------|------|---------|
 | `GET`    | `/v1/calendar/events`          | `start`, `end` | —          | `{ events: CalendarEvent[] }` |
-| `POST`   | `/v1/calendar/events`          | —              | `{ summary, start, end, description?, location?, allDay? }` | `201 { created: true }` |
+| `POST`   | `/v1/calendar/events`          | —              | `{ summary, start, end, description?, location?, allDay?, recurrence? }` | `201 { created: true }` |
+| `PUT`    | `/v1/calendar/events/:uid`     | —              | `{ summary, start, end, description?, location?, allDay?, recurrence?, path? }` | `{ updated: true }` |
 | `DELETE` | `/v1/calendar/events/:uid`     | —              | —          | `204` |
 | `GET`    | `/v1/calendar/freebusy`        | `start`, `end` | —          | `{ busy: { start, end }[] }` |
+
+`recurrence` is a raw iCalendar RRULE (e.g. `FREQ=WEEKLY;COUNT=10`), stored and
+returned verbatim. `CalendarEvent` includes `uid`, `path` (CalDAV object path)
+and `recurrence`; pass `path` back on `PUT` so an edit targets the exact object.
 
 ### Contacts (only when `[carddav] enabled`)
 
 | Method | Path | Query | Body | Returns |
 |--------|------|-------|------|---------|
-| `GET`    | `/v1/contacts`                 | `q`, `limit` (50) | —       | `{ contacts: { email, name }[] }` |
+| `GET`    | `/v1/contacts`                 | `q`, `limit` (50)  | —       | `{ contacts: { email, name }[] }` (autocomplete form) |
+| `GET`    | `/v1/contacts/cards`           | `q`, `limit` (500) | —       | `{ contacts: Contact[] }` (full cards) |
+| `POST`   | `/v1/contacts`                 | —                  | `{ name, emails, phones?, org?, title?, note? }` | `201 { contact }` |
+| `PUT`    | `/v1/contacts/:uid`            | —                  | `{ name, emails, phones?, org?, title?, note?, path? }` | `{ contact }` |
+| `DELETE` | `/v1/contacts/:uid`            | `path?`            | —       | `204` |
+
+`Contact` = `{ uid, name, org?, title?, note?, emails[], phones?, path? }`. The
+`path` is the CardDAV object path; pass it back on `PUT`/`DELETE` to target the
+exact card.
 
 ### Examples
 

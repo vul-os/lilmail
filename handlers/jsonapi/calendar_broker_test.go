@@ -30,6 +30,7 @@ func (f *fakeCalDAV) ListEvents(context.Context, time.Time, time.Time) ([]models
 	return f.events, nil
 }
 func (f *fakeCalDAV) CreateEvent(context.Context, models.CalendarEvent) error { return nil }
+func (f *fakeCalDAV) UpdateEvent(context.Context, models.CalendarEvent) error { return nil }
 func (f *fakeCalDAV) DeleteEvent(context.Context, string) error               { return nil }
 func (f *fakeCalDAV) FreeBusy(context.Context, time.Time, time.Time) ([]models.FreeBusySlot, error) {
 	return f.busy, nil

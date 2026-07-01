@@ -115,6 +115,7 @@ func brokerSMTPClient(spec brokerSpec) *api.SMTPClient {
 type calDAVClient interface {
 	ListEvents(ctx context.Context, start, end time.Time) ([]models.CalendarEvent, error)
 	CreateEvent(ctx context.Context, ev models.CalendarEvent) error
+	UpdateEvent(ctx context.Context, ev models.CalendarEvent) error
 	DeleteEvent(ctx context.Context, uid string) error
 	FreeBusy(ctx context.Context, start, end time.Time) ([]models.FreeBusySlot, error)
 }
@@ -138,6 +139,19 @@ var brokerDialCalDAV = func(spec brokerSpec) (calDAVClient, error) {
 // reuses the CardDAV query path in handlers/api. Package var for test seam.
 var brokerCardDAVContacts = func(spec brokerSpec, query string, limit int) []api.RecipientEntry {
 	return api.CardDAVContactsBearer(spec.CardDAVURL, spec.Secret, query, limit)
+}
+
+// Full-card CRUD seams for the brokered contacts surface. Each reuses the
+// bearer-token CardDAV entry points in handlers/api and is a package var so the
+// jsonapi contacts handlers can be tested without a live CardDAV server.
+var brokerContactsList = func(spec brokerSpec, query string, limit int) ([]models.Contact, error) {
+	return api.ContactsListBearer(spec.CardDAVURL, spec.Secret, query, limit)
+}
+var brokerContactPut = func(spec brokerSpec, ct models.Contact) (models.Contact, error) {
+	return api.ContactPutBearer(spec.CardDAVURL, spec.Secret, ct)
+}
+var brokerContactDelete = func(spec brokerSpec, uid, objPath string) error {
+	return api.ContactDeleteBearer(spec.CardDAVURL, spec.Secret, uid, objPath)
 }
 
 // brokerMiddleware validates the broker secret and, if valid, parses the

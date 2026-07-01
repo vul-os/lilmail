@@ -222,6 +222,13 @@ func calEventFromICal(objPath string, ev ical.Event) (models.CalendarEvent, erro
 		allDay = dtsProp.ValueType() == ical.ValueDate
 	}
 
+	// Recurrence: expose the raw RRULE so the client can display "repeats" and
+	// round-trip the rule on edit. We do not expand occurrences server-side.
+	recurrence := ""
+	if rr := ev.Props.Get(ical.PropRecurrenceRule); rr != nil {
+		recurrence = rr.Value
+	}
+
 	return models.CalendarEvent{
 		UID:         uid,
 		Summary:     summary,
@@ -231,20 +238,42 @@ func calEventFromICal(objPath string, ev ical.Event) (models.CalendarEvent, erro
 		Start:       startTime,
 		End:         endTime,
 		AllDay:      allDay,
+		Recurrence:  recurrence,
 		Path:        objPath,
 	}, nil
 }
 
 // CreateEvent builds a minimal VCALENDAR/VEVENT and PUTs it on the server.
 func (cc *CalDAVClient) CreateEvent(ctx context.Context, ev models.CalendarEvent) error {
-	calPath, err := cc.firstVEVENTCalendar(ctx)
-	if err != nil {
-		return err
-	}
-
 	if ev.UID == "" {
 		// Generate a simple UID based on the start time
 		ev.UID = fmt.Sprintf("lilmail-%d@lilmail", ev.Start.UnixNano())
+	}
+	return cc.putEvent(ctx, ev)
+}
+
+// UpdateEvent overwrites an existing event. CalDAV updates are idempotent PUTs to
+// the object's path, so this rebuilds the VEVENT from ev and PUTs it back. When
+// ev.Path is set (as returned by ListEvents) the update targets that exact
+// object; otherwise it falls back to <calendar>/<uid>.ics like CreateEvent. A UID
+// is required — without a stable identity there is nothing to update.
+func (cc *CalDAVClient) UpdateEvent(ctx context.Context, ev models.CalendarEvent) error {
+	if ev.UID == "" {
+		return fmt.Errorf("caldav: update requires an event UID")
+	}
+	return cc.putEvent(ctx, ev)
+}
+
+// putEvent serialises ev to a VCALENDAR/VEVENT and PUTs it. The target object
+// path is ev.Path when known (edits), else <firstVEVENTCalendar>/<uid>.ics.
+func (cc *CalDAVClient) putEvent(ctx context.Context, ev models.CalendarEvent) error {
+	objPath := ev.Path
+	if objPath == "" {
+		calPath, err := cc.firstVEVENTCalendar(ctx)
+		if err != nil {
+			return err
+		}
+		objPath = path.Join(calPath, ev.UID+".ics")
 	}
 
 	cal := ical.NewCalendar()
@@ -259,6 +288,9 @@ func (cc *CalDAVClient) CreateEvent(ctx context.Context, ev models.CalendarEvent
 	}
 	if ev.Location != "" {
 		event.Props.SetText(ical.PropLocation, ev.Location)
+	}
+	if ev.Recurrence != "" {
+		event.Props.SetText(ical.PropRecurrenceRule, ev.Recurrence)
 	}
 
 	// Stamp
@@ -276,10 +308,7 @@ func (cc *CalDAVClient) CreateEvent(ctx context.Context, ev models.CalendarEvent
 
 	cal.Children = append(cal.Children, event.Component)
 
-	// PUT to <calPath>/<uid>.ics
-	objPath := path.Join(calPath, ev.UID+".ics")
-	_, err = cc.c.PutCalendarObject(ctx, objPath, cal)
-	if err != nil {
+	if _, err := cc.c.PutCalendarObject(ctx, objPath, cal); err != nil {
 		return fmt.Errorf("caldav: put calendar object: %w", err)
 	}
 	return nil

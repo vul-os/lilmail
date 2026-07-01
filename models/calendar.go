@@ -12,6 +12,11 @@ type CalendarEvent struct {
 	Start       time.Time `json:"start"`
 	End         time.Time `json:"end"`
 	AllDay      bool      `json:"allDay"`
+	// Recurrence is the raw iCalendar RRULE (e.g. "FREQ=WEEKLY;COUNT=10") when the
+	// event repeats, empty for one-off events. Stored/emitted verbatim so the
+	// client can round-trip a rule it built without the server understanding every
+	// RFC 5545 nuance.
+	Recurrence string `json:"recurrence,omitempty"`
 	// CalDAV path this object lives at (server-assigned, empty for new events).
 	Path string `json:"path,omitempty"`
 }

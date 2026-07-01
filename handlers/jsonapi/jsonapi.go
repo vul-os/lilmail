@@ -100,6 +100,7 @@ func (h *Handler) Register(app *fiber.App) {
 	if h.config.CalDAV.Enabled || h.brokerSecret != "" {
 		g.Get("/calendar/events", h.handleCalendarEvents)      // ?start=&end=
 		g.Post("/calendar/events", h.handleCreateEvent)        // body {summary,start,end,...}
+		g.Put("/calendar/events/:uid", h.handleUpdateEvent)    // body {summary,start,end,...}
 		g.Delete("/calendar/events/:uid", h.handleDeleteEvent) // by UID
 		g.Get("/calendar/freebusy", h.handleFreeBusy)          // ?start=&end=
 	}
@@ -108,7 +109,11 @@ func (h *Handler) Register(app *fiber.App) {
 	// (per-account X-Vulos-Mail-Carddav-Url arrives per request). Reuses the
 	// CardDAV query path.
 	if h.config.CardDAV.Enabled || h.brokerSecret != "" {
-		g.Get("/contacts", h.handleContacts) // ?q=&limit=
+		g.Get("/contacts", h.handleContacts)            // ?q=&limit=  (lean autocomplete form)
+		g.Get("/contacts/cards", h.handleContactCards)  // ?q=&limit=  (full cards)
+		g.Post("/contacts", h.handleCreateContact)      // body {name,emails,...}
+		g.Put("/contacts/:uid", h.handleUpdateContact)  // body {name,emails,...}
+		g.Delete("/contacts/:uid", h.handleDeleteContact) // ?path=
 	}
 }
 

@@ -81,7 +81,7 @@ func (h *Handler) handleCalendarEvents(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"events": events})
 }
 
-// eventBody is the JSON payload for creating an event. Times are RFC 3339.
+// eventBody is the JSON payload for creating/updating an event. Times are RFC 3339.
 type eventBody struct {
 	UID         string `json:"uid"`
 	Summary     string `json:"summary"`
@@ -90,6 +90,10 @@ type eventBody struct {
 	Start       string `json:"start"`
 	End         string `json:"end"`
 	AllDay      bool   `json:"allDay"`
+	Recurrence  string `json:"recurrence"`
+	// Path is the CalDAV object path (from listEvents). When present on an update
+	// it targets the exact object so an edit never forks a duplicate.
+	Path string `json:"path"`
 }
 
 // handleCreateEvent creates a calendar event.
@@ -128,11 +132,63 @@ func (h *Handler) handleCreateEvent(c *fiber.Ctx) error {
 		Start:       start,
 		End:         end,
 		AllDay:      body.AllDay,
+		Recurrence:  body.Recurrence,
+		Path:        body.Path,
 	}
 	if err := cl.CreateEvent(context.Background(), ev); err != nil {
 		return fail(c, fiber.StatusBadGateway, "could not create event")
 	}
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{"created": true})
+}
+
+// handleUpdateEvent overwrites an existing calendar event (idempotent PUT).
+// PUT /v1/calendar/events/:uid  body {summary, start, end, description?, location?, allDay?, recurrence?, path?}
+func (h *Handler) handleUpdateEvent(c *fiber.Ctx) error {
+	uid := c.Params("uid")
+	if uid == "" {
+		return fail(c, fiber.StatusBadRequest, "event uid required")
+	}
+
+	var body eventBody
+	if err := c.BodyParser(&body); err != nil {
+		return fail(c, fiber.StatusBadRequest, "invalid JSON body")
+	}
+	if body.Summary == "" {
+		return fail(c, fiber.StatusBadRequest, "summary is required")
+	}
+
+	start, err := time.Parse(time.RFC3339, body.Start)
+	if err != nil {
+		return fail(c, fiber.StatusBadRequest, "start must be an RFC 3339 timestamp")
+	}
+	end, err := time.Parse(time.RFC3339, body.End)
+	if err != nil || !end.After(start) {
+		end = start.Add(time.Hour)
+	}
+
+	cl, ok, err := h.calDAVClient(c)
+	if !ok {
+		return fail(c, fiber.StatusNotImplemented, "calendar not available for this account")
+	}
+	if err != nil {
+		return fail(c, fiber.StatusBadGateway, "calendar not available")
+	}
+
+	ev := models.CalendarEvent{
+		UID:         uid,
+		Summary:     body.Summary,
+		Description: body.Description,
+		Location:    body.Location,
+		Start:       start,
+		End:         end,
+		AllDay:      body.AllDay,
+		Recurrence:  body.Recurrence,
+		Path:        body.Path,
+	}
+	if err := cl.UpdateEvent(context.Background(), ev); err != nil {
+		return fail(c, fiber.StatusBadGateway, "could not update event")
+	}
+	return c.JSON(fiber.Map{"updated": true})
 }
 
 // handleDeleteEvent removes a calendar event by UID.
