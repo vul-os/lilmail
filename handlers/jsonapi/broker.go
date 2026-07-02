@@ -54,6 +54,13 @@ const (
 	// xoauth2 + X-Vulos-Mail-Secret as an HTTP Bearer token.
 	hdrMailCalDAVURL  = "X-Vulos-Mail-Caldav-Url"
 	hdrMailCardDAVURL = "X-Vulos-Mail-Carddav-Url"
+
+	// Rules-store base URL for the brokered account. Optional: sent only by a
+	// backend that hosts an authoritative per-account rule store (vulos-mail).
+	// When absent, the /v1/rules surface reports "not supported by this mailbox
+	// backend" (501) — e.g. a plain Gmail/IMAP brokered account. lilmail brokers
+	// CRUD to this URL, presenting the shared broker secret as X-Vulos-Rules-Auth.
+	hdrMailRulesURL = "X-Vulos-Mail-Rules-Url"
 )
 
 // brokerEnvSecret is the env var that gates the whole brokered path. When empty,
@@ -87,6 +94,9 @@ type brokerSpec struct {
 	// brokered account has no calendar/contacts surface (e.g. plain IMAP).
 	CalDAVURL  string
 	CardDAVURL string
+	// RulesURL is the authoritative per-account rule-store base URL (vulos-mail's
+	// /internal/mailrules). Empty when the backend has no rule store.
+	RulesURL string
 }
 
 // brokerDialIMAP builds a live MailClient from a validated broker spec. It is a
@@ -200,6 +210,8 @@ func (h *Handler) parseBroker(c *fiber.Ctx) (brokerSpec, bool) {
 		// Optional DAV URLs — never required to validate the spec.
 		CalDAVURL:  strings.TrimSpace(c.Get(hdrMailCalDAVURL)),
 		CardDAVURL: strings.TrimSpace(c.Get(hdrMailCardDAVURL)),
+		// Optional rule-store URL — never required to validate the spec.
+		RulesURL: strings.TrimSpace(c.Get(hdrMailRulesURL)),
 	}
 
 	if spec.Auth == "" {

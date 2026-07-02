@@ -119,6 +119,15 @@ func (h *Handler) Register(app *fiber.App) {
 		g.Put("/contacts/:uid", h.handleUpdateContact)  // body {name,emails,...}
 		g.Delete("/contacts/:uid", h.handleDeleteContact) // ?path=
 	}
+
+	// Rules / filters — registered when the broker path is active (the authoritative
+	// per-account rule store lives in vulos-mail and its base URL arrives per
+	// request as X-Vulos-Mail-Rules-Url). When a request carries no rule-store URL
+	// (e.g. a plain Gmail/IMAP brokered account), the handlers report 501 and the
+	// mail-ui hides Filters. See rules.go.
+	if h.brokerSecret != "" {
+		h.registerRules(g)
+	}
 }
 
 // requireAuth gates the group, returning 401 JSON (never a redirect) when the
