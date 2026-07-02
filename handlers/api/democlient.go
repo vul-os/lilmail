@@ -78,6 +78,7 @@ func NewDemoClient() *DemoClient {
 			Attachments: []models.Attachment{
 				{
 					ID:          "1003/1",
+					PartID:      "1",
 					Filename:    "invoice-INV-2026-0614.pdf",
 					ContentType: "application/pdf",
 					Size:        84320,
@@ -100,18 +101,21 @@ func NewDemoClient() *DemoClient {
 			Attachments: []models.Attachment{
 				{
 					ID:          "1004/1",
+					PartID:      "1",
 					Filename:    "hero-concept-A.png",
 					ContentType: "image/png",
 					Size:        512000,
 				},
 				{
 					ID:          "1004/2",
+					PartID:      "2",
 					Filename:    "hero-concept-B.png",
 					ContentType: "image/png",
 					Size:        489000,
 				},
 				{
 					ID:          "1004/3",
+					PartID:      "3",
 					Filename:    "hero-concept-C.png",
 					ContentType: "image/png",
 					Size:        531000,

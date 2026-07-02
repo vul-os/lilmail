@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"regexp"
+	"strings"
 
 	"lilmail/storage"
 
@@ -83,17 +85,94 @@ func (h *Handler) handleAttachment(c *fiber.Ctx) error {
 }
 
 // streamAttachment writes the body with the correct Content-Type and a download
-// Content-Disposition.
+// Content-Disposition. Both the content type and the filename originate from
+// message MIME headers / a caller-supplied upload, so they are UNTRUSTED and are
+// sanitized here against HTTP response-header injection (CR/LF/NUL) before being
+// echoed into response headers. See sanitizeContentType / contentDisposition.
 func streamAttachment(c *fiber.Ctx, body []byte, filename, contentType string) error {
-	if contentType != "" {
-		c.Set("Content-Type", contentType)
-	}
-	if filename != "" {
-		c.Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
-	} else {
-		c.Set("Content-Disposition", "attachment")
-	}
+	c.Set("Content-Type", sanitizeContentType(contentType))
+	c.Set("Content-Disposition", contentDisposition(filename))
 	return c.SendStream(bytes.NewReader(body), len(body))
+}
+
+// mimeTypeRe matches a conservative RFC 2045 "type/subtype" (optionally with
+// parameters). A value that does not match — including anything carrying CR, LF
+// or NUL — is rejected so it can never break out of the Content-Type header.
+var mimeTypeRe = regexp.MustCompile(`^[A-Za-z0-9!#$%&'*+.^_` + "`" + `|~-]+/[A-Za-z0-9!#$%&'*+.^_` + "`" + `|~-]+(\s*;[^\r\n\x00]*)?$`)
+
+// sanitizeContentType returns a safe MIME type for the Content-Type header,
+// falling back to application/octet-stream when the value is empty or does not
+// look like a well-formed, injection-free media type.
+func sanitizeContentType(ct string) string {
+	ct = strings.TrimSpace(ct)
+	if ct == "" || !mimeTypeRe.MatchString(ct) {
+		return "application/octet-stream"
+	}
+	return ct
+}
+
+// contentDisposition builds an injection-safe attachment Content-Disposition.
+// Control characters (which include the CR/LF used for header splitting) are
+// stripped from the filename; the ASCII form is quoted with quotes/backslashes
+// escaped. When the (cleaned) name contains non-ASCII bytes an RFC 5987
+// filename* form is appended so the original name still round-trips, while the
+// quoted ASCII form remains as the legacy fallback.
+func contentDisposition(filename string) string {
+	cleaned := stripControl(filename)
+	if cleaned == "" {
+		return "attachment"
+	}
+	ascii, isASCII := asciiFold(cleaned)
+	quoted := strings.ReplaceAll(ascii, `\`, `\\`)
+	quoted = strings.ReplaceAll(quoted, `"`, `\"`)
+	if isASCII {
+		return fmt.Sprintf(`attachment; filename="%s"`, quoted)
+	}
+	return fmt.Sprintf(`attachment; filename="%s"; filename*=UTF-8''%s`, quoted, rfc5987Escape(cleaned))
+}
+
+// stripControl removes C0 control characters and DEL (this covers CR, LF, NUL).
+func stripControl(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, s)
+}
+
+// asciiFold replaces any non-ASCII rune with '_' and reports whether the input
+// was already pure printable ASCII (so the caller can skip the filename* form).
+func asciiFold(s string) (string, bool) {
+	isASCII := true
+	folded := strings.Map(func(r rune) rune {
+		if r > 0x7f {
+			isASCII = false
+			return '_'
+		}
+		return r
+	}, s)
+	return folded, isASCII
+}
+
+// rfc5987Escape percent-encodes a UTF-8 string per RFC 5987 ext-value rules
+// (attr-char stays literal; everything else becomes %HH). The input is already
+// control-stripped, so the result can never contain CR/LF.
+func rfc5987Escape(s string) string {
+	const upperhex = "0123456789ABCDEF"
+	const attrChars = "!#$&+-.^_`|~"
+	var b strings.Builder
+	for _, c := range []byte(s) {
+		if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+			strings.IndexByte(attrChars, c) >= 0 {
+			b.WriteByte(c)
+			continue
+		}
+		b.WriteByte('%')
+		b.WriteByte(upperhex[c>>4])
+		b.WriteByte(upperhex[c&0x0f])
+	}
+	return b.String()
 }
 
 // attachmentCacheKey builds a stable, collision-free object key for the cache.

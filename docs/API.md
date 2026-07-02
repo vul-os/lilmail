@@ -112,13 +112,15 @@ secret has been validated — never on unauthenticated or HTMX paths.
 | `GET`    | `/v1/me`                       | —                       | —              | `{ email, username }` |
 | `GET`    | `/v1/folders`                  | —                       | —              | `{ folders: MailboxInfo[] }` |
 | `GET`    | `/v1/messages`                 | `folder`, `limit` (50)  | —              | `{ folder, messages: Email[] }` |
-| `GET`    | `/v1/messages/:uid`            | `folder`                | —              | `Email` |
+| `GET`    | `/v1/messages/:uid`            | `folder`                | —              | `Email` (incl. `attachments[]`) |
+| `GET`    | `/v1/messages/:uid/attachments/:partId` | `folder`       | —              | attachment bytes (streamed) |
 | `GET`    | `/v1/search`                   | `folder`, `q`, `limit` (100) | —         | `{ folder, query, messages: Email[] }` |
 | `PATCH`  | `/v1/messages/:uid/flags`      | `folder`                | `{ flag, add }`| `204` |
 | `DELETE` | `/v1/messages/:uid`            | `folder`, `hard`        | —              | `204` |
 | `POST`   | `/v1/messages/:uid/move`       | `folder`                | `{ toFolder, folder? }` | `204` |
-| `POST`   | `/v1/messages`                 | —                       | `{ to, cc?, bcc?, subject, text?, html?, inReplyTo? }` | `201 { sent: true }` |
-| `POST`   | `/v1/drafts`                   | —                       | `{ to?, cc?, subject?, text?, html?, inReplyTo? }`     | `201 { saved: true }` |
+| `POST`   | `/v1/messages`                 | —                       | `{ to, cc?, bcc?, subject, text?, html?, inReplyTo?, attachments? }` | `201 { sent: true }` |
+| `POST`   | `/v1/drafts`                   | —                       | `{ to?, cc?, subject?, text?, html?, inReplyTo?, attachments? }`     | `201 { saved: true }` |
+| `POST`   | `/v1/attachments`              | —                       | multipart form, file field `file` | `201 { token, filename, size, contentType }` |
 
 `DELETE /v1/messages/:uid` MOVES the message to the Trash folder by default
 (discovered via the `\Trash` special-use, with name fallbacks Trash / Deleted /
@@ -130,6 +132,35 @@ can be located, the delete falls back to a permanent expunge.
 The source folder comes from the `folder` query param (default `INBOX`); an
 optional non-empty `folder` field in the body overrides it. `toFolder` is
 required.
+
+### Attachments
+
+**Download.** `GET /v1/messages/:uid/attachments/:partId?folder=` streams a
+single MIME part on demand (the content is NOT included in the message listing).
+`partId` is the IMAP MIME part path — take it from an entry's `partId` in the
+message's `attachments[]` array (see the `Email` shape below). The response
+carries the part's `Content-Type` and a `Content-Disposition: attachment;
+filename="…"` (with an RFC 5987 `filename*` form for non-ASCII names). Both the
+content type and filename are sanitized against response-header injection; an
+untrusted/malformed content type falls back to `application/octet-stream`.
+Downloads are capped at 25 MiB. Works in both session and CP-brokered modes.
+Unknown part / message ⇒ `404`; unauthenticated ⇒ `401`.
+
+**Upload (compose).** Attaching a file to an outgoing message is a two-step,
+JSON-friendly flow:
+
+1. `POST /v1/attachments` — multipart form with a `file` field. Stages the bytes
+   under the caller's per-account namespace and returns
+   `201 { token, filename, size, contentType }`.
+2. `POST /v1/messages` (or `/v1/drafts`) — reference the staged upload in the
+   `attachments` array: `{"attachments":[{"token":"<token>"}]}`. Each token is
+   resolved and CONSUMED (single-use, so it cannot be replayed). `filename` /
+   `contentType` may be supplied per-entry to override the staged metadata.
+
+Alternatively, small files can be sent fully inline (no step 1) with
+`{"filename":"a.txt","contentType":"text/plain","data":"<base64>"}`. A single
+attachment (and the per-message total) is capped at 25 MiB. Staged uploads that
+are never sent are garbage-collected after 24 h.
 
 ### Calendar (only when `[caldav] enabled`)
 
@@ -223,12 +254,26 @@ curl -b cookies.txt 'http://localhost:3000/v1/contacts?q=alice'
   "html": "<p>…</p>",
   "date": "2026-06-26T10:00:00Z",
   "hasAttachments": true,
+  "attachments": [
+    {
+      "id": "SU5CT1gAMzQAMi4x",   // opaque token (HTMX web download route)
+      "partId": "2.1",             // IMAP MIME part path — use with the /v1 download route
+      "filename": "invoice.pdf",
+      "contentType": "application/pdf",
+      "size": 84320,
+      "isInline": false
+    }
+  ],
   "flags": ["\\Seen"],
   "messageId": "<…@example.com>",
   "inReplyTo": "<…>",
   "references": ["<…>"]
 }
 ```
+
+`attachments[]` is metadata only (no bytes). Build a download link as
+`/v1/messages/{id}/attachments/{partId}?folder={folder}`. `isInline` flags parts
+meant to render inline (e.g. embedded images) versus regular file attachments.
 
 ## Demo mode
 
@@ -238,7 +283,5 @@ clients without a live mailbox.
 
 ## Not yet exposed
 
-Attachment upload/download over `/v1` is still HTMX-only (compose accepts text +
-HTML bodies via JSON; multipart attachment handling remains on the web routes).
-Calendar event editing (`PUT`) and recurring-event expansion are not yet exposed.
-Track these in [ROADMAP.md](../ROADMAP.md).
+Recurring-event expansion (server-side RRULE materialization) is not yet exposed
+over `/v1`. Track this in [ROADMAP.md](../ROADMAP.md).

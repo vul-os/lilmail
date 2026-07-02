@@ -29,13 +29,24 @@ type Email struct {
 	AccountColor string `json:"accountColor,omitempty"`
 }
 
+// Attachment is one downloadable MIME part of a message. In a message listing
+// only the metadata is populated (Content is fetched on demand by the download
+// route), so a client can render an attachment list + download links without
+// pulling any bytes.
+//
+// PartID is the raw IMAP MIME part path (e.g. "2.1"); it is what the JSON API
+// download route consumes:  GET /v1/messages/:uid/attachments/:partId?folder=.
+// ID is the opaque encoded token (base64 of folder\0uid\0part) used by the
+// HTMX web download route instead. Content is never serialized to JSON — it is
+// an in-process carrier for the on-demand download path only.
 type Attachment struct {
-	ID          string
-	Filename    string
-	ContentType string
-	Content     []byte
-
-	Size int
+	ID          string `json:"id"`
+	PartID      string `json:"partId"`
+	Filename    string `json:"filename"`
+	ContentType string `json:"contentType"`
+	Size        int    `json:"size"`
+	IsInline    bool   `json:"isInline"`
+	Content     []byte `json:"-"`
 }
 
 // Thread represents a JWZ conversation group. Root is the earliest (or

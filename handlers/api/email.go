@@ -345,11 +345,14 @@ func (c *Client) processAttachments(msg *imap.Message, folderName string) []mode
 			if filename == "" {
 				filename = "attachment"
 			}
+			partID := pathToString(path)
 			attachments = append(attachments, models.Attachment{
-				ID:          encodeAttachmentID(folderName, uid, pathToString(path)),
+				ID:          encodeAttachmentID(folderName, uid, partID),
+				PartID:      partID,
 				Filename:    filename,
 				ContentType: fmt.Sprintf("%s/%s", strings.ToLower(part.MIMEType), strings.ToLower(part.MIMESubType)),
 				Size:        int(part.Size),
+				IsInline:    strings.EqualFold(part.Disposition, "inline"),
 			})
 		}
 		return true // keep walking children
