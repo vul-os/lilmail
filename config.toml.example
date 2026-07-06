@@ -29,6 +29,12 @@ server = "mail.example.com"
 port = 993
 tls = true
 
+# Cache / working directory. Used for the embedded bbolt store AND for staging
+# OUTBOUND attachment uploads (POST /v1/attachments) before a message is sent.
+# Defaults to "./cache" when omitted; set it to a writable, persistent path.
+# If this points nowhere writable, composing with attachments fails with a 503
+# "attachment staging unavailable" while reading/downloading attachments still
+# works — which looks like "attachments are broken" but is a config issue.
 [cache]
 folder = "./cache"
 

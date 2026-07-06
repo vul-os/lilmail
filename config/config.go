@@ -292,6 +292,14 @@ func LoadConfig(filepath string) (*Config, error) {
 	// Durable store defaults to the embedded bbolt backend (single-binary, no
 	// external services). Postgres is opt-in via [storage].
 	config.Storage.Backend = "bolt"
+	// Cache/staging directory. Defaults to ./cache (matching config.toml.example)
+	// so the embedded bbolt store AND — crucially — outbound attachment staging
+	// (POST /v1/attachments, see handlers/jsonapi/compose_attachments.go) work out
+	// of the box. When this is empty, attachment UPLOADS fail with 503 "staging
+	// unavailable" while downloads keep working, which reads to a user as
+	// "attachments are broken" even though received mail attaches fine. A config
+	// file may still override it via [cache] folder.
+	config.Cache.Folder = "./cache"
 	// Set default values
 	config.SMTP.Port = 587 // Default to STARTTLS port
 	config.SMTP.UseSTARTTLS = true

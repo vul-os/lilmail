@@ -48,7 +48,7 @@ All sections except `[server]`, `[imap]`, `[smtp]`, `[cache]`, `[jwt]`, and
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `folder` | string | `"./cache"` | Directory for on-disk email cache. Created automatically |
+| `folder` | string | `"./cache"` | Directory for the on-disk email cache **and outbound attachment staging** (`POST /v1/attachments`). Created automatically. If unset/unwritable, composing with attachments returns `503 attachment staging unavailable` while downloads still work |
 
 ---
 

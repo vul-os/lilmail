@@ -225,3 +225,27 @@ func TestGetSecurityHeaders_HSTSOnlyWhenSSLEnabledAndDomainSet(t *testing.T) {
 		t.Error("expected no Strict-Transport-Security when SSL disabled")
 	}
 }
+
+// TestLoadConfig_CacheFolderDefault asserts LoadConfig defaults Cache.Folder to
+// "./cache" when a config omits [cache] — so outbound attachment staging works
+// out of the box (the wave-38 "attachments seem broken" root cause). An explicit
+// [cache] folder must still override the default.
+func TestLoadConfig_CacheFolderDefault(t *testing.T) {
+	// No [cache] block → default applies.
+	cfg, err := LoadConfig(writeTempConfig(t, minimalIMAP))
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.Cache.Folder != "./cache" {
+		t.Fatalf("Cache.Folder default = %q, want \"./cache\" (staging would 503 without it)", cfg.Cache.Folder)
+	}
+
+	// Explicit [cache] folder overrides the default.
+	cfg2, err := LoadConfig(writeTempConfig(t, minimalIMAP+"\n[cache]\nfolder = \"/var/lib/lilmail/cache\"\n"))
+	if err != nil {
+		t.Fatalf("LoadConfig (override): %v", err)
+	}
+	if cfg2.Cache.Folder != "/var/lib/lilmail/cache" {
+		t.Fatalf("Cache.Folder override = %q, want the configured value", cfg2.Cache.Folder)
+	}
+}
