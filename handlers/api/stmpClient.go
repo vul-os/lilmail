@@ -76,6 +76,16 @@ func (c *SMTPClient) SendMail(to, subject, body string, opts *MailOptions) error
 		opts = &MailOptions{}
 	}
 
+	// Header-injection guard for the values written verbatim into the DATA header
+	// block below. A CR/LF/NUL in any of them would terminate the header line and
+	// allow header smuggling (e.g. an injected Bcc:) or message splitting. Fail
+	// closed before opening the connection.
+	for _, v := range []string{to, subject, opts.Cc, opts.InReplyTo, opts.References} {
+		if err := validateHeaderValue(v); err != nil {
+			return fmt.Errorf("smtp: refusing to send message with unsafe header: %w", err)
+		}
+	}
+
 	addr := fmt.Sprintf("%s:%d", c.server, c.port)
 	tlsCfg := &tls.Config{
 		ServerName:         c.server,

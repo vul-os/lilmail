@@ -90,6 +90,28 @@ func BuildMIMEMessage(opts MIMEMessageOptions) ([]byte, error) {
 		return nil, fmt.Errorf("message must have at least a plain or HTML body")
 	}
 
+	// SMTP header-injection guard. From/To/Cc and the threading headers are written
+	// verbatim into the RFC 2822 header block below; a CR/LF (or NUL) smuggled into
+	// any of them would terminate the header and let a caller inject arbitrary
+	// headers (e.g. a silent Bcc:) or split the message. These values originate
+	// from the JSON send/draft body (handlers/jsonapi), so they are untrusted and
+	// must fail closed here — the single choke point every send path funnels
+	// through. Subject is Q-encoded (which neutralises CR/LF) so it is exempt.
+	for _, f := range []struct {
+		name, val string
+	}{
+		{"From", opts.From},
+		{"To", opts.To},
+		{"Cc", opts.Cc},
+		{"In-Reply-To", opts.InReplyTo},
+		{"References", opts.References},
+		{"Message-ID", opts.MessageID},
+	} {
+		if err := validateHeaderValue(f.val); err != nil {
+			return nil, fmt.Errorf("%s header: %w", f.name, err)
+		}
+	}
+
 	// Partition attachments into inline (cid-referenced) and regular. Inline parts
 	// are only meaningful with an HTML body; if there's no HTML body, an "inline"
 	// attachment has nothing to reference, so treat it as a regular attachment.
@@ -307,6 +329,18 @@ func validateContentID(cid string) error {
 	}
 	if !contentIDRe.MatchString(cid) {
 		return fmt.Errorf("Content-ID %q contains illegal characters", cid)
+	}
+	return nil
+}
+
+// validateHeaderValue rejects a structured header value that would break the
+// RFC 2822 header block. Any bare CR, LF, or NUL terminates the current header
+// line (a folded continuation must begin with SP/HTAB, which callers here never
+// produce), so their presence signals a header-injection attempt and is refused
+// outright. Empty values are allowed — callers omit empty optional headers.
+func validateHeaderValue(v string) error {
+	if strings.ContainsAny(v, "\r\n\x00") {
+		return fmt.Errorf("value contains illegal CR/LF/NUL (header injection)")
 	}
 	return nil
 }
