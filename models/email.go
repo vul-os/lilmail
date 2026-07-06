@@ -27,6 +27,9 @@ type Email struct {
 	AccountEmail string `json:"accountEmail,omitempty"`
 	AccountLabel string `json:"accountLabel,omitempty"`
 	AccountColor string `json:"accountColor,omitempty"`
+	// Invite is populated when the message carries a text/calendar iMIP part
+	// (iTIP). Nil for ordinary mail. Drives the RSVP card in the reading pane.
+	Invite *CalendarInvite `json:"invite,omitempty"`
 }
 
 // Attachment is one downloadable MIME part of a message. In a message listing

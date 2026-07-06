@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"path"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/emersion/go-ical"
@@ -229,6 +230,34 @@ func calEventFromICal(objPath string, ev ical.Event) (models.CalendarEvent, erro
 		recurrence = rr.Value
 	}
 
+	sequence := 0
+	if seq := ev.Props.Get(ical.PropSequence); seq != nil {
+		if n, err := seq.Int(); err == nil {
+			sequence = n
+		}
+	}
+
+	// Attendees round-trip so a listed meeting shows who was invited and their
+	// current PARTSTAT (updated as REPLYs are processed).
+	var attendees []models.Attendee
+	for _, prop := range ev.Props.Values(ical.PropAttendee) {
+		addr := strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(prop.Value), "mailto:"), "MAILTO:")
+		if addr == "" {
+			continue
+		}
+		a := models.Attendee{Email: addr}
+		if p := prop.Params.Get(ical.ParamParticipationStatus); p != "" {
+			a.PartStat = strings.ToUpper(p)
+		}
+		if r := prop.Params.Get(ical.ParamRole); r != "" {
+			a.Role = r
+		}
+		if cn := prop.Params.Get(ical.ParamCommonName); cn != "" {
+			a.Name = cn
+		}
+		attendees = append(attendees, a)
+	}
+
 	return models.CalendarEvent{
 		UID:         uid,
 		Summary:     summary,
@@ -240,6 +269,8 @@ func calEventFromICal(objPath string, ev ical.Event) (models.CalendarEvent, erro
 		AllDay:      allDay,
 		Recurrence:  recurrence,
 		Path:        objPath,
+		Attendees:   attendees,
+		Sequence:    sequence,
 	}, nil
 }
 
@@ -291,6 +322,42 @@ func (cc *CalDAVClient) putEvent(ctx context.Context, ev models.CalendarEvent) e
 	}
 	if ev.Recurrence != "" {
 		event.Props.SetText(ical.PropRecurrenceRule, ev.Recurrence)
+	}
+	if ev.Sequence > 0 {
+		seqProp := ical.NewProp(ical.PropSequence)
+		seqProp.SetText(fmt.Sprintf("%d", ev.Sequence))
+		event.Props.Set(seqProp)
+	}
+
+	// Meeting properties: ORGANIZER + one ATTENDEE per invitee. Written whenever
+	// the event carries attendees (an iTIP meeting) OR an explicit organizer, so
+	// the stored CalDAV object round-trips the scheduling identity that the
+	// mailed REQUEST advertised. go-ical escapes property values on encode.
+	if ev.Organizer != "" {
+		org := ical.NewProp(ical.PropOrganizer)
+		org.Value = "mailto:" + strings.TrimPrefix(strings.TrimPrefix(ev.Organizer, "mailto:"), "MAILTO:")
+		event.Props.Set(org)
+	}
+	for _, a := range ev.Attendees {
+		addr := strings.TrimSpace(a.Email)
+		if addr == "" {
+			continue
+		}
+		part := a.PartStat
+		if part == "" {
+			part = "NEEDS-ACTION"
+		}
+		att := ical.NewProp(ical.PropAttendee)
+		att.Params.Set(ical.ParamParticipationStatus, part)
+		att.Params.Set("RSVP", "TRUE")
+		if a.Role != "" {
+			att.Params.Set(ical.ParamRole, a.Role)
+		}
+		if a.Name != "" {
+			att.Params.Set(ical.ParamCommonName, a.Name)
+		}
+		att.Value = "mailto:" + strings.TrimPrefix(strings.TrimPrefix(addr, "mailto:"), "MAILTO:")
+		event.Props.Add(att)
 	}
 
 	// Stamp

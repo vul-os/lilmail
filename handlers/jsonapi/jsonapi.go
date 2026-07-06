@@ -113,6 +113,9 @@ func (h *Handler) Register(app *fiber.App) {
 		g.Put("/calendar/events/:uid", h.handleUpdateEvent)    // body {summary,start,end,...}
 		g.Delete("/calendar/events/:uid", h.handleDeleteEvent) // by UID
 		g.Get("/calendar/freebusy", h.handleFreeBusy)          // ?start=&end=
+		// iTIP RSVP: reply to a received invitation (sends METHOD:REPLY + reflects
+		// the event in the responder's own calendar). body {uid, organizer, response, ...event}
+		g.Post("/calendar/rsvp", h.handleCalendarRSVP)
 	}
 
 	// Contacts — registered when CardDAV is enabled OR the broker path is active
@@ -259,6 +262,18 @@ func (h *Handler) handleMessage(c *fiber.Ctx) error {
 	email, err := cl.FetchSingleMessage(folder, uid)
 	if err != nil {
 		return fail(c, fiber.StatusNotFound, "message not found")
+	}
+	// Refine the invite's MyPartStat using the authoritative sending identity
+	// (fromEmail) rather than the raw IMAP login username used during parse.
+	if email.Invite != nil {
+		me := strings.ToLower(strings.TrimSpace(h.fromEmail(c)))
+		email.Invite.MyPartStat = ""
+		for _, a := range email.Invite.Attendees {
+			if strings.ToLower(strings.TrimSpace(a.Email)) == me {
+				email.Invite.MyPartStat = a.PartStat
+				break
+			}
+		}
 	}
 	return c.JSON(email)
 }

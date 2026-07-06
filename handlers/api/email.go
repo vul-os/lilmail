@@ -659,7 +659,86 @@ func (c *Client) processMessage(msg *imap.Message, folderName string) (models.Em
 	email.Attachments = attachments
 	email.HasAttachments = len(attachments) > 0
 
+	// iMIP: detect a text/calendar part and, if it carries an iTIP METHOD, attach
+	// the parsed invite so the reading pane can render an RSVP card. The raw
+	// message bytes were read above; re-parse them for the calendar walk (cheap,
+	// single message). Viewer identity for MyPartStat is refined by the jsonapi
+	// layer via fromEmail; here we use the login username as a best effort.
+	if r := msg.GetBody(&imap.BodySectionName{}); r != nil {
+		if raw, err := io.ReadAll(r); err == nil {
+			if cal := extractCalendarPart(raw); cal != nil {
+				if inv, err := ParseInvite(cal, c.username); err == nil && inv != nil {
+					email.Invite = inv
+				}
+			}
+		}
+	}
+
 	return email, nil
+}
+
+// extractCalendarPart walks a raw RFC 5322 message and returns the transfer-
+// decoded bytes of the first text/calendar part, or nil when none is present.
+// It recurses into nested multipart containers (an iMIP invite is commonly
+// multipart/mixed › multipart/alternative › text/calendar) and decodes
+// base64/quoted-printable so ParseInvite receives clean iCalendar text.
+func extractCalendarPart(raw []byte) []byte {
+	m, err := mail.ReadMessage(bytes.NewReader(raw))
+	if err != nil {
+		return nil
+	}
+	ct := m.Header.Get("Content-Type")
+	cte := m.Header.Get("Content-Transfer-Encoding")
+	return walkForCalendar(m.Body, ct, cte, 0)
+}
+
+// walkForCalendar recursively scans a MIME body for a text/calendar part.
+func walkForCalendar(body io.Reader, contentType, transferEnc string, depth int) []byte {
+	if depth > 10 {
+		return nil // guard against pathological nesting
+	}
+	mediaType, params, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		mediaType = strings.ToLower(strings.TrimSpace(strings.SplitN(contentType, ";", 2)[0]))
+	}
+
+	if strings.HasPrefix(mediaType, "multipart/") && params["boundary"] != "" {
+		mr := multipart.NewReader(body, params["boundary"])
+		for {
+			p, err := mr.NextPart()
+			if err != nil {
+				break
+			}
+			pct := p.Header.Get("Content-Type")
+			pcte := p.Header.Get("Content-Transfer-Encoding")
+			if found := walkForCalendar(p, pct, pcte, depth+1); found != nil {
+				return found
+			}
+		}
+		return nil
+	}
+
+	if mediaType == "text/calendar" {
+		data, err := io.ReadAll(decodeTransfer(body, transferEnc))
+		if err != nil {
+			return nil
+		}
+		return data
+	}
+	return nil
+}
+
+// decodeTransfer wraps r with the appropriate decoder for a Content-Transfer-
+// Encoding value (base64 / quoted-printable), or returns r unchanged.
+func decodeTransfer(r io.Reader, enc string) io.Reader {
+	switch strings.ToLower(strings.TrimSpace(enc)) {
+	case "base64":
+		return base64.NewDecoder(base64.StdEncoding, r)
+	case "quoted-printable":
+		return quotedprintable.NewReader(r)
+	default:
+		return r
+	}
 }
 
 // Simple HTML tag stripping
