@@ -370,6 +370,18 @@ func (d *DemoClient) DiscoverDraftsFolder() (string, error) { return "Drafts", n
 // DiscoverTrashFolder returns the canonical demo trash folder name.
 func (d *DemoClient) DiscoverTrashFolder() (string, error) { return "Trash", nil }
 
+// DiscoverSnoozedFolder returns the canonical demo snoozed folder name.
+func (d *DemoClient) DiscoverSnoozedFolder() (string, error) { return "Snoozed", nil }
+
+// DiscoverJunkFolder returns the canonical demo spam folder name.
+func (d *DemoClient) DiscoverJunkFolder() (string, error) { return "Spam", nil }
+
+// CreateMailbox is a no-op in demo mode (folders are fixed in-memory).
+func (d *DemoClient) CreateMailbox(name string) error { return nil }
+
+// DeleteMailbox is a no-op in demo mode.
+func (d *DemoClient) DeleteMailbox(name string) error { return nil }
+
 // WatchInbox is a no-op in demo mode; it blocks until stop is closed.
 func (d *DemoClient) WatchInbox(stop <-chan struct{}, onNewMail func(email models.Email)) error {
 	<-stop

@@ -71,6 +71,12 @@ func (h *Handler) Register(app *fiber.App) {
 	g.Patch("/messages/:uid/flags", h.handleSetFlag)                // ?folder=  body {flag,add}
 	g.Delete("/messages/:uid", h.handleDelete)                      // ?folder=&hard=
 	g.Post("/messages/:uid/move", h.handleMove)                     // ?folder=  body {toFolder, folder?}
+	g.Post("/messages/:uid/snooze", h.handleSnooze)                 // ?folder=  body {until}
+	g.Delete("/messages/:uid/snooze", h.handleUnsnooze)             // ?folder=  (cancel scheduled return)
+
+	// Folder (label) create/delete + report-spam. Plain IMAP operations, so they
+	// work in both session and brokered modes. System folders are delete-protected.
+	h.registerFolders(g)
 
 	// Compose / drafts — JSON transport over the same SMTP/MIME engine as the
 	// HTMX compose path. The :uid Delete above is registered first so it is not

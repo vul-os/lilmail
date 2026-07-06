@@ -47,6 +47,10 @@ func (f *fakeMailClient) DeleteDraft(string) error                          { re
 func (f *fakeMailClient) DeleteMessageFromFolder(string, string) error      { return nil }
 func (f *fakeMailClient) DiscoverDraftsFolder() (string, error)             { return "Drafts", nil }
 func (f *fakeMailClient) DiscoverTrashFolder() (string, error)              { return "Trash", nil }
+func (f *fakeMailClient) DiscoverSnoozedFolder() (string, error)            { return "Snoozed", nil }
+func (f *fakeMailClient) DiscoverJunkFolder() (string, error)               { return "Spam", nil }
+func (f *fakeMailClient) CreateMailbox(string) error                        { return nil }
+func (f *fakeMailClient) DeleteMailbox(string) error                        { return nil }
 func (f *fakeMailClient) WatchInbox(<-chan struct{}, func(models.Email)) error {
 	return nil
 }

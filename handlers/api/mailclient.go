@@ -33,6 +33,14 @@ type MailClient interface {
 	DeleteMessageFromFolder(folder, uid string) error
 	DiscoverDraftsFolder() (string, error)
 	DiscoverTrashFolder() (string, error)
+	// DiscoverSnoozedFolder finds (creating if absent) the Snoozed folder.
+	DiscoverSnoozedFolder() (string, error)
+	// DiscoverJunkFolder finds the Junk/Spam folder (error if none — never created).
+	DiscoverJunkFolder() (string, error)
+
+	// Folder (label) management — back the /v1 folder create/delete surface.
+	CreateMailbox(name string) error
+	DeleteMailbox(name string) error
 
 	// Real-time notifications
 	WatchInbox(stop <-chan struct{}, onNewMail func(email models.Email)) error
