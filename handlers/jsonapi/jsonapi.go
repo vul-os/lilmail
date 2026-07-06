@@ -24,6 +24,7 @@ import (
 	"lilmail/config"
 	"lilmail/handlers/api"
 	"lilmail/handlers/web"
+	"lilmail/storage"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/limiter"
@@ -41,14 +42,38 @@ type Handler struct {
 	// empty, brokered headers are never trusted and the API behaves identically
 	// to standalone lilmail. Read once from LILMAIL_BROKER_SECRET at construction.
 	brokerSecret string
+	// schedule owns durable scheduled-send storage + the poll-based drain. nil when
+	// no KV store was wired (New without a store) — then the /v1/scheduled surface
+	// reports 501 and POST /v1/messages with sendAt is rejected, so an unconfigured
+	// build simply has no send-later, rather than silently dropping a scheduled mail.
+	schedule *scheduler
 }
 
 // New builds a JSON API handler. auth is the same *web.AuthHandler the HTMX UI
 // uses, so both surfaces share one authentication + client-construction path.
 // The CP-brokered credential mode is enabled when LILMAIL_BROKER_SECRET is set.
+//
+// Scheduled send is OFF in this constructor (no durable store). Use NewWithStore
+// to enable it; standalone/tests that don't need send-later keep the simpler form.
 func New(store *session.Store, cfg *config.Config, auth *web.AuthHandler) *Handler {
 	return &Handler{store: store, config: cfg, auth: auth, brokerSecret: readBrokerSecret()}
 }
+
+// NewWithStore is New plus a durable KV store, which enables scheduled send: it
+// starts the poll-based drain goroutine (with restart catch-up) and mounts the
+// /v1/scheduled surface. The caller owns the KV's lifecycle. Returns the handler
+// so main can defer StopScheduler on shutdown.
+func NewWithStore(store *session.Store, cfg *config.Config, auth *web.AuthHandler, kv storage.KV) *Handler {
+	h := New(store, cfg, auth)
+	if kv != nil {
+		h.schedule = newScheduler(newScheduleStore(kv, cfg.Encryption.Key))
+		h.schedule.Start()
+	}
+	return h
+}
+
+// StopScheduler halts the background drain (no-op when scheduled send is off).
+func (h *Handler) StopScheduler() { h.schedule.Stop() }
 
 // Register mounts the API under /v1. Folder names travel as the `folder` query
 // parameter (not a path segment) so names containing the IMAP hierarchy
@@ -94,8 +119,16 @@ func (h *Handler) Register(app *fiber.App) {
 			return fail(c, fiber.StatusTooManyRequests, "rate limit exceeded")
 		},
 	})
-	g.Post("/messages", sendLimiter, h.handleSend) // body {to, cc?, bcc?, subject, text?, html?, inReplyTo?, attachments?}
+	g.Post("/messages", sendLimiter, h.handleSend) // body {to, cc?, bcc?, subject, text?, html?, inReplyTo?, attachments?, sendAt?}
 	g.Post("/drafts", h.handleSaveDraft)           // body {to, cc?, subject, text?, html?, inReplyTo?, attachments?}
+
+	// Scheduled send (send-later). POST /v1/messages with a future sendAt persists
+	// a scheduled send instead of sending now (handled inside handleSend); these
+	// manage the per-account pending queue. Owned by + visible to the authenticated
+	// account ONLY — another account's id is 404 (no cross-account leak).
+	g.Get("/scheduled", h.handleListScheduled)          // list pending scheduled sends
+	g.Delete("/scheduled/:id", h.handleCancelScheduled) // cancel a pending scheduled send
+	g.Patch("/scheduled/:id", h.handlePatchScheduled)   // edit time/body of a pending send
 
 	// Attachment staging for compose: upload a file, get back a token to reference
 	// in the attachments array of a later /v1/messages or /v1/drafts POST.
@@ -122,10 +155,10 @@ func (h *Handler) Register(app *fiber.App) {
 	// (per-account X-Vulos-Mail-Carddav-Url arrives per request). Reuses the
 	// CardDAV query path.
 	if h.config.CardDAV.Enabled || h.brokerSecret != "" {
-		g.Get("/contacts", h.handleContacts)            // ?q=&limit=  (lean autocomplete form)
-		g.Get("/contacts/cards", h.handleContactCards)  // ?q=&limit=  (full cards)
-		g.Post("/contacts", h.handleCreateContact)      // body {name,emails,...}
-		g.Put("/contacts/:uid", h.handleUpdateContact)  // body {name,emails,...}
+		g.Get("/contacts", h.handleContacts)              // ?q=&limit=  (lean autocomplete form)
+		g.Get("/contacts/cards", h.handleContactCards)    // ?q=&limit=  (full cards)
+		g.Post("/contacts", h.handleCreateContact)        // body {name,emails,...}
+		g.Put("/contacts/:uid", h.handleUpdateContact)    // body {name,emails,...}
 		g.Delete("/contacts/:uid", h.handleDeleteContact) // ?path=
 	}
 

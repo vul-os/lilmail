@@ -15,6 +15,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -312,7 +313,22 @@ func main() {
 	// JSON/REST API (/v1/*) — machine-readable contract for rich React clients
 	// (Vulos Mail webmail, Vulos Workspace). Additive: reuses the same engine +
 	// session auth as the HTMX UI, returns 401 JSON instead of redirecting.
-	jsonapi.New(store, config, webAuthHandler).Register(app)
+	//
+	// A durable KV store (bbolt by default, Postgres when configured) backs
+	// scheduled send (send-later): the store persists pending scheduled sends and
+	// a poll-based drain delivers them at their sendAt with restart catch-up. If
+	// the store cannot be opened we log and fall back to the storeless handler, so
+	// the rest of the API keeps working (only send-later is unavailable).
+	scheduleDBPath := filepath.Join(config.Cache.Folder, "scheduled.db")
+	if kv, kvErr := storage.Open(config, scheduleDBPath); kvErr != nil {
+		log.Printf("scheduled send unavailable (store open failed): %v", kvErr)
+		jsonapi.New(store, config, webAuthHandler).Register(app)
+	} else {
+		jsonAPI := jsonapi.NewWithStore(store, config, webAuthHandler, kv)
+		jsonAPI.Register(app)
+		defer jsonAPI.StopScheduler()
+		defer kv.Close()
+	}
 
 	// Rate limiters — applied to the three highest-risk surfaces.
 	// Login: tight (brute-force). Send + AI: moderate (abuse/cost).

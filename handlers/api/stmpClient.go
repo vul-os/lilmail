@@ -57,6 +57,43 @@ func (c *SMTPClient) SetInsecureSkipVerify(skip bool) {
 	c.insecureSkipVerify = skip
 }
 
+// SMTPTransport is a snapshot of an SMTPClient's connection parameters, including
+// the authentication secret (password or OAuth token). It lets a caller persist
+// everything needed to reconnect + send later (e.g. a scheduled send) WITHOUT
+// duplicating the credential-derivation logic in the handler layer. The secret is
+// sensitive: callers MUST store it encrypted at rest, never in plaintext.
+type SMTPTransport struct {
+	Server       string
+	Port         int
+	Email        string
+	UseOAuth     bool
+	Mechanism    string
+	UseSTARTTLS  bool
+	InsecureSkip bool
+	// Secret is the password (plain auth) or the OAuth access token (oauth auth).
+	Secret string
+}
+
+// Transport returns a snapshot of this client's connection parameters + secret,
+// for callers that need to persist a delayed send. Reusing this keeps the
+// broker/session/oauth credential logic in ONE place (whoever built the client).
+func (c *SMTPClient) Transport() SMTPTransport {
+	secret := c.password
+	if c.useOAuth {
+		secret = c.token
+	}
+	return SMTPTransport{
+		Server:       c.server,
+		Port:         c.port,
+		Email:        c.email,
+		UseOAuth:     c.useOAuth,
+		Mechanism:    c.mechanism,
+		UseSTARTTLS:  c.useStartTLS,
+		InsecureSkip: c.insecureSkipVerify,
+		Secret:       secret,
+	}
+}
+
 // MailOptions carries optional RFC 2822 header fields for a message.
 type MailOptions struct {
 	// Cc is a comma-separated list of CC recipients.

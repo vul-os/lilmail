@@ -29,6 +29,10 @@ type composeBody struct {
 	HTML        string          `json:"html"`
 	InReplyTo   string          `json:"inReplyTo"`
 	Attachments []attachmentRef `json:"attachments"`
+	// SendAt, when set to a future RFC3339 instant, turns this into a SCHEDULED
+	// send: the message is persisted and delivered at sendAt via the drain (through
+	// the same guarded MIME path), not sent immediately. Empty => send now.
+	SendAt string `json:"sendAt"`
 }
 
 // handleSend builds a MIME message from the JSON body and sends it over SMTP,
@@ -55,6 +59,14 @@ func (h *Handler) handleSend(c *fiber.Ctx) error {
 	}
 
 	from := h.fromEmail(c)
+
+	// Scheduled send: a future sendAt persists the message and returns 202 without
+	// sending now; the drain delivers it at sendAt through the SAME BuildMIMEMessage
+	// → SMTP path (so the wave-49 header guard + wave-44 cid: run at actual send).
+	if strings.TrimSpace(body.SendAt) != "" {
+		return h.scheduleSend(c, body, plain, atts, from)
+	}
+
 	rawMessage, err := api.BuildMIMEMessage(api.MIMEMessageOptions{
 		From:        from,
 		To:          body.To,
