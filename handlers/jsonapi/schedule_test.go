@@ -482,3 +482,308 @@ func TestScheduleSecretEncryptedAtRest(t *testing.T) {
 		t.Fatalf("decrypted secret = %q; want TOP-SECRET-TOKEN", got.Secret)
 	}
 }
+
+// --- wave-57 adversarial security regressions -------------------------------
+
+// PATCH-after-schedule injection bypass (vector 2/5): a caller schedules a CLEAN
+// send (passes the schedule-time smell test), then PATCHes the To header with a
+// CRLF payload to smuggle a Bcc AFTER any schedule-time validation. Because PATCH
+// does not itself re-run the header guard, the ONLY thing standing between the
+// poisoned record and the wire is the fire-time BuildMIMEMessage guard. This test
+// proves that guard fires: the poisoned send must be dropped at drain and never
+// reach SMTP. If PATCH ever started persisting a pre-built message that skipped
+// BuildMIMEMessage, this would catch the regression.
+func TestScheduledPatchInjectionDroppedAtSendTime(t *testing.T) {
+	app, store, cap, _ := newScheduledApp(t, &fakeMailClient{})
+
+	// 1) Schedule a clean send, soon but not yet due.
+	when := time.Now().Add(1 * time.Second).UTC().Format(time.RFC3339)
+	_, code, b := doReq(t, app, "POST", "/v1/messages",
+		`{"to":"bob@example.com","subject":"clean","text":"hi","sendAt":"`+when+`"}`)
+	if code != fiber.StatusAccepted {
+		t.Fatalf("schedule clean: want 202, got %d: %s", code, b)
+	}
+	var acc struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(b, &acc)
+
+	// 2) PATCH the To with a CRLF-smuggled Bcc — the classic post-validation inject.
+	inj := `bob@example.com\r\nBcc: evil@example.com`
+	_, code, b = doReq(t, app, "PATCH", "/v1/scheduled/"+acc.ID,
+		`{"to":"`+inj+`"}`)
+	if code != fiber.StatusOK {
+		t.Fatalf("patch: want 200, got %d: %s", code, b)
+	}
+
+	// 3) Wait for the drain to try to fire it: the fire-time guard must reject the
+	// build and DROP the record, with NO SMTP send.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if recs, _ := store.List("user@gmail.com"); len(recs) == 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if fired, _, _ := cap.snapshot(); fired {
+		t.Fatal("a PATCH-injected scheduled send reached SMTP — fire-time guard bypassed")
+	}
+	if recs, _ := store.List("user@gmail.com"); len(recs) != 0 {
+		t.Fatalf("PATCH-injected record not dropped at drain: %d remain", len(recs))
+	}
+}
+
+// PATCH cannot move a send to a PAST or out-of-horizon time (vector 5). The time
+// re-validation in handlePatchScheduled must reject the same way the initial
+// schedule does, so a caller cannot PATCH a far-future send into the past (which
+// would make it fire immediately) or beyond the 1y horizon.
+func TestScheduledPatchTimeRevalidated(t *testing.T) {
+	app, store, _, _ := newScheduledApp(t, &fakeMailClient{})
+
+	when := time.Now().Add(30 * time.Minute).UTC().Format(time.RFC3339)
+	_, code, b := doReq(t, app, "POST", "/v1/messages",
+		`{"to":"bob@example.com","subject":"s","text":"hi","sendAt":"`+when+`"}`)
+	if code != fiber.StatusAccepted {
+		t.Fatalf("schedule: want 202, got %d: %s", code, b)
+	}
+	var acc struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(b, &acc)
+
+	past := time.Now().Add(-1 * time.Hour).UTC().Format(time.RFC3339)
+	_, code, _ = doReq(t, app, "PATCH", "/v1/scheduled/"+acc.ID, `{"sendAt":"`+past+`"}`)
+	if code != fiber.StatusBadRequest {
+		t.Fatalf("PATCH to past time: want 400, got %d", code)
+	}
+
+	absurd := time.Now().Add(3 * 365 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	_, code, _ = doReq(t, app, "PATCH", "/v1/scheduled/"+acc.ID, `{"sendAt":"`+absurd+`"}`)
+	if code != fiber.StatusBadRequest {
+		t.Fatalf("PATCH to out-of-horizon time: want 400, got %d", code)
+	}
+
+	// The record's original time must be unchanged after the rejected PATCHes.
+	rec, err := store.Get("user@gmail.com", acc.ID)
+	if err != nil {
+		t.Fatalf("get after rejected patch: %v", err)
+	}
+	if rec.SendAt <= time.Now().Unix() {
+		t.Fatal("rejected PATCH still mutated SendAt into the past")
+	}
+}
+
+// Crafted-id key crossing (vector 1): an id containing the "|" key separator (or
+// path characters) must NOT let a caller address another account's namespace. Even
+// if the composed key "<attacker>|<crafted-id>" somehow overlapped another
+// account's stored key, Get re-verifies the decoded owner, so a foreign record is
+// never returned/cancelled/patched. Proven both via the store directly and via the
+// HTTP surface.
+func TestScheduledCraftedIDCannotCrossAccount(t *testing.T) {
+	app, store, _, _ := newScheduledApp(t, &fakeMailClient{})
+
+	// Seed alice's record whose id is chosen so that a naive prefix join by the
+	// attacker could collide: attacker is "user@gmail.com"; craft an id that, when
+	// prefixed with "user@gmail.com|", would equal alice's stored key.
+	// alice's stored key = "user@gmail.com|X" would require alice.Account to be a
+	// suffix game — instead we directly seed alice and try to reach it with a "|" id.
+	alice := &scheduledSend{
+		ID: "aliceonly", Account: "alice@corp.com", From: "alice@corp.com",
+		SendAt: time.Now().Add(time.Hour).Unix(), To: "x@y.com", Subject: "alicesecret",
+	}
+	if err := store.Put(alice); err != nil {
+		t.Fatalf("seed alice: %v", err)
+	}
+
+	// Attacker (user@gmail.com) tries an id embedding another account's prefix.
+	for _, badID := range []string{
+		"alice@corp.com|aliceonly", // try to jump prefix
+		"../alice@corp.com|aliceonly",
+		"aliceonly\x00",
+	} {
+		if got, err := store.Get("user@gmail.com", badID); err == nil {
+			t.Fatalf("crafted id %q crossed into %q's record", badID, got.Account)
+		}
+	}
+
+	// Over HTTP: DELETE/PATCH with the crafted id must 404 and leave alice intact.
+	_, code, _ := doReq(t, app, "DELETE",
+		"/v1/scheduled/"+"alice@corp.com|aliceonly", "")
+	if code != fiber.StatusNotFound {
+		t.Fatalf("crafted-id DELETE: want 404, got %d", code)
+	}
+	if _, err := store.Get("alice@corp.com", "aliceonly"); err != nil {
+		t.Fatalf("alice's record was affected by crafted-id delete: %v", err)
+	}
+}
+
+// Fire-time drop is permanent for a permanently-failing BUILD (vector 4): a record
+// that can never build (poisoned header) must be dropped, not retried forever. A
+// record whose SEND transiently fails, by contrast, is retried (left in place). We
+// prove the build-failure drop is terminal by counting that the SMTP factory is
+// never invoked for a poisoned record.
+func TestScheduledPermanentBuildFailureIsDropped(t *testing.T) {
+	origFactory := scheduleSMTPFactory
+	var factoryMu sync.Mutex
+	var factoryCalls int
+	scheduleSMTPFactory = func(*scheduledSend) smtpSender {
+		factoryMu.Lock()
+		factoryCalls++
+		factoryMu.Unlock()
+		return &captureSchedSMTP{}
+	}
+	t.Cleanup(func() { scheduleSMTPFactory = origFactory })
+
+	origPoll := schedulePollInterval
+	schedulePollInterval = 10 * time.Millisecond
+	t.Cleanup(func() { schedulePollInterval = origPoll })
+
+	kv, err := storage.OpenBolt(t.TempDir() + "/sched.db")
+	if err != nil {
+		t.Fatalf("open bolt: %v", err)
+	}
+	t.Cleanup(func() { kv.Close() })
+	store := newScheduleStore(kv, schedTestKey)
+
+	poison := &scheduledSend{
+		ID: "poison1", Account: "user@gmail.com", From: "user@gmail.com",
+		SendAt:  time.Now().Add(-time.Minute).Unix(),
+		To:      "bob@example.com\r\nBcc: evil@example.com", // un-buildable
+		Subject: "x", Text: "hi",
+		SMTPHost: "smtp.gmail.com", SMTPPort: 587, UseSTARTTLS: true,
+	}
+	if err := store.Put(poison); err != nil {
+		t.Fatalf("seed poison: %v", err)
+	}
+
+	sch := newScheduler(store)
+	sch.Start()
+	// Stop blocks until the drain goroutine has fully exited, so the KV can be closed
+	// by cleanup without racing a mid-drain access.
+	t.Cleanup(sch.Stop)
+
+	// After a few poll cycles the poison record must be gone (dropped on build fail).
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if recs, _ := store.List("user@gmail.com"); len(recs) == 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if recs, _ := store.List("user@gmail.com"); len(recs) != 0 {
+		t.Fatalf("un-buildable record not dropped: %d remain (retry-forever loop)", len(recs))
+	}
+	// The build fails BEFORE the SMTP factory is consulted, so it must never be called.
+	factoryMu.Lock()
+	calls := factoryCalls
+	factoryMu.Unlock()
+	if calls != 0 {
+		t.Fatalf("SMTP factory called %d times for an un-buildable record; build guard should short-circuit", calls)
+	}
+}
+
+// From is server-forced (vector 1): a client cannot schedule a send that fires AS
+// another account. Even if the JSON body carried a "from", the persisted record's
+// From/Account are set from the authed identity (fromEmail), not the body.
+func TestScheduledFromIsServerForced(t *testing.T) {
+	app, store, _, _ := newScheduledApp(t, &fakeMailClient{})
+
+	when := time.Now().Add(30 * time.Minute).UTC().Format(time.RFC3339)
+	// Attempt to smuggle a spoofed "from" in the body.
+	_, code, b := doReq(t, app, "POST", "/v1/messages",
+		`{"from":"ceo@victim.com","to":"bob@example.com","subject":"s","text":"hi","sendAt":"`+when+`"}`)
+	if code != fiber.StatusAccepted {
+		t.Fatalf("schedule: want 202, got %d: %s", code, b)
+	}
+	// The record must be owned by and fire AS the authed account, not the spoof.
+	recs, err := store.List("user@gmail.com")
+	if err != nil || len(recs) != 1 {
+		t.Fatalf("want 1 record for authed account, got %d (err %v)", len(recs), err)
+	}
+	if recs[0].From != "user@gmail.com" || recs[0].Account != "user@gmail.com" {
+		t.Fatalf("From/Account not server-forced: From=%q Account=%q", recs[0].From, recs[0].Account)
+	}
+	// The spoofed account must have nothing.
+	if r2, _ := store.List("ceo@victim.com"); len(r2) != 0 {
+		t.Fatalf("spoofed from created a record under victim account: %d", len(r2))
+	}
+}
+
+// alwaysFailSMTP fails every SendRawMessage and counts how many times it was tried.
+type alwaysFailSMTP struct {
+	mu    sync.Mutex
+	tries int
+}
+
+func (a *alwaysFailSMTP) SendRawMessage([]string, []byte) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.tries++
+	return io.ErrClosedPipe // stand-in for a permanent SMTP failure (e.g. auth 535)
+}
+
+func (a *alwaysFailSMTP) count() int { a.mu.Lock(); defer a.mu.Unlock(); return a.tries }
+
+// Permanently-failing SEND is abandoned, not retried forever (vector 4). A record
+// whose SMTP send never succeeds must, after a bounded number of attempts, be
+// dropped — otherwise it re-dials SMTP every poll, pins the encrypted credential
+// in storage, and permanently burns a per-account quota slot. This proves the
+// retry budget (maxSendAttempts) terminates the loop.
+func TestScheduledPermanentSendFailureAbandonedAfterBudget(t *testing.T) {
+	origMax := maxSendAttempts
+	maxSendAttempts = 3 // keep the test fast
+	t.Cleanup(func() { maxSendAttempts = origMax })
+
+	fail := &alwaysFailSMTP{}
+	origFactory := scheduleSMTPFactory
+	scheduleSMTPFactory = func(*scheduledSend) smtpSender { return fail }
+	t.Cleanup(func() { scheduleSMTPFactory = origFactory })
+
+	origPoll := schedulePollInterval
+	schedulePollInterval = 10 * time.Millisecond
+	t.Cleanup(func() { schedulePollInterval = origPoll })
+
+	kv, err := storage.OpenBolt(t.TempDir() + "/sched.db")
+	if err != nil {
+		t.Fatalf("open bolt: %v", err)
+	}
+	t.Cleanup(func() { kv.Close() })
+	store := newScheduleStore(kv, schedTestKey)
+
+	rec := &scheduledSend{
+		ID: "failforever", Account: "user@gmail.com", From: "user@gmail.com",
+		SendAt:  time.Now().Add(-time.Minute).Unix(),
+		To:      "bob@example.com", Subject: "s", Text: "hi",
+		SMTPHost: "smtp.gmail.com", SMTPPort: 587, UseSTARTTLS: true,
+		Secret:  "the-smtp-password", // so it round-trips through re-persist on retry
+	}
+	if err := store.Put(rec); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	sch := newScheduler(store)
+	sch.Start()
+	t.Cleanup(sch.Stop) // Stop blocks until the drain exits; safe to close KV after.
+
+	// The record must eventually be abandoned (deleted) rather than looping forever.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if recs, _ := store.List("user@gmail.com"); len(recs) == 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if recs, _ := store.List("user@gmail.com"); len(recs) != 0 {
+		t.Fatalf("permanently-failing send not abandoned: %d remain (infinite retry loop)", len(recs))
+	}
+	// It must have been tried at least the budget, and — crucially — the loop must
+	// have STOPPED: give it more polls and confirm no further attempts.
+	stopped := fail.count()
+	if stopped < maxSendAttempts {
+		t.Fatalf("abandoned too early: %d tries < budget %d", stopped, maxSendAttempts)
+	}
+	time.Sleep(150 * time.Millisecond) // ~15 more poll cycles
+	if after := fail.count(); after != stopped {
+		t.Fatalf("send retried after abandonment: %d → %d (loop did not terminate)", stopped, after)
+	}
+}

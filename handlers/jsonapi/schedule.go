@@ -45,6 +45,17 @@ const oauthScheduleHorizon = 12 * time.Hour
 // bounding worst-case lateness to one interval.
 var schedulePollInterval = 30 * time.Second
 
+// maxSendAttempts bounds the at-least-once retry loop for a record whose SMTP SEND
+// keeps failing. A transient failure (network blip, greylisting, momentary auth
+// hiccup) should be retried, but a PERMANENT failure — revoked credentials after a
+// password change, a hard 5xx recipient reject — must NOT be re-dialed forever:
+// that pins the encrypted credential in storage, burns a per-account quota slot
+// indefinitely, and hammers the SMTP server every poll. After this many failed
+// send attempts the record is abandoned (deleted, logged) — fail-closed rather
+// than an unbounded loop. Generous enough that legitimate transient outages
+// recover well within the budget at the poll cadence.
+var maxSendAttempts = 20
+
 // scheduleSMTPFactory builds an SMTP sender from a record's persisted transport
 // fields. Package var so the drain can be tested without a live SMTP server.
 var scheduleSMTPFactory = func(rec *scheduledSend) smtpSender {
@@ -62,13 +73,15 @@ var scheduleSMTPFactory = func(rec *scheduledSend) smtpSender {
 
 // scheduler owns the drain goroutine + the store. One per process.
 type scheduler struct {
-	store *scheduleStore
-	stop  chan struct{}
-	once  sync.Once
+	store   *scheduleStore
+	stop    chan struct{}
+	done    chan struct{} // closed when the drain goroutine has fully exited
+	once    sync.Once
+	started bool // set under once.Do when the drain goroutine is actually launched
 }
 
 func newScheduler(store *scheduleStore) *scheduler {
-	return &scheduler{store: store, stop: make(chan struct{})}
+	return &scheduler{store: store, stop: make(chan struct{}), done: make(chan struct{})}
 }
 
 // Start launches the drain goroutine: an immediate catch-up pass (restart-safe),
@@ -79,8 +92,10 @@ func (s *scheduler) Start() {
 		return
 	}
 	s.once.Do(func() {
+		s.started = true
 		go func() {
-			s.drainDue() // boot catch-up: fire anything already overdue
+			defer close(s.done) // signal Stop that the drain has fully wound down
+			s.drainDue()        // boot catch-up: fire anything already overdue
 			t := time.NewTicker(schedulePollInterval)
 			defer t.Stop()
 			for {
@@ -95,7 +110,9 @@ func (s *scheduler) Start() {
 	})
 }
 
-// Stop halts the drain goroutine.
+// Stop halts the drain goroutine and BLOCKS until the in-flight drain pass (if any)
+// has returned, so callers/tests can safely tear down the underlying KV afterward
+// without racing a mid-drain read/write. Idempotent.
 func (s *scheduler) Stop() {
 	if s == nil {
 		return
@@ -104,6 +121,13 @@ func (s *scheduler) Stop() {
 	case <-s.stop:
 	default:
 		close(s.stop)
+	}
+	// Wait for the drain goroutine to exit — only if it was actually launched. If
+	// Start never ran (nil store / never called), `done` is never closed, so we must
+	// not block on it. `started` is written under once.Do before the goroutine spawns
+	// and Stop is only meaningfully called after Start returns, so this read is safe.
+	if s.started {
+		<-s.done
 	}
 }
 
@@ -144,8 +168,24 @@ func (s *scheduler) fire(rec *scheduledSend) {
 		return
 	}
 	if err := sender.SendRawMessage(rcpts, raw); err != nil {
-		// Transient (network/auth) — leave in place for the next poll.
-		log.Printf("jsonapi: scheduled-send %s: SMTP send failed (will retry): %v", rec.ID, err)
+		// A send failure is retried on the next poll (at-least-once), but NOT forever:
+		// bump the attempt counter and abandon the record once it exhausts the budget,
+		// so a permanently-failing send (revoked creds, hard 5xx) cannot loop and pin
+		// the credential/quota slot indefinitely. Fail-closed on a persist error too:
+		// if we cannot record the attempt, drop it rather than risk an unbounded loop
+		// with a counter that never advances.
+		rec.Attempts++
+		if rec.Attempts >= maxSendAttempts {
+			log.Printf("jsonapi: scheduled-send %s: SMTP send failed %d times, abandoning: %v", rec.ID, rec.Attempts, err)
+			_ = s.store.Delete(rec.Account, rec.ID)
+			return
+		}
+		if perr := s.store.Put(rec); perr != nil {
+			log.Printf("jsonapi: scheduled-send %s: cannot persist retry counter (%v), abandoning after send failure: %v", rec.ID, perr, err)
+			_ = s.store.Delete(rec.Account, rec.ID)
+			return
+		}
+		log.Printf("jsonapi: scheduled-send %s: SMTP send failed (attempt %d/%d, will retry): %v", rec.ID, rec.Attempts, maxSendAttempts, err)
 		return
 	}
 	// Sent: delete so it does not re-fire. This delete-after-send ordering is what

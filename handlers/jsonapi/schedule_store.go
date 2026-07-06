@@ -76,6 +76,14 @@ type scheduledSend struct {
 	InsecureSkip bool   `json:"insecureSkip"`
 	EncSecret    string `json:"encSecret"` // api.EncryptJSON(secret, key)
 	Secret       string `json:"-"`         // never serialized; in-memory only
+
+	// Attempts counts how many times the drain has tried (and failed) to SEND this
+	// record. It bounds the at-least-once retry loop: a permanently-failing send
+	// (e.g. credentials revoked after a password change, or a hard 5xx reject) must
+	// eventually be abandoned rather than re-dialed SMTP forever — which would pin
+	// the encrypted credential in storage and burn a quota slot indefinitely. See
+	// maxSendAttempts in schedule.go.
+	Attempts int `json:"attempts"`
 }
 
 // scheduleStore persists scheduledSend records via the KV seam. All access is
