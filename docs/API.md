@@ -118,9 +118,12 @@ secret has been validated — never on unauthenticated or HTMX paths.
 | `PATCH`  | `/v1/messages/:uid/flags`      | `folder`                | `{ flag, add }`| `204` |
 | `DELETE` | `/v1/messages/:uid`            | `folder`, `hard`        | —              | `204` |
 | `POST`   | `/v1/messages/:uid/move`       | `folder`                | `{ toFolder, folder? }` | `204` |
-| `POST`   | `/v1/messages`                 | —                       | `{ to, cc?, bcc?, subject, text?, html?, inReplyTo?, attachments? }` | `201 { sent: true }` |
-| `POST`   | `/v1/drafts`                   | —                       | `{ to?, cc?, subject?, text?, html?, inReplyTo?, attachments? }`     | `201 { saved: true }` |
+| `POST`   | `/v1/messages`                 | —                       | `{ to, cc?, bcc?, subject, text?, html?, inReplyTo?, attachments? }`¹ | `201 { sent: true }` |
+| `POST`   | `/v1/drafts`                   | —                       | `{ to?, cc?, subject?, text?, html?, inReplyTo?, attachments? }`¹     | `201 { saved: true }` |
 | `POST`   | `/v1/attachments`              | —                       | multipart form, file field `file` | `201 { token, filename, size, contentType }` |
+
+¹ Each entry of `attachments[]` is `{ token? , data? , filename?, contentType?, contentId?, inline? }`
+— see [Attachments](#attachments) for the two-step upload flow and `cid:` inline images.
 
 `DELETE /v1/messages/:uid` MOVES the message to the Trash folder by default
 (discovered via the `\Trash` special-use, with name fallbacks Trash / Deleted /
@@ -161,6 +164,46 @@ Alternatively, small files can be sent fully inline (no step 1) with
 `{"filename":"a.txt","contentType":"text/plain","data":"<base64>"}`. A single
 attachment (and the per-message total) is capped at 25 MiB. Staged uploads that
 are never sent are garbage-collected after 24 h.
+
+**Inline images (`cid:`).** To embed an image *inside* the HTML body (rather than
+send it as a downloadable file), mark the attachment ref `inline` and give it a
+`contentId`, then reference that id from the HTML with `<img src="cid:ID">`:
+
+```json
+{
+  "to": "bob@example.com",
+  "subject": "Hi",
+  "html": "<p>See <img src=\"cid:logo1\"></p>",
+  "attachments": [
+    { "contentId": "logo1", "inline": true,
+      "contentType": "image/png", "data": "<base64>" }
+  ]
+}
+```
+
+The two new per-entry fields extend the existing attachment ref shape:
+
+| field       | type    | meaning |
+|-------------|---------|---------|
+| `contentId` | string  | Bare cid token — **no** `cid:` scheme, **no** angle brackets. Must match the `cid:ID` in the HTML. Required when `inline`. Validated against header injection (`[A-Za-z0-9._%+-]+(@host)?`; CRLF/space/`<>"` rejected). |
+| `inline`    | boolean | `true` ⇒ the part is emitted with `Content-Disposition: inline` and a `Content-ID: <contentId>` header inside a `multipart/related` container, so it renders in-body. |
+
+`inline` and the byte source are orthogonal: an inline image can be supplied by
+`token` (staged upload) **or** by base64 `data`. An `inline` ref without a
+`contentId` is a `400`; an `inline` ref on a message with no `html` body degrades
+to a normal attachment (nothing could reference it).
+
+Resulting MIME structure:
+
+- **inline only** → `multipart/related( multipart/alternative(text, html), inline-parts… )`
+- **inline + regular attachments** →
+  `multipart/mixed( multipart/related( multipart/alternative(text, html), inline-parts… ), attachments… )`
+- **no inline parts** → unchanged (`multipart/mixed`/`alternative`/plain as before).
+
+This lets a client stop shipping fat `data:image/…;base64,…` URIs inside the HTML
+body (which inflate every message ~33 %) and reference `cid:` parts instead. The
+client-side switch (paste handler emitting `cid:` + an inline attachment ref) is
+a follow-up; the backend is capable and documented as of wave 44.
 
 ### Calendar (only when `[caldav] enabled`)
 

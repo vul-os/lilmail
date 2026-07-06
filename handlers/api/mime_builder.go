@@ -10,21 +10,53 @@ import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"math/rand"
 	"mime"
 	"mime/multipart"
 	"mime/quotedprintable"
 	"net/textproto"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 )
 
 // Attachment holds the content of a file to be attached to an outgoing message.
+//
+// An attachment is one of two kinds:
+//   - Regular attachment (Inline=false): rendered with
+//     Content-Disposition: attachment in the outer multipart/mixed. This is a
+//     downloadable file.
+//   - Inline attachment (Inline=true, ContentID set): rendered with
+//     Content-Disposition: inline and a Content-ID header inside a
+//     multipart/related container, so an HTML body can reference it with
+//     <img src="cid:CONTENT-ID">. This replaces the old "fat" data: URI that
+//     forced the raw bytes to travel base64-inflated inside the HTML itself.
 type OutgoingAttachment struct {
 	Filename    string
 	ContentType string // e.g. "application/pdf"; if empty, "application/octet-stream"
 	Data        []byte
+
+	// ContentID is the bare cid token (WITHOUT the surrounding angle brackets and
+	// WITHOUT the "cid:" scheme). For an HTML body containing
+	// <img src="cid:logo123">, set ContentID = "logo123". When set together with
+	// Inline, the part is emitted with Content-ID: <logo123>. Ignored when Inline
+	// is false. It is validated (see validateContentID) to prevent header injection.
+	ContentID string
+
+	// Inline marks this attachment as a body-referenced inline part rather than a
+	// downloadable attachment. An inline attachment MUST carry a ContentID and is
+	// only meaningful when the message has an HTML body.
+	Inline bool
+}
+
+// isInline reports whether this attachment should be treated as an inline,
+// Content-ID-referenced part. An inline flag with no ContentID is not usable as
+// an inline part (nothing could reference it), so it degrades to a regular
+// attachment.
+func (a OutgoingAttachment) isInline() bool {
+	return a.Inline && a.ContentID != ""
 }
 
 // MIMEMessageOptions carries everything needed to build a well-formed RFC 2822
@@ -46,10 +78,31 @@ type MIMEMessageOptions struct {
 // bytes ready for SMTP DATA or IMAP APPEND. The function handles:
 //   - Plain-text only → Content-Type: text/plain
 //   - HTML + plain    → multipart/alternative (plain first, html second)
-//   - Any of the above + attachments → multipart/mixed outer wrapper
+//   - Any of the above + regular attachments → multipart/mixed outer wrapper
+//   - HTML + inline (cid:) attachments → the body + inline parts are wrapped in a
+//     multipart/related container (HTML body as the root), and any regular
+//     attachments wrap that related container in a multipart/mixed, i.e.:
+//     mixed( related( alternative(text, html), inline-images... ), attachments... )
+//     When there are no regular attachments the outer mixed is elided and the
+//     related container is the top-level body.
 func BuildMIMEMessage(opts MIMEMessageOptions) ([]byte, error) {
 	if opts.PlainBody == "" && opts.HTMLBody == "" {
 		return nil, fmt.Errorf("message must have at least a plain or HTML body")
+	}
+
+	// Partition attachments into inline (cid-referenced) and regular. Inline parts
+	// are only meaningful with an HTML body; if there's no HTML body, an "inline"
+	// attachment has nothing to reference, so treat it as a regular attachment.
+	var inline, regular []OutgoingAttachment
+	for _, att := range opts.Attachments {
+		if att.isInline() && opts.HTMLBody != "" {
+			if err := validateContentID(att.ContentID); err != nil {
+				return nil, fmt.Errorf("attachment %q: %w", att.Filename, err)
+			}
+			inline = append(inline, att)
+		} else {
+			regular = append(regular, att)
+		}
 	}
 
 	// Ensure a Message-ID.
@@ -86,8 +139,20 @@ func BuildMIMEMessage(opts MIMEMessageOptions) ([]byte, error) {
 		return nil, err
 	}
 
-	if len(opts.Attachments) == 0 {
-		// Simple: just add the Content-Type for the body and write it.
+	// If there are inline (cid) parts, wrap the body + inline parts in a
+	// multipart/related container. The related container then becomes the "body"
+	// that the outer mixed (if any regular attachments) or the top level carries.
+	if len(inline) > 0 {
+		relBytes, relContentType, err := buildRelatedPart(bodyBytes, bodyContentType, inline)
+		if err != nil {
+			return nil, err
+		}
+		bodyBytes, bodyContentType = relBytes, relContentType
+	}
+
+	if len(regular) == 0 {
+		// Simple: just add the Content-Type for the body (or related container)
+		// and write it.
 		hdr.WriteString("Content-Type: " + bodyContentType + "\r\n")
 		hdr.WriteString("\r\n")
 		var out bytes.Buffer
@@ -96,7 +161,7 @@ func BuildMIMEMessage(opts MIMEMessageOptions) ([]byte, error) {
 		return out.Bytes(), nil
 	}
 
-	// With attachments: wrap everything in multipart/mixed.
+	// With regular attachments: wrap everything in multipart/mixed.
 	boundary := generateBoundary()
 	hdr.WriteString("Content-Type: multipart/mixed; boundary=\"" + boundary + "\"\r\n")
 	hdr.WriteString("\r\n")
@@ -121,7 +186,7 @@ func BuildMIMEMessage(opts MIMEMessageOptions) ([]byte, error) {
 	}
 
 	// Attachment parts.
-	for _, att := range opts.Attachments {
+	for _, att := range regular {
 		ct := att.ContentType
 		if ct == "" {
 			ct = "application/octet-stream"
@@ -135,17 +200,8 @@ func BuildMIMEMessage(opts MIMEMessageOptions) ([]byte, error) {
 			return nil, fmt.Errorf("create attachment part %q: %w", att.Filename, err)
 		}
 		// Write base64-encoded content with 76-char line breaks (RFC 2045).
-		encoded := base64.StdEncoding.EncodeToString(att.Data)
-		for len(encoded) > 76 {
-			if _, err := aw.Write([]byte(encoded[:76] + "\r\n")); err != nil {
-				return nil, fmt.Errorf("write attachment data: %w", err)
-			}
-			encoded = encoded[76:]
-		}
-		if len(encoded) > 0 {
-			if _, err := aw.Write([]byte(encoded + "\r\n")); err != nil {
-				return nil, fmt.Errorf("write attachment data tail: %w", err)
-			}
+		if err := writeBase64Lines(aw, att.Data); err != nil {
+			return nil, fmt.Errorf("write attachment data: %w", err)
 		}
 	}
 
@@ -155,6 +211,110 @@ func BuildMIMEMessage(opts MIMEMessageOptions) ([]byte, error) {
 
 	return out.Bytes(), nil
 }
+
+// buildRelatedPart wraps the message body (the plain/alternative bytes produced
+// by buildBodyPart) together with the inline, Content-ID-referenced attachments
+// in a multipart/related container. Per RFC 2387 the root part is the HTML body
+// (the first part), and each inline image follows as its own part carrying a
+// Content-ID and Content-Disposition: inline. It returns the container bytes and
+// its Content-Type (including the type="..." / boundary parameters).
+//
+// Callers must have already validated every inline ContentID.
+func buildRelatedPart(bodyBytes []byte, bodyContentType string, inline []OutgoingAttachment) ([]byte, string, error) {
+	boundary := generateBoundary()
+	// type="text/html" advertises the root part's media type per RFC 2387. The
+	// root is the multipart/alternative (or text/html) body part below, whose
+	// renderable representation is HTML.
+	ct := "multipart/related; type=\"text/html\"; boundary=\"" + boundary + "\""
+
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	if err := mw.SetBoundary(boundary); err != nil {
+		return nil, "", err
+	}
+
+	// Root part: the message body (multipart/alternative or a single text part).
+	rootHdr := textproto.MIMEHeader{}
+	rootHdr.Set("Content-Type", bodyContentType)
+	rw, err := mw.CreatePart(rootHdr)
+	if err != nil {
+		return nil, "", fmt.Errorf("create related root part: %w", err)
+	}
+	if _, err := rw.Write(bodyBytes); err != nil {
+		return nil, "", fmt.Errorf("write related root part: %w", err)
+	}
+
+	// Inline image parts.
+	for _, att := range inline {
+		ct := att.ContentType
+		if ct == "" {
+			ct = "application/octet-stream"
+		}
+		partHdr := textproto.MIMEHeader{}
+		partHdr.Set("Content-Type", ct)
+		partHdr.Set("Content-Transfer-Encoding", "base64")
+		partHdr.Set("Content-ID", "<"+att.ContentID+">")
+		// A filename is still useful (some clients surface inline images too).
+		if att.Filename != "" {
+			partHdr.Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", att.Filename))
+		} else {
+			partHdr.Set("Content-Disposition", "inline")
+		}
+		pw, err := mw.CreatePart(partHdr)
+		if err != nil {
+			return nil, "", fmt.Errorf("create inline part %q: %w", att.ContentID, err)
+		}
+		if err := writeBase64Lines(pw, att.Data); err != nil {
+			return nil, "", fmt.Errorf("write inline part %q: %w", att.ContentID, err)
+		}
+	}
+
+	if err := mw.Close(); err != nil {
+		return nil, "", fmt.Errorf("close related writer: %w", err)
+	}
+	return buf.Bytes(), ct, nil
+}
+
+// writeBase64Lines writes data as base64 with RFC 2045 76-char line breaks.
+func writeBase64Lines(w io.Writer, data []byte) error {
+	encoded := base64.StdEncoding.EncodeToString(data)
+	for len(encoded) > 76 {
+		if _, err := w.Write([]byte(encoded[:76] + "\r\n")); err != nil {
+			return err
+		}
+		encoded = encoded[76:]
+	}
+	if len(encoded) > 0 {
+		if _, err := w.Write([]byte(encoded + "\r\n")); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateContentID rejects a Content-ID that could break the MIME structure or
+// inject headers. A Content-ID travels inside "<...>" in a header line and is
+// referenced from HTML as cid:<id>, so we constrain it to a conservative subset
+// of RFC 2822 addr-spec / RFC 2392 characters: alphanumerics and a few safe
+// punctuation marks, no whitespace, no CR/LF, no angle brackets or quotes. This
+// keeps the header un-injectable and the cid: reference unambiguous.
+func validateContentID(cid string) error {
+	if cid == "" {
+		return fmt.Errorf("empty Content-ID")
+	}
+	if len(cid) > 255 {
+		return fmt.Errorf("Content-ID too long")
+	}
+	if !contentIDRe.MatchString(cid) {
+		return fmt.Errorf("Content-ID %q contains illegal characters", cid)
+	}
+	return nil
+}
+
+// contentIDRe is the allowed shape of a bare Content-ID token. It permits the
+// common "local@domain" and "local" forms clients generate, but no separators
+// that could terminate the header or the angle-bracket wrapper.
+var contentIDRe = regexp.MustCompile(`^[A-Za-z0-9._%+\-]+(@[A-Za-z0-9.\-]+)?$`)
 
 // buildBodyPart builds the content bytes and Content-Type string for the body.
 // If HTMLBody is empty, produces a plain text part.

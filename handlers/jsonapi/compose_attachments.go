@@ -55,11 +55,29 @@ var tokenRe = regexp.MustCompile(`^[a-f0-9]{32}$`)
 // attachmentRef is one entry of the compose body's "attachments" array. Exactly
 // one of Token (a prior /v1/attachments upload) or Data (inline base64) is used;
 // Filename/ContentType override the staged metadata when set.
+//
+// To embed an image inside the HTML body (rather than send it as a downloadable
+// file), a client sets Inline=true and ContentID="someid", and references it in
+// the HTML with <img src="cid:someid">. The backend then emits the part in a
+// multipart/related container with Content-ID: <someid> and
+// Content-Disposition: inline. This lets the client stop shipping fat
+// data:image/...;base64,... URIs inside the HTML. Note "Data" (base64 bytes) and
+// "Inline" (cid disposition) are ORTHOGONAL: an inline image can still be
+// supplied by token or by base64 data — Inline only controls disposition, not
+// the byte source.
 type attachmentRef struct {
 	Token       string `json:"token"`
 	Filename    string `json:"filename"`
 	ContentType string `json:"contentType"`
 	Data        string `json:"data"` // base64-encoded bytes for inline attachments
+
+	// ContentID is the bare cid token (no angle brackets, no "cid:" scheme) that
+	// the HTML body references via <img src="cid:...">. Required when Inline.
+	ContentID string `json:"contentId"`
+	// Inline requests Content-Disposition: inline + a Content-ID header, so the
+	// part renders in-body rather than as a download. Requires ContentID and an
+	// HTML body on the message.
+	Inline bool `json:"inline"`
 }
 
 // stagedMeta is the sidecar JSON stored next to a staged blob.
@@ -221,7 +239,22 @@ func (h *Handler) resolveAttachments(c *fiber.Ctx, refs []attachmentRef) ([]api.
 		if filename == "" {
 			filename = "attachment"
 		}
-		out = append(out, api.OutgoingAttachment{Filename: filename, ContentType: ctype, Data: data})
+
+		// Inline (cid) disposition is orthogonal to the byte source. A ref that
+		// asks to be inline must carry a ContentID; the MIME builder validates the
+		// ContentID shape, but we reject the obviously-broken empty case here for a
+		// clean 400 rather than a 500 at build time.
+		if ref.Inline && strings.TrimSpace(ref.ContentID) == "" {
+			return nil, fiber.NewError(fiber.StatusBadRequest, "inline attachment requires a contentId")
+		}
+
+		out = append(out, api.OutgoingAttachment{
+			Filename:    filename,
+			ContentType: ctype,
+			Data:        data,
+			ContentID:   strings.TrimSpace(ref.ContentID),
+			Inline:      ref.Inline,
+		})
 	}
 	return out, nil
 }

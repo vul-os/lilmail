@@ -9,6 +9,20 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Added
+
+- **Inline `cid:` images in outgoing mail** — `api.OutgoingAttachment` gains
+  `ContentID` + `Inline`, and `BuildMIMEMessage` now wraps the HTML body and
+  inline parts in a `multipart/related` container (HTML root + `Content-ID: <id>`,
+  `Content-Disposition: inline` parts), nesting regular attachments in the outer
+  `multipart/mixed` — i.e. `mixed( related( alternative(text, html), inline… ),
+  attachments… )`. The `/v1/messages` and `/v1/drafts` attachment refs accept
+  `{"inline":true,"contentId":"…"}` (orthogonal to the `token`/`data` byte source),
+  so a client can reference `<img src="cid:…">` instead of shipping fat
+  `data:` URIs. Content-IDs are validated against header injection. No-inline
+  messages are byte-for-byte unchanged. The client-side paste switch is a
+  follow-up. See `docs/API.md` → Attachments.
+
 ---
 
 ## [1.11.0] — 2026-06-28
