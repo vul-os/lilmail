@@ -40,11 +40,17 @@ var (
 
 // connectedAccountDial builds an IMAP client for a connected account by
 // server/port/username/password. Package var so the add-account validation and
-// the unified fetch can be tested without a live IMAP server; defaults to the
-// same api.NewClient the rest of lilmail uses (plain-auth; connected accounts are
-// password mailboxes, not OAuth — OAuth accounts arrive via the broker path).
+// the unified fetch can be tested without a live IMAP server.
+//
+// SSRF: unlike the primary (session/broker) mailbox, a connected account's IMAP
+// host is supplied by an AUTHENTICATED END USER, so it is routed through
+// api.NewClientScreened — which refuses cloud-metadata endpoints and (for a
+// public host name) any resolution to a loopback/private/link-local IP, closing
+// the DNS-rebind TOCTOU at connect time. This matches the brokered-DAV guard;
+// self-host operators pointing at an explicit LAN IMAP literal still work. OAuth
+// accounts never take this path — they arrive via the trusted broker.
 var connectedAccountDial = func(server string, port int, username, password string) (api.MailClient, error) {
-	return api.NewClient(server, port, username, password)
+	return api.NewClientScreened(server, port, username, password)
 }
 
 // sanitizeFetchErr maps a fetch error to a stable, non-leaky client message. Known
