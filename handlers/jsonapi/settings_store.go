@@ -84,6 +84,13 @@ func (s *settingsStore) get(owner, kind string, v any) error {
 	if s == nil || s.kv == nil {
 		return errors.New("settings storage unavailable")
 	}
+	// The composite key is "<owner>|<kind>"; a "|" in owner would make the split
+	// ambiguous and could alias a different owner's record. Reject fail-closed so
+	// each settings blob is owned by exactly one identity. (kind is an internal
+	// constant, never user input.)
+	if !validKeyComponent(owner) {
+		return errBadKeyComponent
+	}
 	b, err := s.kv.Get(settingsNS, settingsKey(owner, kind))
 	if errors.Is(err, storage.ErrNotFound) {
 		return nil
@@ -101,6 +108,9 @@ func (s *settingsStore) put(owner, kind string, v any) error {
 	}
 	if owner == "" {
 		return errors.New("settings: owner required")
+	}
+	if !validKeyComponent(owner) {
+		return errBadKeyComponent
 	}
 	b, err := json.Marshal(v)
 	if err != nil {

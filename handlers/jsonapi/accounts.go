@@ -252,7 +252,15 @@ func (h *Handler) handleUnified(c *fiber.Ctx) error {
 		return herr
 	}
 	folder := folderParam(c)
+	// Clamp the per-account fetch size. The merged response is capped at
+	// unifiedHardCap regardless, so asking any single account's IMAP server for
+	// more than that is pointless AND lets a caller push a hostile limit (e.g.
+	// ?limit=4000000000) straight into every connected account's FetchMessages —
+	// a memory/time amplification. Bound it to the hard cap here.
 	limit := uintQuery(c, "limit", 50)
+	if limit == 0 || limit > unifiedHardCap {
+		limit = unifiedHardCap
+	}
 
 	accts, err := store.list(owner)
 	if err != nil {
