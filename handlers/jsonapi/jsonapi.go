@@ -47,6 +47,14 @@ type Handler struct {
 	// reports 501 and POST /v1/messages with sendAt is rejected, so an unconfigured
 	// build simply has no send-later, rather than silently dropping a scheduled mail.
 	schedule *scheduler
+	// kv is the durable store backing the settings surfaces added for Gmail parity:
+	// vacation responder config, signatures, send-as identities, and the connected
+	// accounts / unified-inbox store. nil when no KV was wired (New without a store)
+	// — then those surfaces report 501, exactly like send-later, so an unconfigured
+	// build degrades honestly instead of silently losing settings. All records are
+	// keyed by the OWNER (fromEmail) so per-user isolation is structural. Secrets
+	// (connected-account passwords) are encrypted at rest with config.Encryption.Key.
+	kv storage.KV
 }
 
 // New builds a JSON API handler. auth is the same *web.AuthHandler the HTMX UI
@@ -66,6 +74,7 @@ func New(store *session.Store, cfg *config.Config, auth *web.AuthHandler) *Handl
 func NewWithStore(store *session.Store, cfg *config.Config, auth *web.AuthHandler, kv storage.KV) *Handler {
 	h := New(store, cfg, auth)
 	if kv != nil {
+		h.kv = kv
 		h.schedule = newScheduler(newScheduleStore(kv, cfg.Encryption.Key))
 		h.schedule.Start()
 	}
@@ -133,6 +142,12 @@ func (h *Handler) Register(app *fiber.App) {
 	// Attachment staging for compose: upload a file, get back a token to reference
 	// in the attachments array of a later /v1/messages or /v1/drafts POST.
 	g.Post("/attachments", h.handleUploadAttachment) // multipart form, file field "file"
+
+	// Settings surfaces + multi-account, all durable-KV backed (report 501 when no
+	// KV was wired). Every record is keyed by the OWNER (fromEmail) so a caller only
+	// ever reads/writes THEIR own settings and accounts — cross-user is 404 no-leak.
+	h.registerSettings(g) // vacation responder, signatures, send-as identities
+	h.registerAccounts(g) // connected accounts CRUD + unified inbox read path
 
 	// Calendar — registered when CalDAV is enabled OR the broker path is active.
 	// In CP-brokered deployments the per-account CalDAV URL arrives per request
@@ -252,6 +267,14 @@ func (h *Handler) handleFolders(c *fiber.Ctx) error {
 // limit/offset and sets nextOffset to the offset for the following page (null
 // when the returned page was smaller than the limit, i.e. no more to fetch).
 func (h *Handler) handleMessages(c *fiber.Ctx) error {
+	// account=all is the unified-inbox alias: merge the primary + every connected
+	// account (same handler as GET /v1/unified). Any other account value is ignored
+	// here (single-account listing); a client that wants one specific connected
+	// account reads it via that account's own credentials on its own path.
+	if strings.EqualFold(strings.TrimSpace(c.Query("account")), "all") {
+		return h.handleUnified(c)
+	}
+
 	folder := folderParam(c)
 	limit := uintQuery(c, "limit", 50)
 	offset := uintQuery(c, "offset", 0)

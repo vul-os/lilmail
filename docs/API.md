@@ -338,6 +338,107 @@ Footgun actions (auto-forward, permanent delete) are refused client-side with a
 `400` before the request is ever brokered — use trash for recoverable removal.
 `POST /v1/rules/run` applies the account's rules to an existing folder on demand.
 
+### Settings — vacation responder (`/v1/settings/vacation`)
+
+Per-account out-of-office responder config. Durable-KV backed — returns `501`
+when no store is wired. Owner is the authenticated identity (session email or
+brokered mailbox); a caller only ever reads/writes **their own** config.
+
+| Method | Path | Body | Returns |
+|--------|------|------|---------|
+| `GET` | `/v1/settings/vacation` | — | `VacationConfig` |
+| `PUT` | `/v1/settings/vacation` | `VacationConfig` | `VacationConfig` |
+
+```jsonc
+// VacationConfig
+{
+  "enabled": true,
+  "subject": "Out of office",       // becomes a real mail Subject → CR/LF/NUL rejected (400)
+  "body": "<p>Back Monday</p>",     // HTML, sanitized server-side (script/handlers/js: stripped)
+  "startAt": "2026-07-10T00:00:00Z", // optional RFC3339; responder inactive before this
+  "endAt":   "2026-07-20T00:00:00Z", // optional RFC3339; inactive after this; must be ≥ startAt
+  "respondOnlyToContacts": false     // limit auto-replies to known contacts (anti-backscatter)
+}
+```
+
+An enabled responder requires a non-empty `subject`. The body is sanitized (a
+stored-XSS payload cannot ride the auto-reply). Loop/backscatter protection is
+built in: auto-replies are never sent to another auto-reply (`Auto-Submitted`),
+to list mail (`List-*` / `Precedence: bulk`), or to a null/bounce sender.
+
+**Enforcement note (broker model):** in the CP-brokered deployment lilmail proxies
+to the upstream provider's IMAP and does **not** run the inbound delivery path, so
+storing `enabled:true` here does not by itself make the provider auto-reply. This
+endpoint is the authoritative **config** the client edits; actual enforcement
+happens where delivery runs — standalone lilmail with a local delivery path
+applies it on inbound; a backend that exposes a rule/Sieve store can push it as a
+Sieve `vacation` action (a follow-up wiring); a plain Gmail/IMAP brokered account
+stores + exposes the config, and the provider's own vacation setting must be used
+to enforce. The GET always echoes the stored config so the UI stays truthful.
+
+### Settings — signatures (`/v1/settings/signatures`)
+
+Multiple named HTML signatures. `PUT` replaces the whole set. Each signature's
+HTML is sanitized. The server assigns an `id` when omitted (create by omitting).
+At most one signature may be `default:true`.
+
+| Method | Path | Body | Returns |
+|--------|------|------|---------|
+| `GET` | `/v1/settings/signatures` | — | `{ signatures: Signature[] }` |
+| `PUT` | `/v1/settings/signatures` | `{ signatures: Signature[] }` | `{ signatures: Signature[] }` |
+
+```jsonc
+// Signature
+{ "id": "a1b2c3d4", "name": "Work", "html": "<b>Jane Doe</b>", "default": true }
+```
+
+### Settings — send-as identities (`/v1/settings/identities`)
+
+The From/identity list the compose window offers. The primary mailbox is **always**
+returned first with `isPrimary:true` (never removable), followed by any send-as
+aliases. Each identity may link a default signature by id.
+
+| Method | Path | Returns |
+|--------|------|---------|
+| `GET` | `/v1/settings/identities` | `{ identities: Identity[] }` |
+
+```jsonc
+// Identity
+{ "address": "me@example.com", "name": "Me", "isPrimary": true, "defaultSignatureId": "a1b2c3d4" }
+```
+
+### Connected accounts + unified inbox (`/v1/accounts`, `/v1/unified`)
+
+Additional mailboxes the user has connected, and a merged read across all of them.
+Durable-KV backed (`501` without a store). Credentials are **AES-GCM encrypted at
+rest** with the app key and are **never** returned in any response. Strict
+per-user isolation: a user lists/adds/removes/reads only their own accounts;
+another user's account is `404` (no-leak).
+
+| Method | Path | Body | Returns |
+|--------|------|------|---------|
+| `GET`    | `/v1/accounts`         | — | `{ accounts: ConnectedAccount[] }` (no secrets) |
+| `POST`   | `/v1/accounts`         | `AddAccount` | `201 ConnectedAccount` |
+| `DELETE` | `/v1/accounts/:email`  | — | `204` (own) / `404` (foreign or missing) |
+| `GET`    | `/v1/unified`          | `?folder=&limit=` | `{ folder, messages: Email[], errors: [] }` |
+| `GET`    | `/v1/messages?account=all` | `?folder=&limit=` | same as `/v1/unified` (alias) |
+
+```jsonc
+// AddAccount (POST body) — password validated against the live IMAP server first
+{ "email":"work@corp.com", "password":"…", "label":"Work", "color":"#0a0",
+  "imapServer":"imap.corp.com", "imapPort":993, "smtpServer":"smtp.corp.com", "smtpPort":587 }
+
+// ConnectedAccount (response) — password fields OMITTED, never serialized
+{ "email":"work@corp.com", "label":"Work", "color":"#0a0",
+  "imapServer":"imap.corp.com", "imapPort":993, "smtpServer":"smtp.corp.com", "smtpPort":587 }
+```
+
+The unified fetch runs one connection per account concurrently (each with its own
+timeout); **one failing account never breaks the others** — its failure appears in
+the `errors` array (`{account, error}`) alongside the messages that did load. Each
+merged message is tagged with its source via `accountEmail` / `accountLabel` /
+`accountColor` on the `Email` shape, and the list is newest-first, capped at 200.
+
 ### Examples
 
 ```bash
@@ -382,6 +483,19 @@ curl -b cookies.txt 'http://localhost:3000/v1/calendar/events?start=2026-06-01T0
 
 # Search contacts (CardDAV must be enabled)
 curl -b cookies.txt 'http://localhost:3000/v1/contacts?q=alice'
+
+# Set the vacation responder
+curl -b cookies.txt -X PUT http://localhost:3000/v1/settings/vacation \
+  -H 'Content-Type: application/json' \
+  -d '{"enabled":true,"subject":"Out of office","body":"<p>Back Monday</p>"}'
+
+# Add a connected account (password is validated against IMAP, then encrypted at rest)
+curl -b cookies.txt -X POST http://localhost:3000/v1/accounts \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"work@corp.com","password":"…","label":"Work","imapServer":"imap.corp.com"}'
+
+# Unified inbox across the primary + all connected accounts
+curl -b cookies.txt 'http://localhost:3000/v1/unified?folder=INBOX&limit=50'
 ```
 
 ### `Email` shape (abridged)
@@ -411,13 +525,29 @@ curl -b cookies.txt 'http://localhost:3000/v1/contacts?q=alice'
   "flags": ["\\Seen"],
   "messageId": "<…@example.com>",
   "inReplyTo": "<…>",
-  "references": ["<…>"]
+  "references": ["<…>"],
+  "accountEmail": "work@corp.com",   // only in unified results — source account tag
+  "accountLabel": "Work",
+  "accountColor": "#0a0",
+  "auth": {                           // only on a single-message read; omitted if no header
+    "spf": "pass",                    // pass|fail|softfail|neutral|none|temperror|permerror
+    "dkim": "pass",
+    "dmarc": "pass",
+    "dkimDomain": "sender.com",
+    "raw": "mx.example.com; spf=pass …" // verbatim Authentication-Results value
+  }
 }
 ```
 
 `attachments[]` is metadata only (no bytes). Build a download link as
 `/v1/messages/{id}/attachments/{partId}?folder={folder}`. `isInline` flags parts
 meant to render inline (e.g. embedded images) versus regular file attachments.
+
+`auth` (present on a single-message read, `GET /v1/messages/:uid`) surfaces the
+**receiving server's** SPF/DKIM/DMARC verdict, parsed read-only from the message's
+`Authentication-Results` header (RFC 8601). lilmail does not re-verify; it exposes
+the trusted receiver's stamp so the client can render a "verified sender" / "why in
+spam" badge. `null`/absent when the message carries no such header.
 
 ## Demo mode
 

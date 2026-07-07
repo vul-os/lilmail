@@ -30,6 +30,30 @@ type Email struct {
 	// Invite is populated when the message carries a text/calendar iMIP part
 	// (iTIP). Nil for ordinary mail. Drives the RSVP card in the reading pane.
 	Invite *CalendarInvite `json:"invite,omitempty"`
+	// Auth carries the inbound sender-authentication results (SPF/DKIM/DMARC)
+	// parsed from the message's Authentication-Results header. Nil when the header
+	// is absent or unparseable. Read-only; drives the client's "verified sender"
+	// / "why in spam" badge.
+	Auth *AuthResults `json:"auth,omitempty"`
+}
+
+// AuthResults is the distilled SPF/DKIM/DMARC verdict from a message's
+// Authentication-Results header (RFC 8601), as stamped by the RECEIVING mail
+// server (the boundary MTA that authenticated the message on delivery). It is
+// read-only metadata for a "verified sender" / "why in spam" badge — lilmail does
+// not itself perform the checks; it surfaces the trusted receiver's verdict.
+//
+// Each verdict is the raw result token, lower-cased: "pass", "fail", "softfail",
+// "neutral", "none", "temperror", "permerror", "" (absent). DKIMDomain is the
+// header.d= of the (first) DKIM signature when present.
+type AuthResults struct {
+	SPF        string `json:"spf,omitempty"`
+	DKIM       string `json:"dkim,omitempty"`
+	DMARC      string `json:"dmarc,omitempty"`
+	DKIMDomain string `json:"dkimDomain,omitempty"`
+	// Raw is the verbatim Authentication-Results header value, for a client that
+	// wants to show the full detail on demand.
+	Raw string `json:"raw,omitempty"`
 }
 
 // Attachment is one downloadable MIME part of a message. In a message listing

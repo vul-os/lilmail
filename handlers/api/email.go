@@ -609,6 +609,13 @@ func (c *Client) processMessage(msg *imap.Message, folderName string) (models.Em
 			email.References = reMessageID.FindAllString(refsHdr, -1)
 		}
 
+		// Surface the receiving server's SPF/DKIM/DMARC verdict (RFC 8601). A
+		// message may carry several Authentication-Results headers (one per hop);
+		// pass them all. Nil when absent/unparseable — no badge then.
+		if ar := m.Header["Authentication-Results"]; len(ar) > 0 {
+			email.Auth = ParseAuthResults(ar)
+		}
+
 		// Handle multipart messages
 		contentType := m.Header.Get("Content-Type")
 		mediaType, params, err := mime.ParseMediaType(contentType)

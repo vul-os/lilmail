@@ -345,6 +345,12 @@ func validateHeaderValue(v string) error {
 	return nil
 }
 
+// ValidateHeaderValue is the exported form of the wave-49 header-injection guard,
+// for callers outside this package that also emit user-supplied values into mail
+// headers (e.g. the /v1/settings vacation Subject and send-as identity address).
+// It delegates to the same unexported check so there is one guard, not two.
+func ValidateHeaderValue(v string) error { return validateHeaderValue(v) }
+
 // contentIDRe is the allowed shape of a bare Content-ID token. It permits the
 // common "local@domain" and "local" forms clients generate, but no separators
 // that could terminate the header or the angle-bracket wrapper.
