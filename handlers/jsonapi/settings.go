@@ -7,8 +7,13 @@
 package jsonapi
 
 import (
+	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
+	"io"
+	"net/http"
 	"strings"
 	"time"
 
@@ -112,7 +117,79 @@ func (h *Handler) handlePutVacation(c *fiber.Ctx) error {
 	if err := store.put(owner, kindVacation, &in); err != nil {
 		return fail(c, fiber.StatusInternalServerError, "could not save vacation settings")
 	}
-	return c.JSON(vacationPublic(in))
+
+	// Push the config to the firing engine for vulos-mail-hosted mailboxes. The KV
+	// above is the UI's read model; vulos-mail is where inbound DELIVERY runs, so it
+	// is the only place a server-side auto-reply can actually fire. We derive its
+	// broker-gated /internal/vacation endpoint from the same rule-store URL the /v1
+	// rules + snooze surfaces use (present only for a vulos-mail-hosted account). For
+	// an externally-brokered IMAP account (Gmail/Outlook/plain IMAP) there is no such
+	// endpoint: the config is stored + exposed here, but the external provider runs
+	// its own vacation responder — we do not pretend to enforce it. Best-effort: a
+	// push failure does not fail the save (the config is durably stored either way).
+	serverEnforced := false
+	if spec, ok := brokerSpecOf(c); ok {
+		if storeURL := vacationStoreURLFromRules(spec.RulesURL); storeURL != "" {
+			if err := pushVacationConfig(c.Context(), storeURL, h.brokerSecret, spec.Email, in); err == nil {
+				serverEnforced = true
+			}
+		}
+	}
+	out := vacationPublic(in)
+	out["serverEnforced"] = serverEnforced
+	return c.JSON(out)
+}
+
+// vacationStoreURLFromRules derives vulos-mail's /internal/vacation endpoint from
+// the brokered rule-store URL (…/internal/mailrules → …/internal/vacation), the
+// same derivation the snooze schedule uses. Returns "" when no rule-store URL is
+// brokered — i.e. the mailbox is not vulos-mail-hosted, so there is no firing
+// engine to push to.
+func vacationStoreURLFromRules(rulesURL string) string {
+	rulesURL = strings.TrimRight(strings.TrimSpace(rulesURL), "/")
+	if rulesURL == "" {
+		return ""
+	}
+	if strings.HasSuffix(rulesURL, "/internal/mailrules") {
+		return strings.TrimSuffix(rulesURL, "/mailrules") + "/vacation"
+	}
+	// Unknown shape: best-effort sibling under the same parent path.
+	if i := strings.LastIndex(rulesURL, "/"); i > 0 {
+		return rulesURL[:i] + "/vacation"
+	}
+	return ""
+}
+
+// pushVacationConfig PUTs the vacation config to vulos-mail's broker-gated
+// /internal/vacation endpoint so the delivery-time responder honours it. Package
+// var for the test seam (mirrors postSnoozeSchedule).
+var pushVacationConfig = func(ctx context.Context, storeURL, secret, account string, cfg vacationConfig) error {
+	body := map[string]any{
+		"account": account,
+		"enabled": cfg.Enabled,
+		"subject": cfg.Subject,
+		"body":    cfg.Body,
+		"startAt": cfg.StartAt,
+		"endAt":   cfg.EndAt,
+	}
+	b, _ := json.Marshal(body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, storeURL, bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-Vulos-Broker-Auth", secret)
+	req.Header.Set("Content-Type", "application/json")
+	hc := &http.Client{Timeout: 15 * time.Second}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return &fiber.Error{Code: resp.StatusCode, Message: "vacation config rejected by engine"}
+	}
+	return nil
 }
 
 // vacationActive reports whether the responder should fire for a message received
