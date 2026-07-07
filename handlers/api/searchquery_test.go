@@ -265,6 +265,53 @@ func TestParse_QuoteInjection(t *testing.T) {
 	}
 }
 
+// A NUL byte in an operator value must never survive into the criterion, and the
+// serialised SEARCH must contain no NUL (a NUL would otherwise force go-imap onto
+// its literal path — still framed, but we strip it as defence in depth so the
+// value stays a plain quoted atom).
+func TestParse_NULInjection(t *testing.T) {
+	c, _ := parseSearchQuery("subject:a\x00b\x00c")
+	for _, v := range c.Header["Subject"] {
+		if strings.ContainsRune(v, 0) {
+			t.Fatalf("SUBJECT value still contains NUL: %q", v)
+		}
+		if v != "abc" {
+			t.Fatalf("NUL not cleanly stripped: got %q want %q", v, "abc")
+		}
+	}
+	wire := encodeSearch(t, c)
+	if strings.ContainsRune(wire, 0) {
+		t.Fatalf("serialised SEARCH contains a NUL byte: %q", wire)
+	}
+	body := strings.TrimSuffix(wire, "\r\n")
+	if strings.ContainsAny(body, "\r\n") {
+		t.Fatalf("NUL value produced an extra line: %q", wire)
+	}
+}
+
+// The in:<folder> value becomes the argument to an IMAP SELECT, not a SEARCH
+// atom, but a CR/LF/NUL there could still splice a command onto the SELECT line.
+// resolveSearchFolder must strip framing bytes so the returned mailbox name is a
+// single clean token.
+func TestParse_FolderInjection(t *testing.T) {
+	// Quoted so the whole hostile payload is captured as the in: value.
+	c, folder := parseSearchQuery("in:\"INBOX\r\nA002 DELETE INBOX\" from:alice")
+	if strings.ContainsAny(folder, "\r\n") || strings.ContainsRune(folder, 0) {
+		t.Fatalf("folder override carries framing bytes (SELECT injection): %q", folder)
+	}
+	if strings.Contains(folder, "\n") {
+		t.Fatalf("folder override spans multiple lines: %q", folder)
+	}
+	// The positive from:alice criterion must still be present — the injection
+	// attempt does not disturb the rest of the parse.
+	hdr(t, c, "FROM", "alice")
+	// A NUL-bearing folder is likewise cleaned.
+	_, folder = parseSearchQuery("in:IN\x00BOX")
+	if strings.ContainsRune(folder, 0) {
+		t.Fatalf("folder override carries NUL: %q", folder)
+	}
+}
+
 // --- bounds -----------------------------------------------------------------
 
 func TestParse_BoundsQueryLength(t *testing.T) {

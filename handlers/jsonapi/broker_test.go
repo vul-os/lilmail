@@ -239,6 +239,46 @@ func TestBrokeredPathDisabledWhenSecretUnset(t *testing.T) {
 	}
 }
 
+// A valid broker secret but an UNKNOWN auth mechanism must fail closed: an
+// attacker who somehow learns the shared secret still cannot smuggle a client in
+// via an unsupported SASL mech name — parseBroker rejects anything that is not
+// xoauth2/plain, so the dial seam is never reached and we fall back to 401.
+func TestBrokeredRequestWithUnknownAuthMechIgnored(t *testing.T) {
+	t.Setenv(brokerEnvSecret, "s3cr3t")
+
+	called := false
+	orig := brokerDialIMAP
+	brokerDialIMAP = func(brokerSpec) (api.MailClient, error) {
+		called = true
+		return &fakeMailClient{}, nil
+	}
+	t.Cleanup(func() { brokerDialIMAP = orig })
+
+	store := session.New()
+	cfg := &config.Config{}
+	h := New(store, cfg, web.NewAuthHandler(store, cfg))
+	app := fiber.New()
+	h.Register(app)
+
+	req := httptest.NewRequest("GET", "/v1/folders", nil)
+	req.Header.Set(hdrBrokerAuth, "s3cr3t")
+	for k, v := range brokeredHeaders() {
+		req.Header.Set(k, v)
+	}
+	req.Header.Set(hdrMailAuth, "digest-md5") // unsupported mechanism
+
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	if resp.StatusCode != fiber.StatusUnauthorized {
+		t.Fatalf("want 401 (unknown auth mech ignored), got %d", resp.StatusCode)
+	}
+	if called {
+		t.Fatalf("dial seam invoked for an unknown broker auth mechanism")
+	}
+}
+
 // Valid secret but missing essential mailbox headers must fall back (ignored).
 func TestBrokeredRequestWithIncompleteHeadersIgnored(t *testing.T) {
 	t.Setenv(brokerEnvSecret, "s3cr3t")
