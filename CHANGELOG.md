@@ -9,8 +9,27 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+---
+
+## [1.12.0] — 2026-07-06
+
 ### Added
 
+- **Scheduled send (send-later) over `/v1`** — `POST /v1/messages` with a future
+  RFC3339 `sendAt` persists the compose payload instead of sending now (`202
+  Accepted { scheduled, id, sendAt }`), and a durable, poll-based drain delivers
+  it at the due time. A new `/v1/scheduled` surface lists (`GET`), cancels
+  (`DELETE /v1/scheduled/:id`), and edits time/body (`PATCH /v1/scheduled/:id`) of
+  pending sends, scoped to the authenticated account (another account's id is
+  `404`, no cross-account leak). The SMTP transport (host/port/secret) is captured
+  at schedule time and **encrypted at rest**; the drain is at-least-once (delete
+  only after a successful send) with a bounded retry budget so a permanently
+  failing send cannot loop or pin a credential forever. OAuth (short-lived token)
+  accounts get a tighter 12 h horizon; password accounts get up to 1 year. Every
+  fire rebuilds the MIME through the **same** `BuildMIMEMessage` engine, so the
+  header-injection guard and `cid:` handling run at actual send time. Enabled by
+  wiring a durable KV store (`NewWithStore`); an unconfigured build reports `501`
+  rather than silently dropping mail. See `docs/API.md` → Scheduled send.
 - **Inline `cid:` images in outgoing mail** — `api.OutgoingAttachment` gains
   `ContentID` + `Inline`, and `BuildMIMEMessage` now wraps the HTML body and
   inline parts in a `multipart/related` container (HTML root + `Content-ID: <id>`,
@@ -22,6 +41,26 @@ Versioning: [Semantic Versioning](https://semver.org/)
   `data:` URIs. Content-IDs are validated against header injection. No-inline
   messages are byte-for-byte unchanged. The client-side paste switch is a
   follow-up. See `docs/API.md` → Attachments.
+- **iTIP/iMIP meeting invites end-to-end** — send a calendar invite
+  (`METHOD:REQUEST` iCalendar part on the outgoing mail), parse a received invite
+  from an inbound message (`Email.Invite` with attendees + the recipient's own
+  `MyPartStat`), and reply with an RSVP via `POST /v1/calendar/rsvp`
+  (`METHOD:REPLY`, and the event is reflected into the responder's own calendar).
+
+### Security
+
+- **Header-injection guard on the outgoing MIME path** — `BuildMIMEMessage` and
+  `SMTPClient.SendMail` now reject bare CR/LF/NUL smuggled into the `To`/`Cc`/
+  `From`/`Subject`/threading headers (via `validateHeaderValue`), closing a
+  silent-Bcc / message-split vector found by the wave-49 tests. `cid:` Content-IDs
+  are validated against a strict token shape. No-injection messages are unchanged.
+- **Transport-layer SSRF + traversal coverage (wave-49)** — a coverage-driven
+  security pass on the IMAP/SMTP/DAV transport primitives: the dial-time IP screen
+  (`screenDialIP`) and rebind guard refuse metadata IPs, loopback, RFC1918, IPv6
+  ULA/link-local/unspecified, and metadata-host-by-name for CalDAV/CardDAV URLs;
+  attachment part-path parsing (`parsePartPath`, `DecodeAttachmentID`) fails closed
+  on non-numeric, traversal-shaped, and truncated input; malformed MIME decoding
+  no longer panics.
 
 ---
 

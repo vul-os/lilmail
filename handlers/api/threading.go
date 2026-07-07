@@ -32,17 +32,6 @@ func (p *container) addChild(c *container) {
 	p.children = append(p.children, c)
 }
 
-// removeChild removes c from p.children (does not clear c.parent).
-func (p *container) removeChild(c *container) {
-	out := p.children[:0]
-	for _, ch := range p.children {
-		if ch != c {
-			out = append(out, ch)
-		}
-	}
-	p.children = out
-}
-
 // hasAncestor reports whether p is an ancestor of c (loop guard).
 func hasAncestor(c, p *container) bool {
 	for cur := c.parent; cur != nil; cur = cur.parent {

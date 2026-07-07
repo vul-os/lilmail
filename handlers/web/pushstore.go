@@ -130,13 +130,3 @@ func (s *PushStore) All(username string) ([]PushSubscription, error) {
 	})
 	return subs, err
 }
-
-// CloseAll closes all open database handles (called on graceful shutdown).
-func (s *PushStore) CloseAll() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, db := range s.openDBs {
-		db.Close()
-	}
-	s.openDBs = make(map[string]*bolt.DB)
-}

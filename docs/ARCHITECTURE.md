@@ -19,8 +19,10 @@ lilmail/
 │   ├── jsonapi/             # /v1 JSON REST API over the engine (for React clients)
 │   └── web/                 # HTML page handlers (inbox, viewer, settings, …) — HTMX
 ├── models/
-│   ├── email.go             # Email, Attachment, Thread model types
-│   └── calendar.go          # CalDAV event types
+│   ├── email.go             # Email, Attachment, Thread, Invite model types
+│   ├── calendar.go          # CalDAV event types
+│   ├── contact.go           # CardDAV contact types
+│   └── rule.go              # Inbound mail-filter (rule) types
 ├── storage/
 │   ├── session.go           # bbolt-backed session/credential store
 │   ├── kv.go                # Durable KV seam + backend selector (Open)
@@ -91,8 +93,11 @@ request using `emersion/go-imap`. There is no persistent connection pool —
 connections are opened, used, and closed per request. This keeps memory usage
 low and makes the server stateless with respect to IMAP state.
 
-SMTP sending lives in `handlers/api/compose.go` (and related files). The SASL
-mechanism (plain, XOAUTH2, or OAUTHBEARER) is chosen based on `[oauth2].mechanism`.
+SMTP sending lives in `handlers/api/stmpClient.go`, with the outgoing MIME
+assembled by `handlers/api/mime_builder.go` (multipart/mixed + multipart/related
+`cid:` inline images, with every structured header value screened against CR/LF/
+NUL injection). The SASL mechanism (plain, XOAUTH2, or OAUTHBEARER) is chosen
+based on `[oauth2].mechanism`.
 
 ### Caching
 
@@ -158,6 +163,25 @@ mail engine (`handlers/api`) and the same session auth path
 the HTMX UI is untouched. Unlike the HTMX `SessionMiddleware` (which redirects to
 `/login`), the API returns `401` JSON. This is the contract consumed by the
 React clients (Vulos Mail, Vulos Workspace). See [API.md](API.md).
+
+Two subsystems live inside this package:
+
+- **CP-brokered credential mode** (`broker.go`): a first middleware validates
+  `X-Vulos-Broker-Auth` against `LILMAIL_BROKER_SECRET` (constant-time) and, when
+  it matches, parses the `X-Vulos-Mail-*` headers into a per-request connection
+  spec so lilmail builds the IMAP/SMTP/DAV client directly from them instead of a
+  session. Fail-closed: an unset/mismatched secret makes the headers ignored
+  entirely, so standalone lilmail never trusts client-supplied connection headers.
+  Calendar/contacts/rules and snooze auto-return ride the same gate via their own
+  per-account URL headers (`X-Vulos-Mail-Caldav-Url` / `-Carddav-Url` /
+  `-Rules-Url`).
+- **Scheduled send** (`schedule.go` / `schedule_store.go`): `POST /v1/messages`
+  with a future `sendAt` persists the compose payload (SMTP transport captured and
+  encrypted at rest in the KV seam) and a single poll-based drain goroutine
+  delivers it at the due time, rebuilding the MIME through the same
+  `BuildMIMEMessage` engine. At-least-once, with a boot catch-up pass and a
+  bounded retry budget. Enabled only when a KV store is wired (`NewWithStore`);
+  otherwise the `/v1/scheduled` surface reports `501`.
 
 ### Notifications
 

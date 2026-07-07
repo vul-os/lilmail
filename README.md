@@ -55,25 +55,31 @@ contract) — they never import one another's code.
 
 ## Features
 
-- **Single binary (~18 MB), no external database** — templates and vendored JS
+- **Single binary (~30 MB), no external database** — templates and vendored JS
   embedded with `embed.FS`; durable state uses an embedded [bbolt](https://github.com/etcd-io/bbolt)
   file by default (nothing to run), with an **optional Postgres backend** for
   shared / multi-instance deploys; runs fully offline/air-gapped with only `config.toml`
 - **IMAP** mailbox browsing and **SMTP** sending
-- **JSON API** (`/v1`) — a clean REST surface (folders, messages, search, flags,
-  delete) for rich clients, served alongside the HTMX UI from the same engine and
-  the same session auth. Powers the Vulos Mail React webmail and Vulos Workspace.
+- **JSON API** (`/v1`) — a clean REST surface (folders/labels, paginated
+  messages, search, flags, move/archive/spam, delete, snooze, compose + drafts,
+  attachment upload/download, scheduled send, calendar, contacts, and rules) for
+  rich clients, served alongside the HTMX UI from the same engine and the same
+  session auth. Powers the Vulos Mail React webmail and Vulos Workspace. See
+  [docs/API.md](docs/API.md).
 - **OAuth2 / OpenID Connect** — authorization-code flow, PKCE (S256), automatic
   refresh-token handling, XOAUTH2 and OAUTHBEARER SASL; password login still works
 - **Conversation threading** — JWZ algorithm (`References` / `In-Reply-To` /
   `Message-ID`) backed by an embedded [bbolt](https://github.com/etcd-io/bbolt) store
 - **Compose** — plain-text and HTML rich-text (contenteditable toolbar), file
-  attachments (multipart/mixed MIME), drafts with 30-second auto-save plus IMAP
-  APPEND/restore
+  attachments (multipart/mixed MIME) with `cid:` inline images
+  (multipart/related), scheduled send (send-later, `/v1`), drafts with 30-second
+  auto-save plus IMAP APPEND/restore. Outgoing headers are guarded against
+  CR/LF/NUL header injection
 - **Recipient autocomplete** — recent-recipients store with optional CardDAV
   address-book lookup
-- **Calendar (CalDAV)** — month/week views, event creation, and iTIP RSVP from
-  invite attachments — opt-in via `[caldav]`
+- **Calendar (CalDAV) + meeting invites** — month/week views, event CRUD,
+  free/busy, and end-to-end iTIP/iMIP invites (send a `METHOD:REQUEST`, parse a
+  received invite, RSVP with `METHOD:REPLY`) — opt-in via `[caldav]`
 - **Real-time notifications** — IMAP IDLE watcher, SSE stream, browser
   notifications, native desktop toasts, and VAPID Web Push — opt-in via `[notifications]`
 - **AI mail assistant** — smart compose, thread summaries, reply suggestions,
@@ -104,12 +110,22 @@ flowchart TD
 ```
 
 State that must survive a restart (conversation threads, recent recipients,
-extra-account credentials, VAPID keys) lives in the durable store — an embedded
-bbolt file by default, or a shared Postgres database when configured; session
-credentials are AES-256-GCM encrypted. The same mail engine backs both the
-server-rendered HTMX UI and the `/v1` JSON API. See
+extra-account credentials, VAPID keys, scheduled sends) lives in the durable
+store — an embedded bbolt file by default, or a shared Postgres database when
+configured; session credentials are AES-256-GCM encrypted. The same mail engine
+backs both the server-rendered HTMX UI and the `/v1` JSON API. See
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the request lifecycle and
 [docs/API.md](docs/API.md) for the JSON API reference.
+
+**CP-brokered mode (Vulos Cloud, off by default).** In the Vulos Cloud
+deployment lilmail runs behind the control plane (CP), which custodies each
+user's external mailbox credentials and reverse-proxies to `/v1`, injecting the
+per-request connection spec as `X-Vulos-Broker-Auth` + `X-Vulos-Mail-*` headers.
+This path is gated by a shared secret (`LILMAIL_BROKER_SECRET`, matched in
+constant time): **if the secret is unset or mismatched, the headers are ignored
+entirely** and the request falls back to normal session auth, so standalone
+lilmail never trusts client-supplied connection headers. See
+[docs/API.md](docs/API.md) → *CP-brokered credential mode*.
 
 ## Quick start
 

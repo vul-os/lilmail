@@ -64,6 +64,7 @@ When the secret validates, lilmail reads the connection spec from these headers:
 | `X-Vulos-Mail-Smtp-Port` | SMTP port (default `587`; `465` ⇒ implicit TLS, else STARTTLS) |
 | `X-Vulos-Mail-Caldav-Url`  | CalDAV base URL for the account (optional; enables `/v1/calendar/*`) |
 | `X-Vulos-Mail-Carddav-Url` | CardDAV base URL for the account (optional; enables `/v1/contacts`) |
+| `X-Vulos-Mail-Rules-Url`   | vulos-mail rule-store base URL (optional; enables `/v1/rules/*` and snooze auto-return) |
 
 `xoauth2` builds the IMAP client via `NewClientOAuth(host, port, username, token,
 "xoauth2")` and the SMTP client via `NewSMTPClientOAuth`; `plain` uses
@@ -99,9 +100,13 @@ secret has been validated — never on unauthenticated or HTMX paths.
   avoids escaping the IMAP hierarchy delimiter — `?folder=INBOX/Archive` works
   verbatim.
 - **UIDs** are numeric and appear as path segments.
+- **Pagination** on `/v1/messages`: `limit` caps the page size and `offset` skips
+  the newest N messages, so page *k* = `?limit=L&offset=k*L`. The response echoes
+  the effective `limit`/`offset` and sets `nextOffset` to the next page's offset
+  (`null` when the returned page was short, i.e. the end of the mailbox).
 - Errors are always `{ "error": "<message>" }` with an appropriate status code
-  (`400` bad request, `401` unauthenticated, `404` not found, `502` upstream
-  mail-server failure).
+  (`400` bad request, `401` unauthenticated, `404` not found, `409` conflict,
+  `429` rate-limited, `501` not implemented, `502` upstream mail-server failure).
 - All payloads follow the `models.Email` / `MailboxInfo` shapes (see
   `models/email.go`, `handlers/api/client.go`).
 
@@ -111,19 +116,46 @@ secret has been validated — never on unauthenticated or HTMX paths.
 |--------|------|-------|------|---------|
 | `GET`    | `/v1/me`                       | —                       | —              | `{ email, username }` |
 | `GET`    | `/v1/folders`                  | —                       | —              | `{ folders: MailboxInfo[] }` |
-| `GET`    | `/v1/messages`                 | `folder`, `limit` (50)  | —              | `{ folder, messages: Email[] }` |
+| `POST`   | `/v1/folders`                  | —                       | `{ name }`     | `201 { folder }` |
+| `DELETE` | `/v1/folders`                  | `folder`                | `{ name }` (or `?folder=`) | `204` |
+| `GET`    | `/v1/messages`                 | `folder`, `limit` (50), `offset` (0) | —  | `{ folder, limit, offset, nextOffset, messages: Email[] }` |
 | `GET`    | `/v1/messages/:uid`            | `folder`                | —              | `Email` (incl. `attachments[]`) |
 | `GET`    | `/v1/messages/:uid/attachments/:partId` | `folder`       | —              | attachment bytes (streamed) |
 | `GET`    | `/v1/search`                   | `folder`, `q`, `limit` (100) | —         | `{ folder, query, messages: Email[] }` |
-| `PATCH`  | `/v1/messages/:uid/flags`      | `folder`                | `{ flag, add }`| `204` |
+| `PATCH`  | `/v1/messages/:uid/flags`      | `folder`                | `{ flag, add }` or `{ flags[], add }` | `204` |
 | `DELETE` | `/v1/messages/:uid`            | `folder`, `hard`        | —              | `204` |
 | `POST`   | `/v1/messages/:uid/move`       | `folder`                | `{ toFolder, folder? }` | `204` |
-| `POST`   | `/v1/messages`                 | —                       | `{ to, cc?, bcc?, subject, text?, html?, inReplyTo?, attachments? }`¹ | `201 { sent: true }` |
+| `POST`   | `/v1/messages/:uid/spam`       | `folder`                | —              | `{ folder }` (Junk/Spam target) |
+| `POST`   | `/v1/messages/:uid/snooze`     | `folder`                | `{ until }`    | `204`, or `200 { snoozed, autoReturn:false, … }` |
+| `DELETE` | `/v1/messages/:uid/snooze`     | `folder`                | —              | `204` |
+| `POST`   | `/v1/messages`                 | —                       | `{ to, cc?, bcc?, subject, text?, html?, inReplyTo?, attachments?, sendAt? }`¹ | `201 { sent: true }`, or `202 { scheduled, id, sendAt }` when `sendAt` is set |
 | `POST`   | `/v1/drafts`                   | —                       | `{ to?, cc?, subject?, text?, html?, inReplyTo?, attachments? }`¹     | `201 { saved: true }` |
 | `POST`   | `/v1/attachments`              | —                       | multipart form, file field `file` | `201 { token, filename, size, contentType }` |
+| `GET`    | `/v1/scheduled`                | —                       | —              | `{ scheduled: […] }` (pending send-later) |
+| `DELETE` | `/v1/scheduled/:id`            | —                       | —              | `204` |
+| `PATCH`  | `/v1/scheduled/:id`            | —                       | `{ sendAt?, subject?, text?, html?, to?, cc?, bcc? }` | updated record |
 
 ¹ Each entry of `attachments[]` is `{ token? , data? , filename?, contentType?, contentId?, inline? }`
 — see [Attachments](#attachments) for the two-step upload flow and `cid:` inline images.
+
+`POST /v1/folders` creates an IMAP mailbox (a "label" in the mail-ui); the name
+may not contain the IMAP control characters `\r \n \t * % "` and may not collide
+with a protected system folder (Inbox/Sent/Drafts/Spam/Trash/Archive/Snoozed/…),
+which return `409`. `DELETE /v1/folders` deletes a user mailbox by `name` (body)
+or `?folder=`; system folders are `403`.
+
+`POST /v1/messages/:uid/spam` reports spam by moving the message to the
+discovered Junk/Spam folder — there is no separate training-signal endpoint on
+this backend, so the move IS the report (pair it with an undo toast like archive).
+
+`POST /v1/messages/:uid/snooze` moves the message to the Snoozed folder and, in a
+CP-brokered deployment with a rule-store URL, registers the auto-return with
+vulos-mail so the message re-appears in the inbox at `until` (`204`). When no such
+backend is brokered (standalone/session, or a plain Gmail/IMAP account) the move
+still happens but there is no auto-return; the response is `200` with
+`{ snoozed:true, autoReturn:false, … }` so the client can surface the caveat.
+`DELETE /v1/messages/:uid/snooze` clears a pending auto-return (it does **not**
+move the message back — the caller does that).
 
 `DELETE /v1/messages/:uid` MOVES the message to the Trash folder by default
 (discovered via the `\Trash` special-use, with name fallbacks Trash / Deleted /
@@ -135,6 +167,10 @@ can be located, the delete falls back to a permanent expunge.
 The source folder comes from the `folder` query param (default `INBOX`); an
 optional non-empty `folder` field in the body overrides it. `toFolder` is
 required.
+
+`POST /v1/messages` is **rate-limited per client IP** to prevent spam/relay abuse
+(default 30 sends / 60 s, configurable via `[rate_limit]` in `config.toml`); the
+cap returns `429 { "error": "rate limit exceeded" }`.
 
 ### Attachments
 
@@ -205,6 +241,38 @@ body (which inflate every message ~33 %) and reference `cid:` parts instead. The
 client-side switch (paste handler emitting `cid:` + an inline attachment ref) is
 a follow-up; the backend is capable and documented as of wave 44.
 
+### Scheduled send (send-later)
+
+`POST /v1/messages` with a **future** RFC3339 `sendAt` turns an ordinary send into
+a scheduled one: the compose payload is persisted and delivered at the due time by
+a background drain, and the call returns `202 { scheduled:true, id, sendAt }`
+instead of `201 { sent:true }`. Omit `sendAt` (or pass an empty string) for an
+immediate send. A past/absurd `sendAt` is `400`; a value beyond one year is `400`.
+For accounts authenticated with a short-lived OAuth token (brokered Gmail/Outlook,
+or a session OAuth login) the horizon tightens to ~12 h — beyond that the captured
+token would be expired at fire time, so the schedule is refused up front rather
+than accepted and silently failed.
+
+| Method | Path | Body | Returns |
+|--------|------|------|---------|
+| `GET`    | `/v1/scheduled`      | —                                          | `{ scheduled: [{ id, sendAt, to, cc?, bcc?, subject, created }] }` |
+| `DELETE` | `/v1/scheduled/:id`  | —                                          | `204` |
+| `PATCH`  | `/v1/scheduled/:id`  | `{ sendAt?, subject?, text?, html?, to?, cc?, bcc? }` (all optional) | updated public record |
+
+Scheduled sends are scoped to the authenticated account: another account's `id`
+(or a nonexistent one) is `404`, so listing/cancel/edit never leak across
+accounts. Delivery is **at-least-once** — the record is deleted only after a
+successful SMTP send, so a crash mid-send re-fires it on the next poll (a rare
+duplicate) rather than dropping the mail; a persistently failing send is abandoned
+after a bounded retry budget. Every fire rebuilds the MIME through the same
+`BuildMIMEMessage` engine as an immediate send, so the header-injection guard and
+`cid:` inline handling run at actual send time.
+
+Scheduled send is **enabled by wiring a durable KV store** into the API handler
+(`NewWithStore`). Where it is not configured, `POST /v1/messages` with `sendAt`
+and the whole `/v1/scheduled` surface return `501 Not Implemented` — an
+unconfigured build simply has no send-later, rather than silently dropping mail.
+
 ### Calendar (only when `[caldav] enabled`)
 
 Times are RFC 3339 strings. The `start`/`end` range defaults to the current
@@ -218,10 +286,18 @@ types as the HTMX calendar UI.
 | `PUT`    | `/v1/calendar/events/:uid`     | —              | `{ summary, start, end, description?, location?, allDay?, recurrence?, path? }` | `{ updated: true }` |
 | `DELETE` | `/v1/calendar/events/:uid`     | —              | —          | `204` |
 | `GET`    | `/v1/calendar/freebusy`        | `start`, `end` | —          | `{ busy: { start, end }[] }` |
+| `POST`   | `/v1/calendar/rsvp`            | —              | `{ uid, organizer, response, …event }` | `{ ok: true }` |
 
 `recurrence` is a raw iCalendar RRULE (e.g. `FREQ=WEEKLY;COUNT=10`), stored and
 returned verbatim. `CalendarEvent` includes `uid`, `path` (CalDAV object path)
 and `recurrence`; pass `path` back on `PUT` so an edit targets the exact object.
+
+`POST /v1/calendar/rsvp` is the **iTIP/iMIP** reply to a received invitation: it
+sends a `METHOD:REPLY` back to the `organizer` with the chosen `response`
+(`ACCEPTED` / `DECLINED` / `TENTATIVE`) and reflects the event into the
+responder's own calendar. A received invite arrives on a message as
+`Email.Invite` (attendees plus the recipient's own `MyPartStat`), which the client
+reads from `GET /v1/messages/:uid`.
 
 ### Contacts (only when `[carddav] enabled`)
 
@@ -236,6 +312,31 @@ and `recurrence`; pass `path` back on `PUT` so an edit targets the exact object.
 `Contact` = `{ uid, name, org?, title?, note?, emails[], phones?, path? }`. The
 `path` is the CardDAV object path; pass it back on `PUT`/`DELETE` to target the
 exact card.
+
+### Rules / filters (brokered only)
+
+Inbound-mail filters. lilmail does **not** own rule state — the authoritative
+per-account rule store lives in vulos-mail (where inbound delivery runs, so rules
+can fire on new mail). These routes are registered **only when the broker path is
+active**; each CRUD call is brokered over HTTP to the rule-store base URL that
+vulos-mail injects as `X-Vulos-Mail-Rules-Url`. When a request carries no
+rule-store URL (standalone/session lilmail, or a plain Gmail/IMAP brokered
+account), every rules route returns `501` ("not supported by this mailbox
+backend") and the mail-ui hides the Filters surface.
+
+| Method | Path | Body | Returns |
+|--------|------|------|---------|
+| `GET`    | `/v1/rules`          | —                   | `{ rules: MailRule[] }` |
+| `POST`   | `/v1/rules`          | `MailRule`          | `201 { rule }` |
+| `PUT`    | `/v1/rules/:id`      | `MailRule`          | `{ rule }` |
+| `DELETE` | `/v1/rules/:id`      | —                   | `204` |
+| `POST`   | `/v1/rules/reorder`  | `{ order: [id,…] }` | `{ rules: MailRule[] }` |
+| `POST`   | `/v1/rules/run`      | `{ folder?, limit? }` | `{ matched, applied }` |
+
+A `MailRule` needs a `name`, at least one condition, and at least one action.
+Footgun actions (auto-forward, permanent delete) are refused client-side with a
+`400` before the request is ever brokered — use trash for recoverable removal.
+`POST /v1/rules/run` applies the account's rules to an existing folder on demand.
 
 ### Examples
 

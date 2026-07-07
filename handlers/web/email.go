@@ -77,8 +77,8 @@ func (h *EmailHandler) getThreadStore(username string) *api.ThreadStore {
 }
 
 // buildThreads builds JWZ threads using the shared bbolt store when available,
-// falling back to the package-level BuildThreads (which opens its own handle)
-// on error.
+// falling back to in-memory-only threading (api.ThreadMessages, no bbolt
+// persistence) when no store is open or the store errors.
 func (h *EmailHandler) buildThreads(username, folder string, emails []models.Email) []models.Thread {
 	ts := h.getThreadStore(username)
 	if ts != nil {

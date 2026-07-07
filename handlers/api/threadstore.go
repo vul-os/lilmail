@@ -160,21 +160,3 @@ func (s *ThreadStore) BuildThreads(folder string, emails []models.Email) ([]mode
 
 	return ThreadMessages(union), nil
 }
-
-// BuildThreads is a package-level convenience wrapper that opens a fresh bolt
-// handle per call.  It is retained for backwards compatibility with callers
-// that have not yet migrated to a shared ThreadStore.
-//
-// Deprecated: prefer OpenThreadStore + (*ThreadStore).BuildThreads to avoid
-// opening the single-writer bbolt file on every request.
-func BuildThreads(boltPath, folder string, emails []models.Email) ([]models.Thread, error) {
-	db, err := bolt.Open(boltPath, 0600, &bolt.Options{Timeout: 2 * time.Second})
-	if err != nil {
-		log.Printf("threadstore: open %s: %v — falling back to in-memory threading", boltPath, err)
-		return ThreadMessages(emails), nil
-	}
-	defer db.Close()
-
-	ts := &ThreadStore{db: db, path: boltPath}
-	return ts.BuildThreads(folder, emails)
-}
