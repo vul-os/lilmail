@@ -14,21 +14,27 @@ import (
 )
 
 // SearchMessages performs an IMAP SEARCH in the given folder and returns the
-// matching messages.  query is searched in the Subject, From, and body (TEXT
-// criterion).  limit caps the number of results returned.
+// matching messages.
+//
+// query is a Gmail-style operator query (from:/to:/cc:/subject:/has:attachment/
+// is:unread|read|starred/in:<folder>/before:/after:/newer_than:/older_than:,
+// "quoted phrases", -negation and free text). It is parsed server-side by
+// parseSearchQuery into an imap.SearchCriteria program and mapped onto native
+// IMAP SEARCH keys; a query with no operators degrades to the historical raw
+// TEXT match. An `in:<folder>` operator overrides folderName. See
+// searchquery.go for the full mapping and injection-safety notes: every value
+// is placed into a string-typed criterion field, so go-imap quotes it (or
+// frames it as a length-prefixed literal) and IMAP-command injection via
+// CR/LF/quote in an operator value is not possible. limit caps the number of
+// results returned.
 func (c *Client) SearchMessages(folderName, query string, limit uint32) ([]models.Email, error) {
-	if _, err := c.client.Select(folderName, true); err != nil {
-		return nil, fmt.Errorf("search: select %s: %w", folderName, err)
+	criteria, folderOverride := parseSearchQuery(query)
+	if folderOverride != "" {
+		folderName = folderOverride
 	}
 
-	// Build a compound OR criterion: TEXT <q> covers body+headers, but we also
-	// add explicit SUBJECT and FROM for servers that index them separately.
-	// RFC 3501 OR takes exactly two operands; to combine three we nest:
-	//   OR (OR (TEXT q) (SUBJECT q)) (FROM q)
-	q := query
-	criteria := &imap.SearchCriteria{
-		// TEXT searches the full message (headers + body).
-		Text: []string{q},
+	if _, err := c.client.Select(folderName, true); err != nil {
+		return nil, fmt.Errorf("search: select %s: %w", folderName, err)
 	}
 
 	uids, err := c.client.UidSearch(criteria)

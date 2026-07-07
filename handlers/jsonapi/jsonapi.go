@@ -334,13 +334,25 @@ func (h *Handler) handleMessage(c *fiber.Ctx) error {
 	return c.JSON(email)
 }
 
+// maxSearchResults hard-caps how many messages a single /v1/search may return,
+// regardless of the requested limit, to bound work and response size.
+const maxSearchResults = 500
+
 func (h *Handler) handleSearch(c *fiber.Ctx) error {
 	folder := folderParam(c)
 	query := c.Query("q")
 	if query == "" {
 		return fail(c, fiber.StatusBadRequest, "missing q")
 	}
+	// Bound the query length so a pathological query can't drive an unbounded
+	// SEARCH command (the parser also truncates, this is the outer guard).
+	if len(query) > 2048 {
+		query = query[:2048]
+	}
 	limit := uintQuery(c, "limit", 100)
+	if limit == 0 || limit > maxSearchResults {
+		limit = maxSearchResults
+	}
 
 	cl, err := h.client(c)
 	if err != nil {
