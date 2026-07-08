@@ -17,6 +17,21 @@ type CalendarEvent struct {
 	// client can round-trip a rule it built without the server understanding every
 	// RFC 5545 nuance.
 	Recurrence string `json:"recurrence,omitempty"`
+	// Timezone is the IANA time-zone id (e.g. "America/New_York") for a timed
+	// event. Empty means UTC/floating. When set, Start/End are emitted as local
+	// wall-clock times carrying a TZID parameter (with a VTIMEZONE) so the event
+	// renders at the correct time across DST and other zones.
+	Timezone string `json:"timezone,omitempty"`
+	// Reminders are the VALARM alarms on the event (popup + email), each a
+	// relative offset before the start. Round-tripped so the client can edit
+	// them.
+	Reminders []Reminder `json:"reminders,omitempty"`
+	// ExDates are excluded occurrence starts (EXDATE): single instances deleted
+	// from a recurring series. RFC3339 wall-clock in the event's zone.
+	ExDates []time.Time `json:"exdates,omitempty"`
+	// RecurrenceID, when non-zero, marks this object as a single-instance
+	// override of a recurring series (the occurrence it replaces).
+	RecurrenceID *time.Time `json:"recurrenceId,omitempty"`
 	// CalDAV path this object lives at (server-assigned, empty for new events).
 	Path string `json:"path,omitempty"`
 	// Attendees are the invitees on this event (iTIP). When non-empty on create/
@@ -27,6 +42,18 @@ type CalendarEvent struct {
 	// Sequence is the iTIP SEQUENCE number; bumped on each organizer update so
 	// clients can tell a reschedule from a duplicate. Zero for a fresh event.
 	Sequence int `json:"sequence,omitempty"`
+}
+
+// Reminder is a single VALARM alarm: fire OffsetMinutes before the event start,
+// as a popup (DISPLAY) or an email (EMAIL).
+type Reminder struct {
+	// Action is DISPLAY (popup) or EMAIL. Anything else is normalized to
+	// DISPLAY on the server.
+	Action string `json:"action"`
+	// OffsetMinutes is minutes BEFORE the event start (positive = before).
+	OffsetMinutes int `json:"offsetMinutes"`
+	// Description is optional alarm text / email body.
+	Description string `json:"description,omitempty"`
 }
 
 // Attendee is one invitee on a meeting (iTIP ATTENDEE property).

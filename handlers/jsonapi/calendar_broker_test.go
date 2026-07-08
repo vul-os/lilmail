@@ -22,14 +22,18 @@ import (
 // calendar path builds a client from the headers without contacting a live
 // CalDAV server.
 type fakeCalDAV struct {
-	events []models.CalendarEvent
-	busy   []models.FreeBusySlot
+	events  []models.CalendarEvent
+	busy    []models.FreeBusySlot
+	created []models.CalendarEvent
 }
 
 func (f *fakeCalDAV) ListEvents(context.Context, time.Time, time.Time) ([]models.CalendarEvent, error) {
 	return f.events, nil
 }
-func (f *fakeCalDAV) CreateEvent(context.Context, models.CalendarEvent) error { return nil }
+func (f *fakeCalDAV) CreateEvent(_ context.Context, ev models.CalendarEvent) error {
+	f.created = append(f.created, ev)
+	return nil
+}
 func (f *fakeCalDAV) UpdateEvent(context.Context, models.CalendarEvent) error { return nil }
 func (f *fakeCalDAV) DeleteEvent(context.Context, string) error               { return nil }
 func (f *fakeCalDAV) FreeBusy(context.Context, time.Time, time.Time) ([]models.FreeBusySlot, error) {
@@ -302,5 +306,63 @@ func TestBrokeredContacts(t *testing.T) {
 	}
 	if len(out.Contacts) != 0 {
 		t.Fatalf("want empty contacts, got: %s", body2)
+	}
+}
+
+// TestBrokeredCreateEventThreadsDepthFields asserts the new depth fields
+// (timezone, reminders, exdates, recurrenceId) round-trip from the JSON create
+// body through toEvent into the CalDAV client, per-account (the captured event
+// belongs to the brokered account only).
+func TestBrokeredCreateEventThreadsDepthFields(t *testing.T) {
+	t.Setenv(brokerEnvSecret, "s3cr3t")
+
+	fake := &fakeCalDAV{}
+	withStubbedCalDAVDial(t, fake, nil)
+
+	h := newBrokerHandler(t)
+	app := fiber.New()
+	h.Register(app)
+
+	body := `{
+		"summary":"Sprint review",
+		"start":"2026-07-01T09:00:00Z",
+		"end":"2026-07-01T10:00:00Z",
+		"timezone":"America/New_York",
+		"recurrence":"FREQ=WEEKLY;BYDAY=MO,WE",
+		"reminders":[{"action":"DISPLAY","offsetMinutes":15},{"action":"EMAIL","offsetMinutes":1440}],
+		"exdates":["2026-07-08T09:00:00Z"],
+		"recurrenceId":"2026-07-15T09:00:00Z"
+	}`
+	req := httptest.NewRequest("POST", "/v1/calendar/events", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(hdrBrokerAuth, "s3cr3t")
+	for k, v := range brokeredHeaders() {
+		req.Header.Set(k, v)
+	}
+	req.Header.Set(hdrMailCalDAVURL, "https://dav.example.com/caldav/")
+
+	resp, err := app.Test(req)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	if resp.StatusCode != fiber.StatusCreated {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("want 201, got %d: %s", resp.StatusCode, b)
+	}
+	if len(fake.created) != 1 {
+		t.Fatalf("CreateEvent called %d times", len(fake.created))
+	}
+	ev := fake.created[0]
+	if ev.Timezone != "America/New_York" {
+		t.Errorf("timezone = %q", ev.Timezone)
+	}
+	if len(ev.Reminders) != 2 || ev.Reminders[0].OffsetMinutes != 15 || ev.Reminders[1].Action != "EMAIL" {
+		t.Errorf("reminders = %+v", ev.Reminders)
+	}
+	if len(ev.ExDates) != 1 || !ev.ExDates[0].UTC().Equal(time.Date(2026, 7, 8, 9, 0, 0, 0, time.UTC)) {
+		t.Errorf("exdates = %+v", ev.ExDates)
+	}
+	if ev.RecurrenceID == nil || !ev.RecurrenceID.UTC().Equal(time.Date(2026, 7, 15, 9, 0, 0, 0, time.UTC)) {
+		t.Errorf("recurrenceId = %v", ev.RecurrenceID)
 	}
 }

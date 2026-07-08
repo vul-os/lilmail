@@ -206,12 +206,16 @@ func calEventFromICal(objPath string, ev ical.Event) (models.CalendarEvent, erro
 		organizer = orgProp.Value
 	}
 
-	startTime, err := ev.DateTimeStart(time.Local)
+	// Resolve the event's own zone so wall-clock times parse DST-correctly.
+	// go-ical honours a DTSTART TZID parameter regardless of the fallback loc,
+	// but passing the resolved zone keeps floating times consistent too.
+	evZone := loadZone(eventTZID(ev.Component))
+	startTime, err := ev.DateTimeStart(evZone)
 	if err != nil {
 		return models.CalendarEvent{}, fmt.Errorf("caldav: parse DTSTART: %w", err)
 	}
 
-	endTime, err := ev.DateTimeEnd(time.Local)
+	endTime, err := ev.DateTimeEnd(evZone)
 	if err != nil {
 		// Non-fatal: use start as end
 		endTime = startTime
@@ -258,7 +262,7 @@ func calEventFromICal(objPath string, ev ical.Event) (models.CalendarEvent, erro
 		attendees = append(attendees, a)
 	}
 
-	return models.CalendarEvent{
+	out := models.CalendarEvent{
 		UID:         uid,
 		Summary:     summary,
 		Description: description,
@@ -271,7 +275,10 @@ func calEventFromICal(objPath string, ev ical.Event) (models.CalendarEvent, erro
 		Path:        objPath,
 		Attendees:   attendees,
 		Sequence:    sequence,
-	}, nil
+	}
+	// Timezone, VALARM reminders, EXDATE / RECURRENCE-ID (fail-safe).
+	parseDepth(ev.Component, startTime, &out)
+	return out, nil
 }
 
 // CreateEvent builds a minimal VCALENDAR/VEVENT and PUTs it on the server.
@@ -307,21 +314,39 @@ func (cc *CalDAVClient) putEvent(ctx context.Context, ev models.CalendarEvent) e
 		objPath = path.Join(calPath, ev.UID+".ics")
 	}
 
+	cal := buildEventCalendar(ev)
+
+	if _, err := cc.c.PutCalendarObject(ctx, objPath, cal); err != nil {
+		return fmt.Errorf("caldav: put calendar object: %w", err)
+	}
+	return nil
+}
+
+// buildEventCalendar serialises a CalendarEvent into a VCALENDAR/VEVENT (plus a
+// VTIMEZONE and VALARM children as needed). It is separated from the network PUT
+// so the encode path is unit-testable, and is the single place the event's
+// iCal shape is defined.
+func buildEventCalendar(ev models.CalendarEvent) *ical.Calendar {
 	cal := ical.NewCalendar()
 	cal.Props.SetText(ical.PropProductID, "-//LilMail//LilMail//EN")
 	cal.Props.SetText(ical.PropVersion, "2.0")
 
 	event := ical.NewEvent()
-	event.Props.SetText(ical.PropUID, ev.UID)
-	event.Props.SetText(ical.PropSummary, ev.Summary)
+	event.Props.SetText(ical.PropUID, cleanText(ev.UID))
+	event.Props.SetText(ical.PropSummary, cleanText(ev.Summary))
 	if ev.Description != "" {
-		event.Props.SetText(ical.PropDescription, ev.Description)
+		event.Props.SetText(ical.PropDescription, cleanText(ev.Description))
 	}
 	if ev.Location != "" {
-		event.Props.SetText(ical.PropLocation, ev.Location)
+		event.Props.SetText(ical.PropLocation, cleanText(ev.Location))
 	}
 	if ev.Recurrence != "" {
-		event.Props.SetText(ical.PropRecurrenceRule, ev.Recurrence)
+		// RRULE is a structured value, not TEXT: set the raw value so the
+		// encoder does not escape ';'/',' (which would corrupt a rule like
+		// FREQ=WEEKLY;BYDAY=MO,WE) or tag it VALUE=TEXT.
+		rp := ical.NewProp(ical.PropRecurrenceRule)
+		rp.Value = strings.NewReplacer("\r", "", "\n", "").Replace(ev.Recurrence)
+		event.Props.Set(rp)
 	}
 	if ev.Sequence > 0 {
 		seqProp := ical.NewProp(ical.PropSequence)
@@ -365,20 +390,24 @@ func (cc *CalDAVClient) putEvent(ctx context.Context, ev models.CalendarEvent) e
 	stampProp.SetDateTime(time.Now().UTC())
 	event.Props.Set(stampProp)
 
-	if ev.AllDay {
-		event.Props.SetDate(ical.PropDateTimeStart, ev.Start)
-		event.Props.SetDate(ical.PropDateTimeEnd, ev.End)
-	} else {
-		event.Props.SetDateTime(ical.PropDateTimeStart, ev.Start)
-		event.Props.SetDateTime(ical.PropDateTimeEnd, ev.End)
+	// Per-event timezone: DTSTART;TZID + VTIMEZONE, when timed & non-UTC.
+	// Returns true when it wrote the date props, so we skip the default emit.
+	if !writeTimezone(cal, event, ev) {
+		if ev.AllDay {
+			event.Props.SetDate(ical.PropDateTimeStart, ev.Start)
+			event.Props.SetDate(ical.PropDateTimeEnd, ev.End)
+		} else {
+			event.Props.SetDateTime(ical.PropDateTimeStart, ev.Start.UTC())
+			event.Props.SetDateTime(ical.PropDateTimeEnd, ev.End.UTC())
+		}
 	}
+
+	// VALARM reminders + EXDATE / RECURRENCE-ID exceptions.
+	writeReminders(event, ev.Reminders)
+	writeExceptions(event, ev)
 
 	cal.Children = append(cal.Children, event.Component)
-
-	if _, err := cc.c.PutCalendarObject(ctx, objPath, cal); err != nil {
-		return fmt.Errorf("caldav: put calendar object: %w", err)
-	}
-	return nil
+	return cal
 }
 
 // DeleteEvent removes the calendar object identified by uid. CalDAV objects are

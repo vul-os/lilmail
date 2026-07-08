@@ -95,6 +95,16 @@ type eventBody struct {
 	End         string `json:"end"`
 	AllDay      bool   `json:"allDay"`
 	Recurrence  string `json:"recurrence"`
+	// Timezone is the IANA zone id for a timed event; empty means UTC.
+	Timezone string `json:"timezone"`
+	// Reminders are the VALARM alarms (popup/email + offset-before).
+	Reminders []models.Reminder `json:"reminders"`
+	// ExDates are excluded occurrence starts (RFC3339) — deleted single
+	// instances of a recurring series.
+	ExDates []string `json:"exdates"`
+	// RecurrenceID (RFC3339), when set, makes this a single-instance override of
+	// a recurring series.
+	RecurrenceID string `json:"recurrenceId"`
 	// Path is the CalDAV object path (from listEvents). When present on an update
 	// it targets the exact object so an edit never forks a duplicate.
 	Path string `json:"path"`
@@ -121,9 +131,21 @@ func (b eventBody) toEvent(uid, organizer string, start, end time.Time) models.C
 		End:         end,
 		AllDay:      b.AllDay,
 		Recurrence:  b.Recurrence,
+		Timezone:    b.Timezone,
+		Reminders:   b.Reminders,
 		Path:        b.Path,
 		Attendees:   b.Attendees,
 		Sequence:    b.Sequence,
+	}
+	for _, s := range b.ExDates {
+		if t, err := time.Parse(time.RFC3339, s); err == nil {
+			ev.ExDates = append(ev.ExDates, t)
+		}
+	}
+	if b.RecurrenceID != "" {
+		if t, err := time.Parse(time.RFC3339, b.RecurrenceID); err == nil {
+			ev.RecurrenceID = &t
+		}
 	}
 	if len(b.Attendees) > 0 {
 		ev.Organizer = organizer
