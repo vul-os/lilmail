@@ -29,6 +29,13 @@ type Email struct {
 	// lilmail, plain Gmail/IMAP) — those clients fall back to their own JWZ
 	// union-find over MessageID/InReplyTo/References. Never trusted from a client.
 	ThreadID string `json:"threadId,omitempty"`
+	// Category is the Gmail-style inbox tab (primary|social|promotions|updates|
+	// forums) this message was classified into by vulos-mail at ingest, surfaced
+	// (brokered) via ?category filtering on the message list and re-categorization.
+	// Empty for non-vulos-mail-hosted accounts (standalone/session lilmail, plain
+	// Gmail/IMAP) — those clients show a single Primary tab. Never trusted from a
+	// client; it is stamped server-side only.
+	Category string `json:"category,omitempty"`
 	// Multi-account: source account metadata (empty when single-account mode)
 	AccountEmail string `json:"accountEmail,omitempty"`
 	AccountLabel string `json:"accountLabel,omitempty"`

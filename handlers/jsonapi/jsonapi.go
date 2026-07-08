@@ -196,6 +196,16 @@ func (h *Handler) Register(app *fiber.App) {
 	if h.brokerSecret != "" {
 		h.registerThreads(g)
 	}
+
+	// Categories — registered when the broker path is active (vulos-mail classifies
+	// inbound mail into Gmail-style inbox tabs and its category base URL arrives per
+	// request as X-Vulos-Mail-Categories-Url). When a request carries no category
+	// URL (e.g. a plain Gmail/IMAP brokered account), the message listing leaves
+	// each `category` empty (client shows a single Primary tab), ?category= is
+	// ignored, and POST /v1/messages/:uid/category reports 501. See categories.go.
+	if h.brokerSecret != "" {
+		h.registerCategories(g)
+	}
 }
 
 // requireAuth gates the group, returning 401 JSON (never a redirect) when the
@@ -313,11 +323,36 @@ func (h *Handler) handleMessages(c *fiber.Ctx) error {
 		}
 	}
 
-	// nextOffset advances the window only when this page was full; a short page
-	// means the end of the mailbox was reached, so there is nothing more to load.
+	// nextOffset advances the window only when THIS PAGE (the raw IMAP fetch) was
+	// full; a short page means the end of the mailbox was reached. Computed from the
+	// pre-filter page length so a category filter (which shrinks the page) can never
+	// make paging stop early — the client keeps paging the underlying folder and the
+	// filter is re-applied to each page. Must be captured BEFORE any filtering below.
 	var nextOffset interface{}
 	if limit > 0 && uint32(len(emails)) >= limit {
 		nextOffset = offset + limit
+	}
+
+	// Inbox categories: when a category store is available (vulos-mail-hosted
+	// account), stamp each message with its category tab (additive, like threadId).
+	// A ?category=<tab> query then filters the page to that tab. Both are purely
+	// additive: a non-hosted account (no category store) keeps an empty category and
+	// ?category= is ignored — the client shows a single Primary tab. The filter is
+	// applied ONLY when the category resolve actually SUCCEEDED (categories were
+	// stamped); if the upstream store is transiently unreachable, attachCategories
+	// swallows the error and stamps nothing, so we must NOT filter (that would hide
+	// a real message list behind an all-empty "primary" default). On a resolve miss
+	// the request degrades to the full, un-filtered page rather than an empty tab.
+	wantCat := strings.ToLower(strings.TrimSpace(c.Query("category")))
+	if len(emails) > 0 {
+		if store, cerr := h.categoryStoreFor(c); cerr == nil {
+			stamped := h.attachCategories(c.Context(), store, emails)
+			if stamped {
+				if _, ok := knownCategories[wantCat]; ok {
+					emails = filterByCategory(emails, wantCat)
+				}
+			}
+		}
 	}
 	return c.JSON(fiber.Map{
 		"folder":     folder,

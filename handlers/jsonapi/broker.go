@@ -70,6 +70,16 @@ const (
 	// brokers reads to this URL, presenting the shared broker secret as
 	// X-Vulos-Broker-Auth and the validated mailbox as the `account` field/query.
 	hdrMailThreadsURL = "X-Vulos-Mail-Threads-Url"
+
+	// Categories base URL for the brokered account. Optional: sent only by a
+	// backend that classifies inbound mail into Gmail-style inbox tabs
+	// (Primary/Social/Promotions/Updates/Forums) — vulos-mail. When absent, the
+	// /v1 category surface reports 501 for re-categorize and the message listing
+	// leaves each `category` empty (the client shows a single Primary tab) — e.g. a
+	// plain Gmail/IMAP brokered account, or standalone/session lilmail. lilmail
+	// brokers reads/trains to this URL, presenting the shared broker secret as
+	// X-Vulos-Broker-Auth and the validated mailbox as the `account` field.
+	hdrMailCategoriesURL = "X-Vulos-Mail-Categories-Url"
 )
 
 // brokerEnvSecret is the env var that gates the whole brokered path. When empty,
@@ -110,6 +120,10 @@ type brokerSpec struct {
 	// internal threads endpoint). Empty when the backend computes no canonical
 	// server-side thread ids.
 	ThreadsURL string
+	// CategoriesURL is the authoritative per-account inbox-category base URL
+	// (vulos-mail's /internal/categories). Empty when the backend does not classify
+	// mail into tabs — the client then shows a single Primary inbox.
+	CategoriesURL string
 }
 
 // brokerDialIMAP builds a live MailClient from a validated broker spec. It is a
@@ -227,6 +241,8 @@ func (h *Handler) parseBroker(c *fiber.Ctx) (brokerSpec, bool) {
 		RulesURL: strings.TrimSpace(c.Get(hdrMailRulesURL)),
 		// Optional thread-store URL — never required to validate the spec.
 		ThreadsURL: strings.TrimSpace(c.Get(hdrMailThreadsURL)),
+		// Optional categories URL — never required to validate the spec.
+		CategoriesURL: strings.TrimSpace(c.Get(hdrMailCategoriesURL)),
 	}
 
 	if spec.Auth == "" {
