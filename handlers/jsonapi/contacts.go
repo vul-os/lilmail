@@ -66,27 +66,25 @@ func (h *Handler) cardDAVAvailable(c *fiber.Ctx) (spec brokerSpec, brokered, ok 
 }
 
 // handleContactCards lists full contact cards for the contacts view.
-// GET /v1/contacts/cards?q=&limit= → { contacts: models.Contact[] }
+// GET /v1/contacts/cards?q=&limit=&group= → { contacts: models.Contact[] }
+// When group= is set, only cards whose CATEGORIES contain that group are returned
+// (case-insensitive), giving the client a per-account group filter.
 func (h *Handler) handleContactCards(c *fiber.Ctx) error {
 	query := strings.TrimSpace(c.Query("q"))
+	group := strings.TrimSpace(c.Query("group"))
 	limit := int(uintQuery(c, "limit", 500))
 
-	spec, brokered, ok := h.cardDAVAvailable(c)
-	if !ok {
+	contacts, err := h.listAllContacts(c, query, limit)
+	if err == errContactsUnavailable {
 		return c.JSON(fiber.Map{"contacts": []models.Contact{}})
-	}
-
-	var (
-		contacts []models.Contact
-		err      error
-	)
-	if brokered {
-		contacts, err = brokerContactsList(spec, query, limit)
-	} else {
-		contacts, err = api.ContactsList(h.config.CardDAV.URL, h.config.CardDAV.Username, h.config.CardDAV.Password, query, limit)
 	}
 	if err != nil {
 		return fail(c, fiber.StatusBadGateway, "could not list contacts")
+	}
+	if group != "" {
+		contacts = filterByGroup(contacts, group)
+	} else {
+		contacts = withoutPlaceholders(contacts)
 	}
 	if contacts == nil {
 		contacts = []models.Contact{}
@@ -94,29 +92,133 @@ func (h *Handler) handleContactCards(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"contacts": contacts})
 }
 
-// contactBody is the JSON payload for creating/updating a contact.
+// errContactsUnavailable signals the account has no usable CardDAV target, so the
+// caller degrades to an empty list rather than a 502.
+var errContactsUnavailable = errContacts("contacts not available for this account")
+
+type errContacts string
+
+func (e errContacts) Error() string { return string(e) }
+
+// listAllContacts is the shared read path used by the cards list, groups
+// aggregation and export. It routes through the same brokered/standalone seam so
+// per-account isolation is identical to every other contacts surface.
+func (h *Handler) listAllContacts(c *fiber.Ctx, query string, limit int) ([]models.Contact, error) {
+	spec, brokered, ok := h.cardDAVAvailable(c)
+	if !ok {
+		return nil, errContactsUnavailable
+	}
+	if brokered {
+		return brokerContactsList(spec, query, limit)
+	}
+	return api.ContactsList(h.config.CardDAV.URL, h.config.CardDAV.Username, h.config.CardDAV.Password, query, limit)
+}
+
+// putContact routes a create/update through the same brokered/standalone seam as
+// the handlers, so groups + import reuse one write path with identical isolation.
+func (h *Handler) putContact(c *fiber.Ctx, ct models.Contact) (models.Contact, error) {
+	spec, brokered, ok := h.cardDAVAvailable(c)
+	if !ok {
+		return models.Contact{}, errContactsUnavailable
+	}
+	if brokered {
+		return brokerContactPut(spec, ct)
+	}
+	return api.ContactPut(h.config.CardDAV.URL, h.config.CardDAV.Username, h.config.CardDAV.Password, ct)
+}
+
+// deleteContact routes a delete through the brokered/standalone seam.
+func (h *Handler) deleteContact(c *fiber.Ctx, uid, objPath string) error {
+	spec, brokered, ok := h.cardDAVAvailable(c)
+	if !ok {
+		return errContactsUnavailable
+	}
+	if brokered {
+		return brokerContactDelete(spec, uid, objPath)
+	}
+	return api.ContactDelete(h.config.CardDAV.URL, h.config.CardDAV.Username, h.config.CardDAV.Password, uid, objPath)
+}
+
+// withoutPlaceholders drops internal group-placeholder cards so they never
+// surface in the contacts list.
+func withoutPlaceholders(in []models.Contact) []models.Contact {
+	out := make([]models.Contact, 0, len(in))
+	for _, ct := range in {
+		if !isPlaceholderGroupCard(ct) {
+			out = append(out, ct)
+		}
+	}
+	return out
+}
+
+// filterByGroup keeps only contacts whose Groups contain group (case-insensitive).
+func filterByGroup(in []models.Contact, group string) []models.Contact {
+	want := strings.ToLower(group)
+	out := make([]models.Contact, 0, len(in))
+	for _, ct := range in {
+		if isPlaceholderGroupCard(ct) {
+			continue // internal group placeholder is never a real member
+		}
+		for _, g := range ct.Groups {
+			if strings.ToLower(strings.TrimSpace(g)) == want {
+				out = append(out, ct)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// contactBody is the JSON payload for creating/updating a contact. It mirrors
+// models.Contact so the full field depth (structured name, TYPE labels, ADR,
+// birthday, websites, IM, department, groups) round-trips; the flat Emails/Phones
+// remain accepted for the legacy/lean client.
 type contactBody struct {
-	UID    string   `json:"uid"`
-	Name   string   `json:"name"`
-	Org    string   `json:"org"`
-	Title  string   `json:"title"`
-	Note   string   `json:"note"`
-	Emails []string `json:"emails"`
-	Phones []string `json:"phones"`
-	Path   string   `json:"path"`
+	UID            string                 `json:"uid"`
+	Name           string                 `json:"name"`
+	StructuredName *models.StructuredName `json:"structuredName"`
+	Nickname       string                 `json:"nickname"`
+	FileAs         string                 `json:"fileAs"`
+	Org            string                 `json:"org"`
+	Department     string                 `json:"department"`
+	Title          string                 `json:"title"`
+	Note           string                 `json:"note"`
+	Emails         []string               `json:"emails"`
+	Phones         []string               `json:"phones"`
+	TypedEmails    []models.TypedValue    `json:"typedEmails"`
+	TypedPhones    []models.TypedValue    `json:"typedPhones"`
+	Addresses      []models.Address       `json:"addresses"`
+	Websites       []models.TypedValue    `json:"websites"`
+	IMs            []models.TypedValue    `json:"ims"`
+	Birthday       string                 `json:"birthday"`
+	Anniversary    string                 `json:"anniversary"`
+	Groups         []string               `json:"groups"`
+	Path           string                 `json:"path"`
 }
 
 func (b contactBody) toContact() models.Contact {
-	return models.Contact{
-		UID:    b.UID,
-		Name:   strings.TrimSpace(b.Name),
-		Org:    strings.TrimSpace(b.Org),
-		Title:  strings.TrimSpace(b.Title),
-		Note:   b.Note,
-		Emails: b.Emails,
-		Phones: b.Phones,
-		Path:   b.Path,
-	}
+	return sanitizeContact(models.Contact{
+		UID:            b.UID,
+		Name:           strings.TrimSpace(b.Name),
+		StructuredName: b.StructuredName,
+		Nickname:       strings.TrimSpace(b.Nickname),
+		FileAs:         strings.TrimSpace(b.FileAs),
+		Org:            strings.TrimSpace(b.Org),
+		Department:     strings.TrimSpace(b.Department),
+		Title:          strings.TrimSpace(b.Title),
+		Note:           b.Note,
+		Emails:         b.Emails,
+		Phones:         b.Phones,
+		TypedEmails:    b.TypedEmails,
+		TypedPhones:    b.TypedPhones,
+		Addresses:      b.Addresses,
+		Websites:       b.Websites,
+		IMs:            b.IMs,
+		Birthday:       strings.TrimSpace(b.Birthday),
+		Anniversary:    strings.TrimSpace(b.Anniversary),
+		Groups:         b.Groups,
+		Path:           b.Path,
+	})
 }
 
 // handleCreateContact creates a contact.
@@ -127,7 +229,7 @@ func (h *Handler) handleCreateContact(c *fiber.Ctx) error {
 		return fail(c, fiber.StatusBadRequest, "invalid JSON body")
 	}
 	ct := body.toContact()
-	if ct.Name == "" && len(ct.Emails) == 0 {
+	if !hasIdentity(ct) {
 		return fail(c, fiber.StatusBadRequest, "a name or email is required")
 	}
 	ct.UID = "" // creation always mints a new UID; ignore any client-sent UID
@@ -166,7 +268,7 @@ func (h *Handler) handleUpdateContact(c *fiber.Ctx) error {
 	}
 	ct := body.toContact()
 	ct.UID = uid
-	if ct.Name == "" && len(ct.Emails) == 0 {
+	if !hasIdentity(ct) {
 		return fail(c, fiber.StatusBadRequest, "a name or email is required")
 	}
 

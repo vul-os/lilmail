@@ -211,77 +211,16 @@ func findContactPath(ctx context.Context, client *carddav.Client, serverURL, uid
 }
 
 // ── vCard <-> models.Contact ──────────────────────────────────────────────
+//
+// The rich field mapping (structured N, TYPE labels, ADR, BDAY, URL, IMPP,
+// CATEGORIES, ORG dept) lives in contact_vcard.go so it can be unit-tested in
+// isolation. cardUID and contactMatches remain here alongside the DAV plumbing.
 
 func cardUID(card vcard.Card) string {
 	if f := card.Get(vcard.FieldUID); f != nil {
 		return f.Value
 	}
 	return ""
-}
-
-func contactFromCard(card vcard.Card, objPath string) models.Contact {
-	ct := models.Contact{UID: cardUID(card), Path: objPath}
-	if f := card.Get(vcard.FieldFormattedName); f != nil {
-		ct.Name = f.Value
-	}
-	if f := card.Get(vcard.FieldOrganization); f != nil {
-		// ORG is ";"-structured (org;dept); show the first component.
-		ct.Org = strings.SplitN(f.Value, ";", 2)[0]
-	}
-	if f := card.Get(vcard.FieldTitle); f != nil {
-		ct.Title = f.Value
-	}
-	if f := card.Get(vcard.FieldNote); f != nil {
-		ct.Note = f.Value
-	}
-	for _, f := range card[vcard.FieldEmail] {
-		if v := strings.TrimSpace(f.Value); v != "" {
-			ct.Emails = append(ct.Emails, v)
-		}
-	}
-	for _, f := range card[vcard.FieldTelephone] {
-		if v := strings.TrimSpace(f.Value); v != "" {
-			ct.Phones = append(ct.Phones, v)
-		}
-	}
-	if ct.Emails == nil {
-		ct.Emails = []string{}
-	}
-	return ct
-}
-
-func cardFromContact(ct models.Contact) vcard.Card {
-	card := make(vcard.Card)
-	card.SetValue(vcard.FieldUID, ct.UID)
-	name := strings.TrimSpace(ct.Name)
-	if name == "" && len(ct.Emails) > 0 {
-		name = ct.Emails[0]
-	}
-	card.SetValue(vcard.FieldFormattedName, name)
-	// A structured N is required by vCard 3.0; derive a best-effort one from FN.
-	card.SetName(&vcard.Name{GivenName: name})
-	if ct.Org != "" {
-		card.SetValue(vcard.FieldOrganization, ct.Org)
-	}
-	if ct.Title != "" {
-		card.SetValue(vcard.FieldTitle, ct.Title)
-	}
-	if ct.Note != "" {
-		card.SetValue(vcard.FieldNote, ct.Note)
-	}
-	for _, e := range ct.Emails {
-		if e = strings.TrimSpace(e); e != "" {
-			card.Add(vcard.FieldEmail, &vcard.Field{Value: e})
-		}
-	}
-	for _, p := range ct.Phones {
-		if p = strings.TrimSpace(p); p != "" {
-			card.Add(vcard.FieldTelephone, &vcard.Field{Value: p})
-		}
-	}
-	// Normalise to vCard 4.0 (sets VERSION) so servers accept the PUT.
-	vcard.ToV4(card)
-	return card
 }
 
 func contactMatches(ct models.Contact, q string) bool {
