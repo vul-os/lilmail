@@ -29,6 +29,8 @@ func (h *Handler) registerSettings(g fiber.Router) {
 	g.Get("/settings/signatures", h.handleGetSignatures)
 	g.Put("/settings/signatures", h.handlePutSignatures)
 	g.Get("/settings/identities", h.handleGetIdentities)
+	g.Get("/settings/spam", h.handleGetSpam)
+	g.Put("/settings/spam", h.handlePutSpam)
 }
 
 // settingsStoreOr501 resolves the settings store + the authenticated owner. When
