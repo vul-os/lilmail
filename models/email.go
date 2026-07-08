@@ -23,6 +23,12 @@ type Email struct {
 	MessageID  string   `json:"messageId,omitempty"`
 	InReplyTo  string   `json:"inReplyTo,omitempty"`
 	References []string `json:"references,omitempty"`
+	// ThreadID is the CANONICAL server-side conversation id computed by vulos-mail
+	// at ingest and surfaced (brokered) via /v1/threads and ?threaded=1 on the
+	// message list. Empty for non-vulos-mail-hosted accounts (standalone/session
+	// lilmail, plain Gmail/IMAP) — those clients fall back to their own JWZ
+	// union-find over MessageID/InReplyTo/References. Never trusted from a client.
+	ThreadID string `json:"threadId,omitempty"`
 	// Multi-account: source account metadata (empty when single-account mode)
 	AccountEmail string `json:"accountEmail,omitempty"`
 	AccountLabel string `json:"accountLabel,omitempty"`

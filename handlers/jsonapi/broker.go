@@ -61,6 +61,15 @@ const (
 	// backend" (501) — e.g. a plain Gmail/IMAP brokered account. lilmail brokers
 	// CRUD to this URL, presenting the shared broker secret as X-Vulos-Rules-Auth.
 	hdrMailRulesURL = "X-Vulos-Mail-Rules-Url"
+
+	// Threads-store base URL for the brokered account. Optional: sent only by a
+	// backend that computes canonical server-side conversation thread ids at ingest
+	// (vulos-mail). When absent, the /v1/threads surface reports 501 and ?threaded=1
+	// leaves ThreadID empty (the client falls back to its own JWZ union-find) — e.g.
+	// a plain Gmail/IMAP brokered account, or standalone/session lilmail. lilmail
+	// brokers reads to this URL, presenting the shared broker secret as
+	// X-Vulos-Broker-Auth and the validated mailbox as the `account` field/query.
+	hdrMailThreadsURL = "X-Vulos-Mail-Threads-Url"
 )
 
 // brokerEnvSecret is the env var that gates the whole brokered path. When empty,
@@ -97,6 +106,10 @@ type brokerSpec struct {
 	// RulesURL is the authoritative per-account rule-store base URL (vulos-mail's
 	// /internal/mailrules). Empty when the backend has no rule store.
 	RulesURL string
+	// ThreadsURL is the authoritative per-account thread-store base URL (vulos-mail's
+	// internal threads endpoint). Empty when the backend computes no canonical
+	// server-side thread ids.
+	ThreadsURL string
 }
 
 // brokerDialIMAP builds a live MailClient from a validated broker spec. It is a
@@ -212,6 +225,8 @@ func (h *Handler) parseBroker(c *fiber.Ctx) (brokerSpec, bool) {
 		CardDAVURL: strings.TrimSpace(c.Get(hdrMailCardDAVURL)),
 		// Optional rule-store URL — never required to validate the spec.
 		RulesURL: strings.TrimSpace(c.Get(hdrMailRulesURL)),
+		// Optional thread-store URL — never required to validate the spec.
+		ThreadsURL: strings.TrimSpace(c.Get(hdrMailThreadsURL)),
 	}
 
 	if spec.Auth == "" {

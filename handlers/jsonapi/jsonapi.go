@@ -185,6 +185,17 @@ func (h *Handler) Register(app *fiber.App) {
 	if h.brokerSecret != "" {
 		h.registerRules(g)
 	}
+
+	// Threads — registered when the broker path is active (the authoritative
+	// canonical per-account conversation thread ids are computed by vulos-mail and
+	// its thread-store base URL arrives per request as X-Vulos-Mail-Threads-Url).
+	// When a request carries no thread-store URL (e.g. a plain Gmail/IMAP brokered
+	// account), GET /v1/threads/:id reports 501 and ?threaded=1 on the message list
+	// leaves ThreadID empty so the client falls back to its own JWZ union-find. See
+	// threads.go.
+	if h.brokerSecret != "" {
+		h.registerThreads(g)
+	}
 }
 
 // requireAuth gates the group, returning 401 JSON (never a redirect) when the
@@ -288,6 +299,18 @@ func (h *Handler) handleMessages(c *fiber.Ctx) error {
 	emails, err := cl.FetchMessagesPaged(folder, limit, offset)
 	if err != nil {
 		return fail(c, fiber.StatusBadGateway, "could not fetch messages")
+	}
+
+	// ?threaded=1: when a thread store is available (vulos-mail-hosted account),
+	// augment each message with its CANONICAL server-side thread id. This is purely
+	// ADDITIVE — the flat response shape (folder/limit/offset/nextOffset/messages)
+	// is unchanged; only an extra optional threadId appears per message. For a
+	// non-hosted account (no thread store) the messages keep an empty threadId and
+	// the client falls back to its own JWZ union-find — the request is never errored.
+	if boolQuery(c, "threaded") && len(emails) > 0 {
+		if store, terr := h.threadStoreFor(c); terr == nil {
+			h.attachThreadIDs(c.Context(), store, emails)
+		}
 	}
 
 	// nextOffset advances the window only when this page was full; a short page
