@@ -65,6 +65,54 @@ func fiberPost(t *testing.T, app *fiber.App, path string, body any) (int, string
 	return resp.StatusCode, string(raw)
 }
 
+// fiberGet fires a GET against the Fiber test app and returns status + body.
+func fiberGet(t *testing.T, app *fiber.App, path string) (int, string) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	resp, err := app.Test(req, 5000)
+	if err != nil {
+		t.Fatalf("fiber test: %v", err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(raw)
+}
+
+// ---------------------------------------------------------------------------
+// Capabilities probe
+// ---------------------------------------------------------------------------
+
+func TestCapabilities_DisabledReturns404(t *testing.T) {
+	app := buildTestApp(config.AIConfig{Enabled: false})
+	status, body := fiberGet(t, app, "/ai/capabilities")
+	if status != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404; body=%s", status, body)
+	}
+	if !strings.Contains(body, "ai_disabled") {
+		t.Errorf("body = %s, want ai_disabled", body)
+	}
+}
+
+func TestCapabilities_EnabledReturnsFlags(t *testing.T) {
+	app := buildTestApp(config.AIConfig{Enabled: true, Endpoint: "http://unused"})
+	status, body := fiberGet(t, app, "/ai/capabilities")
+	if status != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", status, body)
+	}
+	var caps struct {
+		Enabled   bool `json:"enabled"`
+		Compose   bool `json:"compose"`
+		Summarize bool `json:"summarize"`
+		Reply     bool `json:"reply"`
+	}
+	if err := json.Unmarshal([]byte(body), &caps); err != nil {
+		t.Fatalf("unmarshal caps: %v (body=%s)", err, body)
+	}
+	if !caps.Enabled || !caps.Compose || !caps.Summarize || !caps.Reply {
+		t.Errorf("caps = %+v, want all true", caps)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Test 1 & 2: drainSSEText
 // ---------------------------------------------------------------------------

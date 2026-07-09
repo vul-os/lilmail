@@ -113,11 +113,39 @@ func disabledResponse(c *fiber.Ctx) error {
 // Call after applying the SessionMiddleware to the group.
 func RegisterRoutes(grp fiber.Router, cfg config.AIConfig) {
 	h := NewHandler(cfg)
+	grp.Get("/ai/capabilities", h.HandleCapabilities)
 	grp.Post("/ai/compose", h.HandleCompose)
 	grp.Post("/ai/summarize", h.HandleSummarize)
 	grp.Post("/ai/reply", h.HandleReply)
 	grp.Post("/ai/extract-actions", h.HandleExtractActions)
 	grp.Post("/ai/phishing", h.HandlePhishing)
+}
+
+// ---------------------------------------------------------------------------
+// GET /ai/capabilities
+// ---------------------------------------------------------------------------
+
+// HandleCapabilities is a cheap, LLM-free capability probe the client calls on
+// mount to decide whether to surface the AI affordances (summarize / smart-reply
+// / help-me-write / phishing). It NEVER contacts the completion endpoint or the
+// model — it only reports which features are wired.
+//
+// When AI is disabled it returns the standard 404 {"error":"ai_disabled"} (same
+// as every other AI route), so the client's honest capability probe degrades the
+// whole surface on any non-2xx. When enabled it returns the per-feature flags so
+// the client can light up exactly the affordances the backend serves.
+func (h *Handler) HandleCapabilities(c *fiber.Ctx) error {
+	if !h.cfg.Enabled {
+		return disabledResponse(c)
+	}
+	return c.JSON(fiber.Map{
+		"enabled":        true,
+		"compose":        true,
+		"summarize":      true,
+		"reply":          true,
+		"extractActions": true,
+		"phishing":       true,
+	})
 }
 
 // ---------------------------------------------------------------------------

@@ -48,6 +48,37 @@ type Email struct {
 	// is absent or unparseable. Read-only; drives the client's "verified sender"
 	// / "why in spam" badge.
 	Auth *AuthResults `json:"auth,omitempty"`
+	// Unsubscribe carries the parsed List-Unsubscribe (RFC 2369) targets plus the
+	// RFC 8058 one-click flag, when the message advertises them. Nil for ordinary
+	// mail. Read-only; drives the reading pane's one-click Unsubscribe button. The
+	// client validates the scheme and only POSTs to the one-click target — it
+	// never auto-follows a hostile URL.
+	Unsubscribe *Unsubscribe `json:"unsubscribe,omitempty"`
+}
+
+// Unsubscribe is the distilled List-Unsubscribe / List-Unsubscribe-Post value
+// pair (RFC 2369 + RFC 8058) advertised by bulk senders. lilmail parses it
+// read-only from the delivered message headers; it never itself unsubscribes.
+//
+// A List-Unsubscribe header holds one or more angle-bracketed URIs, e.g.
+//
+//	List-Unsubscribe: <https://example.com/u/abc>, <mailto:unsub@example.com?subject=unsub>
+//
+// The client prefers the https one-click POST target (present only when the
+// sender also sent `List-Unsubscribe-Post: List-Unsubscribe=One-Click`, per RFC
+// 8058); otherwise it opens the http(s) landing page or the mailto: in a new
+// window. Only http/https/mailto schemes are surfaced — anything else is dropped
+// so a hostile scheme can never ride through to the client.
+type Unsubscribe struct {
+	// HTTPURL is the first http/https URI from List-Unsubscribe, or "" if none.
+	HTTPURL string `json:"httpUrl,omitempty"`
+	// MailtoURL is the first mailto: URI from List-Unsubscribe, or "" if none.
+	MailtoURL string `json:"mailtoUrl,omitempty"`
+	// OneClick is true when the sender advertised RFC 8058 one-click unsubscribe
+	// (`List-Unsubscribe-Post: List-Unsubscribe=One-Click`) AND an HTTPURL exists,
+	// meaning the client may POST `List-Unsubscribe=One-Click` to HTTPURL directly
+	// without the user leaving the mail app.
+	OneClick bool `json:"oneClick,omitempty"`
 }
 
 // AuthResults is the distilled SPF/DKIM/DMARC verdict from a message's

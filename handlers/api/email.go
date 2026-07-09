@@ -616,6 +616,14 @@ func (c *Client) processMessage(msg *imap.Message, folderName string) (models.Em
 			email.Auth = ParseAuthResults(ar)
 		}
 
+		// Surface any List-Unsubscribe (RFC 2369) + List-Unsubscribe-Post (RFC
+		// 8058) targets so the reading pane can offer a one-click Unsubscribe
+		// button. Read-only — lilmail never dereferences the URL; the client
+		// validates the scheme, confirms, and acts. Nil when absent/unsupported.
+		if lu := m.Header["List-Unsubscribe"]; len(lu) > 0 {
+			email.Unsubscribe = ParseUnsubscribe(lu, m.Header["List-Unsubscribe-Post"])
+		}
+
 		// Handle multipart messages
 		contentType := m.Header.Get("Content-Type")
 		mediaType, params, err := mime.ParseMediaType(contentType)
