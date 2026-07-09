@@ -10,6 +10,7 @@ package jsonapi
 import (
 	"strings"
 
+	"lilmail/handlers/api"
 	"lilmail/models"
 )
 
@@ -58,6 +59,9 @@ func sanitizeContact(ct models.Contact) models.Contact {
 	ct.IMs = clampTyped(ct.IMs)
 	ct.Groups = clampGroups(ct.Groups)
 	ct.Addresses = clampAddresses(ct.Addresses)
+	// Photo: re-sniff + size-cap the data URI; a non-raster / oversize / malformed
+	// value is dropped. This is the single gate that keeps SVG/HTML out of a card.
+	ct.Photo = normalizePhoto(ct.Photo)
 	return ct
 }
 
@@ -153,9 +157,16 @@ func clampGroups(in []string) []string {
 	}
 	out := make([]string, 0, len(in))
 	for _, g := range in {
-		if g = clampField(g, maxGroupLen); g != "" {
-			out = append(out, g)
+		g = clampField(g, maxGroupLen)
+		if g == "" {
+			continue
 		}
+		// The reserved starred category is never a user group: it is authoritative
+		// only through Contact.Starred, so a client cannot smuggle it in as a group.
+		if strings.EqualFold(g, api.StarredCategory) {
+			continue
+		}
+		out = append(out, g)
 	}
 	return out
 }

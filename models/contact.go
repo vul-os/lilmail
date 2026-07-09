@@ -46,6 +46,18 @@ type Contact struct {
 	Anniversary string         `json:"anniversary,omitempty"` // ISO date or vCard raw
 	Groups      []string       `json:"groups,omitempty"`      // CATEGORIES membership
 
+	// Photo is the contact avatar as a data URI ("data:image/png;base64,...").
+	// It maps to the vCard PHOTO property. Only a raster image (PNG/JPEG/GIF/WebP)
+	// is ever accepted or emitted: the write path content-sniffs and size-caps the
+	// bytes so no SVG/HTML (a stored-XSS vector) and no unbounded blob can enter a
+	// card. Empty when the contact has no photo (the UI falls back to initials).
+	Photo string `json:"photo,omitempty"`
+
+	// Starred marks a favourite contact. It is modelled as a reserved CATEGORIES
+	// membership (starredCategory) so it round-trips through CardDAV like any other
+	// group, but it is surfaced as a boolean here and hidden from the group list.
+	Starred bool `json:"starred,omitempty"`
+
 	Path string `json:"path,omitempty"`
 }
 

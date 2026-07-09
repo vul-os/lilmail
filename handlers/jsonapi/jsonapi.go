@@ -176,6 +176,8 @@ func (h *Handler) Register(app *fiber.App) {
 		// literal paths ("import","export","groups") are not shadowed by :uid.
 		h.registerContactImportExport(g)
 		h.registerContactGroups(g)
+		h.registerContactPhoto(g)                         // :uid/photo upload+delete (before /:uid)
+		g.Get("/contacts/frequent", h.handleFrequentContacts) // recently/frequently contacted
 		g.Post("/contacts", h.handleCreateContact)        // body {name,emails,...}
 		g.Put("/contacts/:uid", h.handleUpdateContact)    // body {name,emails,...}
 		g.Delete("/contacts/:uid", h.handleDeleteContact) // ?path=

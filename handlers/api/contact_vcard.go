@@ -169,9 +169,26 @@ func contactFromCard(card vcard.Card, objPath string) models.Contact {
 	}
 	if cats := card.Categories(); len(cats) > 0 {
 		for _, c := range cats {
-			if c = strings.TrimSpace(c); c != "" {
-				ct.Groups = append(ct.Groups, c)
+			c = strings.TrimSpace(c)
+			if c == "" {
+				continue
 			}
+			// The reserved starred category is surfaced as the Starred boolean and
+			// hidden from the normal group list so it never shows up as a group.
+			if strings.EqualFold(c, StarredCategory) {
+				ct.Starred = true
+				continue
+			}
+			ct.Groups = append(ct.Groups, c)
+		}
+	}
+
+	// PHOTO — only a raster data URI is trusted back out. A card authored elsewhere
+	// could carry a PHOTO:URL or an SVG data URI; both are dropped here so the
+	// client only ever receives a safe, self-describing raster data URI.
+	if f := card.Get(vcard.FieldPhoto); f != nil {
+		if uri := readPhotoField(f); uri != "" {
+			ct.Photo = uri
 		}
 	}
 
@@ -179,6 +196,36 @@ func contactFromCard(card vcard.Card, objPath string) models.Contact {
 		ct.Emails = []string{}
 	}
 	return ct
+}
+
+// StarredCategory is the reserved CATEGORIES value used to mark a favourite
+// contact. It round-trips through CardDAV like any other category but is surfaced
+// as Contact.Starred and hidden from the group list. The prefix keeps it from
+// ever colliding with a user-authored group name.
+const StarredCategory = "__vulos-starred__"
+
+// readPhotoField turns a vCard PHOTO field into a safe raster data URI, or ""
+// when it is not a recognised raster image. It accepts both the vCard-4 form
+// (value is already a "data:" URI) and the vCard-3 form (base64 value with an
+// ENCODING/TYPE param); in every case the bytes are re-sniffed so the emitted
+// media type comes from the content, not the declared param.
+func readPhotoField(f *vcard.Field) string {
+	v := strings.TrimSpace(f.Value)
+	if v == "" {
+		return ""
+	}
+	if strings.HasPrefix(strings.ToLower(v), "data:") {
+		return NormalizePhotoURI(v)
+	}
+	// vCard 3 inline form: PHOTO;ENCODING=b;TYPE=PNG:<base64>. Re-wrap as a data
+	// URI (the media type is re-derived from the decoded bytes downstream).
+	if f.Params != nil {
+		enc := strings.ToLower(f.Params.Get("ENCODING"))
+		if enc == "b" || enc == "base64" {
+			return NormalizePhotoURI("data:application/octet-stream;base64," + v)
+		}
+	}
+	return ""
 }
 
 // cardFromContact encodes the rich model into a vCard 4.0. When a typed slice is
@@ -282,13 +329,43 @@ func cardFromContact(ct models.Contact) vcard.Card {
 			Params: typeParams(vcard.FieldAddress, adr.Type),
 		})
 	}
-	if cats := dedupeNonEmpty(ct.Groups); len(cats) > 0 {
+	// CATEGORIES carries the user groups plus, when Starred, the reserved starred
+	// category so the favourite flag round-trips through CardDAV as a category.
+	cats := dedupeNonEmpty(ct.Groups)
+	if ct.Starred {
+		cats = append(cats, StarredCategory)
+	}
+	if len(cats) > 0 {
 		card.SetCategories(cats)
+	}
+
+	// PHOTO — emit only a validated raster data URI. NormalizePhotoURI re-sniffs
+	// the bytes, so a malformed/SVG value simply produces no PHOTO property (never
+	// a broken or dangerous card). MEDIATYPE mirrors the sniffed type for clients
+	// that read the param rather than the data URI.
+	if uri := NormalizePhotoURI(ct.Photo); uri != "" {
+		params := vcard.Params{}
+		if mt := mediaTypeOfDataURI(uri); mt != "" {
+			params.Set(vcard.ParamMediaType, mt)
+		}
+		card.Add(vcard.FieldPhoto, &vcard.Field{Value: uri, Params: params})
 	}
 
 	// Normalise to vCard 4.0 (sets VERSION) so servers accept the PUT.
 	vcard.ToV4(card)
 	return card
+}
+
+// mediaTypeOfDataURI extracts the "image/png" part of "data:image/png;base64,..".
+func mediaTypeOfDataURI(uri string) string {
+	if !strings.HasPrefix(uri, "data:") {
+		return ""
+	}
+	rest := uri[len("data:"):]
+	if i := strings.IndexAny(rest, ";,"); i >= 0 {
+		return rest[:i]
+	}
+	return ""
 }
 
 // effectiveEmails returns the address list regardless of typed/flat form.

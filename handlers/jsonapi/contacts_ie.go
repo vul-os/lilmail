@@ -300,6 +300,14 @@ func parseContactsCSV(data []byte, override csvMapping) (out []models.Contact, s
 		if g := get(row, "groups"); g != "" {
 			ct.Groups = splitMulti(g)
 		}
+		if s := strings.ToLower(get(row, "starred")); s == "1" || s == "true" || s == "yes" || s == "starred" {
+			ct.Starred = true
+		}
+		// Photo is only accepted from a data URI; sanitizeContact re-sniffs it, so a
+		// bare URL or an SVG is dropped rather than stored (no import XSS vector).
+		if p := get(row, "photo"); p != "" {
+			ct.Photo = p
+		}
 		out = append(out, ct)
 	}
 	return out, skipped
@@ -344,6 +352,10 @@ func autoMapHeader(header []string) csvMapping {
 			setIfUnset(m, "birthday", i)
 		case key == "group membership" || key == "groups" || key == "categories" || key == "labels":
 			setIfUnset(m, "groups", i)
+		case key == "starred" || key == "favorite" || key == "favourite":
+			setIfUnset(m, "starred", i)
+		case key == "photo" || key == "photo url" || key == "avatar":
+			setIfUnset(m, "photo", i)
 		}
 	}
 	return m
@@ -380,10 +392,12 @@ func splitMulti(s string) []string {
 }
 
 // csvExportColumns is the fixed export schema (a superset that re-imports cleanly).
+// "Starred" and "Photo" extend the Google/Outlook schema: Starred is 1/0 and
+// Photo carries the raster data URI (formula-guarded like every other cell).
 var csvExportColumns = []string{
 	"Name", "Given Name", "Family Name", "Nickname", "Organization",
 	"Department", "Title", "E-mail 1", "Phone 1", "Website 1",
-	"Birthday", "Notes", "Groups",
+	"Birthday", "Notes", "Groups", "Starred", "Photo",
 }
 
 // writeContactsCSV writes the export schema with formula-injection guarding.
@@ -397,11 +411,16 @@ func writeContactsCSV(w io.Writer, contacts []models.Contact) error {
 		if ct.StructuredName != nil {
 			first, last = ct.StructuredName.First, ct.StructuredName.Last
 		}
+		starred := "0"
+		if ct.Starred {
+			starred = "1"
+		}
 		row := []string{
 			ct.Name, first, last, ct.Nickname, ct.Org,
 			ct.Department, ct.Title,
 			firstEmail(ct), firstPhone(ct), firstWebsite(ct),
 			ct.Birthday, ct.Note, strings.Join(ct.Groups, " ::: "),
+			starred, ct.Photo,
 		}
 		for i := range row {
 			row[i] = csvSafe(row[i])

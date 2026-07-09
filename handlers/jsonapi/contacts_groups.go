@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strings"
 
+	"lilmail/handlers/api"
 	"lilmail/models"
 
 	"github.com/gofiber/fiber/v2"
@@ -224,6 +225,10 @@ func clampGroupName(s string) string {
 	s = stripContactControl(s)
 	if len(s) > maxGroupNameLen {
 		s = s[:maxGroupNameLen]
+	}
+	// The reserved starred category is not a user-manageable group name.
+	if strings.EqualFold(s, api.StarredCategory) {
+		return ""
 	}
 	return s
 }

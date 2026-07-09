@@ -193,6 +193,8 @@ type contactBody struct {
 	Birthday       string                 `json:"birthday"`
 	Anniversary    string                 `json:"anniversary"`
 	Groups         []string               `json:"groups"`
+	Photo          string                 `json:"photo"`
+	Starred        bool                   `json:"starred"`
 	Path           string                 `json:"path"`
 }
 
@@ -217,6 +219,8 @@ func (b contactBody) toContact() models.Contact {
 		Birthday:       strings.TrimSpace(b.Birthday),
 		Anniversary:    strings.TrimSpace(b.Anniversary),
 		Groups:         b.Groups,
+		Photo:          b.Photo,
+		Starred:        b.Starred,
 		Path:           b.Path,
 	})
 }
