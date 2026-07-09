@@ -36,6 +36,19 @@ type Email struct {
 	// Gmail/IMAP) — those clients show a single Primary tab. Never trusted from a
 	// client; it is stamped server-side only.
 	Category string `json:"category,omitempty"`
+	// SmartFolder is the SEMANTIC smart-folder (bills|receipts|travel|shipping|
+	// subscriptions|statements) this message was filed into by vulos-mail's on-box
+	// classifier at ingest, surfaced (brokered) via ?folder= filtering on the
+	// message list and re-filing. Empty for non-vulos-mail-hosted accounts, or an
+	// un-filed message. ORTHOGONAL to Category (both may be set). Never trusted from
+	// a client; stamped server-side only.
+	SmartFolder string `json:"smartFolder,omitempty"`
+	// SmartFields carries the schema.org structured data (amount, due-date,
+	// tracking#, flight info) extracted from this message for the reading-pane smart
+	// CARDS. Populated on the single-message read only (not on listings). Nil when
+	// the backend does not extract fields, or none were present. UNTRUSTED sender
+	// content — the client escapes it on render and scheme-validates any link.
+	SmartFields *SmartFields `json:"smartFields,omitempty"`
 	// Multi-account: source account metadata (empty when single-account mode)
 	AccountEmail string `json:"accountEmail,omitempty"`
 	AccountLabel string `json:"accountLabel,omitempty"`
@@ -54,6 +67,26 @@ type Email struct {
 	// client validates the scheme and only POSTs to the one-click target — it
 	// never auto-follows a hostile URL.
 	Unsubscribe *Unsubscribe `json:"unsubscribe,omitempty"`
+}
+
+// SmartFields is the schema.org structured data extracted from a message by
+// vulos-mail's on-box smart-folder classifier, surfaced read-only for the
+// reading-pane smart cards (a bill due-date chip, a package-tracking card, a
+// flight/itinerary card). Every field is UNTRUSTED sender content and is
+// length-bounded upstream; the client MUST escape it on render (React does this
+// by rendering as text) and MUST scheme-validate any link derived from it. Any
+// field may be empty.
+type SmartFields struct {
+	Amount    string `json:"amount,omitempty"`
+	Currency  string `json:"currency,omitempty"`
+	DueDate   string `json:"dueDate,omitempty"`
+	Tracking  string `json:"tracking,omitempty"`
+	Carrier   string `json:"carrier,omitempty"`
+	OrderNo   string `json:"orderNo,omitempty"`
+	Merchant  string `json:"merchant,omitempty"`
+	FlightNo  string `json:"flightNo,omitempty"`
+	Departure string `json:"departure,omitempty"`
+	Arrival   string `json:"arrival,omitempty"`
 }
 
 // Unsubscribe is the distilled List-Unsubscribe / List-Unsubscribe-Post value

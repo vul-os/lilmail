@@ -210,6 +210,16 @@ func (h *Handler) Register(app *fiber.App) {
 	if h.brokerSecret != "" {
 		h.registerCategories(g)
 	}
+
+	// Smart-folders — registered when the broker path is active (vulos-mail does
+	// semantic auto-foldering and its smart-folders base URL arrives per request as
+	// X-Vulos-Mail-Smartfolders-Url). When a request carries no smart-folders URL,
+	// the message listing leaves each `smartFolder` empty (client shows no smart-
+	// folders), ?folder= is ignored, and POST /v1/messages/:uid/smartfolder reports
+	// 501. See smartfolders.go.
+	if h.brokerSecret != "" {
+		h.registerSmartFolders(g)
+	}
 }
 
 // requireAuth gates the group, returning 401 JSON (never a redirect) when the
@@ -358,6 +368,24 @@ func (h *Handler) handleMessages(c *fiber.Ctx) error {
 			}
 		}
 	}
+
+	// Semantic smart-folders: same augment-then-filter shape as categories, but a
+	// SEPARATE seam (?folder=<smart>). Additive `smartFolder` stamp per message,
+	// optionally filtered to one smart-folder. A non-hosted account (no store) keeps
+	// smartFolder empty and ?folder= is ignored. Filter applied ONLY when the
+	// resolve SUCCEEDED (else a transient upstream miss would hide the whole list
+	// behind an empty smart-folder). Note: ?folder= is ALSO the IMAP folder param
+	// (folderParam); a value that is a known SMART folder additionally filters here,
+	// while a real IMAP folder name is untouched (not in knownSmartFolders).
+	wantSmart := strings.ToLower(strings.TrimSpace(c.Query("smartFolder")))
+	if len(emails) > 0 {
+		if store, serr := h.smartFolderStoreFor(c); serr == nil {
+			stamped := h.attachSmartFolders(c.Context(), store, emails)
+			if stamped && knownSmartFolders[wantSmart] {
+				emails = filterBySmartFolder(emails, wantSmart)
+			}
+		}
+	}
 	return c.JSON(fiber.Map{
 		"folder":     folder,
 		"limit":      limit,
@@ -392,6 +420,13 @@ func (h *Handler) handleMessage(c *fiber.Ctx) error {
 				break
 			}
 		}
+	}
+	// Smart-card fields: when the backend extracts schema.org structured data, stamp
+	// the message with its `smartFields` (bill amount/due-date, package tracking,
+	// flight info) so the reading pane can render the smart card. Best-effort +
+	// additive: a non-hosted account or a miss leaves it nil.
+	if store, serr := h.smartFolderStoreFor(c); serr == nil {
+		h.attachSmartFields(c.Context(), store, &email)
 	}
 	return c.JSON(email)
 }

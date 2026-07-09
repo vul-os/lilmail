@@ -80,6 +80,17 @@ const (
 	// brokers reads/trains to this URL, presenting the shared broker secret as
 	// X-Vulos-Broker-Auth and the validated mailbox as the `account` field.
 	hdrMailCategoriesURL = "X-Vulos-Mail-Categories-Url"
+
+	// Smart-folders base URL for the brokered account. Optional: sent only by a
+	// backend that classifies inbound mail into SEMANTIC smart-folders
+	// (Bills/Receipts/Travel/Shipping/Subscriptions/Statements) and extracts
+	// schema.org card fields — vulos-mail. When absent, the /v1 smart-folder surface
+	// reports 501 for re-file and the message listing leaves each `smartFolder`
+	// empty (the client shows no smart-folders) — e.g. a plain Gmail/IMAP brokered
+	// account, or standalone/session lilmail. lilmail brokers reads/trains/field-
+	// extraction to this URL, presenting the shared broker secret as
+	// X-Vulos-Broker-Auth and the validated mailbox as the `account` field.
+	hdrMailSmartFoldersURL = "X-Vulos-Mail-Smartfolders-Url"
 )
 
 // brokerEnvSecret is the env var that gates the whole brokered path. When empty,
@@ -124,6 +135,10 @@ type brokerSpec struct {
 	// (vulos-mail's /internal/categories). Empty when the backend does not classify
 	// mail into tabs — the client then shows a single Primary inbox.
 	CategoriesURL string
+	// SmartFoldersURL is the authoritative per-account smart-folder base URL
+	// (vulos-mail's /internal/smartfolders). Empty when the backend does not do
+	// semantic auto-foldering — the client then shows no smart-folders.
+	SmartFoldersURL string
 }
 
 // brokerDialIMAP builds a live MailClient from a validated broker spec. It is a
@@ -243,6 +258,8 @@ func (h *Handler) parseBroker(c *fiber.Ctx) (brokerSpec, bool) {
 		ThreadsURL: strings.TrimSpace(c.Get(hdrMailThreadsURL)),
 		// Optional categories URL — never required to validate the spec.
 		CategoriesURL: strings.TrimSpace(c.Get(hdrMailCategoriesURL)),
+		// Optional smart-folders URL — never required to validate the spec.
+		SmartFoldersURL: strings.TrimSpace(c.Get(hdrMailSmartFoldersURL)),
 	}
 
 	if spec.Auth == "" {
