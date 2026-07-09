@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
+	stdhtml "html"
 	"io"
 	"lilmail/models"
 	"log"
@@ -23,12 +24,14 @@ import (
 var reMessageID = regexp.MustCompile(`<[^>]+>`)
 
 // previewSection is the IMAP body section used to fetch a small text snippet
-// for the message list. BODY.PEEK[TEXT]<0.512> fetches the first 512 bytes of
-// the message text body without implicitly setting the \Seen flag.
+// for the message list. BODY.PEEK[TEXT]<0.4096> fetches the head of the message
+// text body without implicitly setting the \Seen flag. 4096 rather than 512
+// because an HTML mail opens with a <style> block that routinely runs past the
+// first kilobyte, leaving no prose in a shorter window.
 var previewSection = &imap.BodySectionName{
 	BodyPartName: imap.BodyPartName{Specifier: imap.TextSpecifier},
 	Peek:         true,
-	Partial:      []int{0, 512},
+	Partial:      []int{0, 4096},
 }
 
 // referencesSection fetches the References header line without marking seen.
@@ -156,6 +159,9 @@ func (c *Client) processListMessage(msg *imap.Message, folderName string) (model
 			} else if idx := strings.Index(text, "\n\n"); idx >= 0 {
 				text = text[idx+2:]
 			}
+			// These bytes are still transfer-encoded: base64 shows up as gibberish
+			// and quoted-printable leaks "=E2=80=94" and "=" soft line breaks.
+			text = string(decodeTransferBytes([]byte(text), previewEncoding(msg.BodyStructure)))
 			text = stripHTML(text)
 			email.Preview = createPreview(text)
 		}
@@ -624,41 +630,14 @@ func (c *Client) processMessage(msg *imap.Message, folderName string) (models.Em
 			email.Unsubscribe = ParseUnsubscribe(lu, m.Header["List-Unsubscribe-Post"])
 		}
 
-		// Handle multipart messages
-		contentType := m.Header.Get("Content-Type")
-		mediaType, params, err := mime.ParseMediaType(contentType)
-		if err == nil && strings.HasPrefix(mediaType, "multipart/") {
-			mr := multipart.NewReader(m.Body, params["boundary"])
-			for {
-				p, err := mr.NextPart()
-				if err == io.EOF {
-					break
-				}
-				if err != nil {
-					continue
-				}
-
-				// Read the part
-				partData, err := io.ReadAll(p)
-				if err != nil {
-					continue
-				}
-
-				partType := p.Header.Get("Content-Type")
-				switch {
-				case strings.Contains(partType, "text/plain"):
-					email.Body = string(partData)
-				case strings.Contains(partType, "text/html"):
-					email.HTML = string(partData)
-				}
-			}
-		} else {
-			// Handle non-multipart messages
-			bodyData, err := io.ReadAll(m.Body)
-			if err == nil {
-				email.Body = string(bodyData)
-			}
-		}
+		collectBodies(
+			m.Body,
+			m.Header.Get("Content-Type"),
+			m.Header.Get("Content-Transfer-Encoding"),
+			m.Header.Get("Content-Disposition"),
+			&email,
+			0,
+		)
 
 		// Add preview after all content is processed
 		if email.Body != "" {
@@ -690,6 +669,129 @@ func (c *Client) processMessage(msg *imap.Message, folderName string) (models.Em
 	}
 
 	return email, nil
+}
+
+// decodeTransferBytes reverses a Content-Transfer-Encoding over a byte slice.
+// Unknown or absent encodings (7bit/8bit/binary) pass through untouched.
+// mime/multipart already decodes quoted-printable parts and strips the header,
+// so that case here only fires for non-multipart messages, which net/mail
+// leaves raw. Unlike the streaming decodeTransfer below it tolerates truncated
+// input — the message-list preview decodes only
+// the first 512 bytes of a body — by keeping whatever decoded cleanly before
+// the cut rather than discarding the whole chunk.
+func decodeTransferBytes(data []byte, enc string) []byte {
+	switch strings.ToLower(strings.TrimSpace(enc)) {
+	case "base64":
+		// Transport base64 is line-wrapped; the decoder rejects newlines.
+		clean := bytes.Map(func(r rune) rune {
+			if r == '\r' || r == '\n' {
+				return -1
+			}
+			return r
+		}, data)
+		// The preview window can run past this part into the next MIME boundary,
+		// so stop at the first byte outside the alphabet rather than failing the
+		// whole chunk, then drop the trailing partial quantum.
+		clean = clean[:base64PrefixLen(clean)]
+		clean = clean[:len(clean)-len(clean)%4]
+		if dec, err := base64.StdEncoding.DecodeString(string(clean)); err == nil {
+			return dec
+		}
+	case "quoted-printable":
+		var out bytes.Buffer
+		// CopyN-style drain: a decode error mid-stream still leaves the prefix.
+		if _, err := io.Copy(&out, quotedprintable.NewReader(bytes.NewReader(data))); err == nil || out.Len() > 0 {
+			return out.Bytes()
+		}
+	}
+	return data
+}
+
+// base64PrefixLen reports the length of the leading run of standard base64
+// characters in b, i.e. where a decodable prefix stops.
+func base64PrefixLen(b []byte) int {
+	for i, c := range b {
+		switch {
+		case c >= 'A' && c <= 'Z', c >= 'a' && c <= 'z', c >= '0' && c <= '9',
+			c == '+', c == '/', c == '=':
+		default:
+			return i
+		}
+	}
+	return len(b)
+}
+
+// previewEncoding reports the Content-Transfer-Encoding that applies to the
+// bytes IMAP returns for BODY[TEXT]: the message encoding for a single-part
+// message, or the first leaf part's for a multipart one (BODY[TEXT] hands back
+// the raw MIME body, whose first part is what the preview text is sliced from).
+func previewEncoding(bs *imap.BodyStructure) string {
+	if bs == nil {
+		return ""
+	}
+	if strings.EqualFold(bs.MIMEType, "multipart") {
+		if len(bs.Parts) == 0 {
+			return ""
+		}
+		return previewEncoding(bs.Parts[0])
+	}
+	return bs.Encoding
+}
+
+// collectBodies fills email.Body (text/plain) and email.HTML (text/html) from a
+// MIME tree, recursing through multipart containers and transfer-decoding each
+// leaf. The first non-empty part of each kind wins, so a multipart/alternative
+// keeps the plain part rather than letting a later sibling clobber it.
+//
+// A single-part text/html message must land in email.HTML, not email.Body — the
+// viewer template renders HTML in a sandboxed iframe and only falls back to
+// linkified plain text, so misfiling it shows the reader raw HTML source.
+func collectBodies(body io.Reader, contentType, cte, disposition string, email *models.Email, depth int) {
+	if depth > 10 {
+		return
+	}
+
+	mediaType, params, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		// A missing or unparseable Content-Type defaults to text/plain (RFC 2045).
+		mediaType = "text/plain"
+	}
+
+	if strings.HasPrefix(mediaType, "multipart/") {
+		mr := multipart.NewReader(body, params["boundary"])
+		for {
+			p, err := mr.NextPart()
+			if err != nil {
+				return
+			}
+			collectBodies(
+				p,
+				p.Header.Get("Content-Type"),
+				p.Header.Get("Content-Transfer-Encoding"),
+				p.Header.Get("Content-Disposition"),
+				email,
+				depth+1,
+			)
+		}
+	}
+
+	// Attachments carry their own text; they must not become the body.
+	if disp, _, err := mime.ParseMediaType(disposition); err == nil && disp == "attachment" {
+		return
+	}
+
+	data, err := io.ReadAll(body)
+	if err != nil {
+		return
+	}
+	data = decodeTransferBytes(data, cte)
+
+	switch {
+	case strings.HasPrefix(mediaType, "text/html") && email.HTML == "":
+		email.HTML = string(data)
+	case strings.HasPrefix(mediaType, "text/plain") && email.Body == "":
+		email.Body = string(data)
+	}
 }
 
 // extractCalendarPart walks a raw RFC 5322 message and returns the transfer-
@@ -757,22 +859,86 @@ func decodeTransfer(r io.Reader, enc string) io.Reader {
 }
 
 // Simple HTML tag stripping
-func stripHTML(html string) string {
+// stripHTML reduces an HTML body to the text a preview snippet should show.
+// Beyond dropping tags it skips <style>/<script> contents — otherwise a preview
+// of a marketing mail is just its CSS reset ("#outlook a { padding:0; }") — then
+// resolves entities and removes the zero-width characters senders pad their
+// preheader with.
+func stripHTML(markup string) string {
 	var builder strings.Builder
-	inTag := false
 
-	for _, r := range html {
-		switch {
-		case r == '<':
-			inTag = true
-		case r == '>':
-			inTag = false
-		case !inTag:
-			builder.WriteRune(r)
+	lower := strings.ToLower(markup)
+	for i := 0; i < len(markup); {
+		if markup[i] == '<' {
+			// Skip comments, including Outlook conditionals such as
+			// <!--[if mso]><o:PixelsPerInch>96</o:PixelsPerInch><![endif]-->,
+			// whose contents are markup rather than prose.
+			if strings.HasPrefix(markup[i:], "<!--") {
+				if end := strings.Index(markup[i+4:], "-->"); end >= 0 {
+					i += 4 + end + 3
+					continue
+				}
+				break
+			}
+			// Skip an entire <style>…</style> or <script>…</script> element.
+			if skipTo, ok := skipRawTextElement(lower, i); ok {
+				i = skipTo
+				continue
+			}
+			if end := strings.IndexByte(markup[i:], '>'); end >= 0 {
+				i += end + 1
+				continue
+			}
+			break // unterminated tag: nothing further is text
 		}
+		next := strings.IndexByte(markup[i:], '<')
+		if next < 0 {
+			builder.WriteString(markup[i:])
+			break
+		}
+		builder.WriteString(markup[i : i+next])
+		i += next
 	}
 
-	return strings.TrimSpace(builder.String())
+	text := stdhtml.UnescapeString(builder.String())
+	text = strings.Map(func(r rune) rune {
+		switch r {
+		case '\u200b', '\u200c', '\u200d', '\u2060', '\ufeff', '\u00ad', '\u034f':
+			return -1 // zero-width padding used to pad inbox preheaders
+		}
+		return r
+	}, text)
+
+	return strings.TrimSpace(text)
+}
+
+// skipRawTextElement reports the offset just past the closing tag of a <style>
+// or <script> element starting at i, whose contents are CDATA rather than text.
+func skipRawTextElement(lower string, i int) (int, bool) {
+	for _, name := range []string{"style", "script"} {
+		open := "<" + name
+		if !strings.HasPrefix(lower[i:], open) {
+			continue
+		}
+		// Guard against matching a prefix such as <styles-are-not-a-tag>.
+		if rest := lower[i+len(open):]; rest != "" && (isASCIILetter(rest[0]) || rest[0] == '-') {
+			continue
+		}
+		closing := "</" + name
+		if end := strings.Index(lower[i:], closing); end >= 0 {
+			after := i + end + len(closing)
+			if gt := strings.IndexByte(lower[after:], '>'); gt >= 0 {
+				return after + gt + 1, true
+			}
+			return len(lower), true
+		}
+		return len(lower), true // unterminated: the rest is not text
+	}
+	return 0, false
+}
+
+func isASCIILetter(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
 }
 
 func createPreview(text string) string {
