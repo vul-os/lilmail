@@ -264,31 +264,40 @@ func (h *Handler) parseBroker(c *fiber.Ctx) (brokerSpec, bool) {
 		return brokerSpec{}, false
 	}
 
+	// c.Get returns a string that ALIASES fasthttp's per-request buffer, which is
+	// recycled (and overwritten) once the handler returns. Because the brokerSpec
+	// is stored in c.Locals and read by downstream seams — and its fields are used
+	// as per-account cache/map keys (e.g. the CardDAV URL) — every header value
+	// MUST be copied so the spec owns its own memory. Without this, a later pooled
+	// request can silently mutate an earlier request's retained spec, corrupting
+	// per-account routing (cross-account bleed). strings.TrimSpace/ToLower do NOT
+	// copy when nothing is trimmed, so hdr clones explicitly.
+	hdr := func(key string) string { return strings.Clone(c.Get(key)) }
 	spec := brokerSpec{
-		Provider: c.Get(hdrMailProvider),
-		Email:    strings.TrimSpace(c.Get(hdrMailEmail)),
-		Username: strings.TrimSpace(c.Get(hdrMailUsername)),
-		Auth:     strings.ToLower(strings.TrimSpace(c.Get(hdrMailAuth))),
-		Secret:   c.Get(hdrMailSecret),
-		IMAPHost: strings.TrimSpace(c.Get(hdrMailIMAPHost)),
+		Provider: hdr(hdrMailProvider),
+		Email:    strings.TrimSpace(hdr(hdrMailEmail)),
+		Username: strings.TrimSpace(hdr(hdrMailUsername)),
+		Auth:     strings.ToLower(strings.TrimSpace(hdr(hdrMailAuth))),
+		Secret:   hdr(hdrMailSecret),
+		IMAPHost: strings.TrimSpace(hdr(hdrMailIMAPHost)),
 		IMAPPort: atoiDefault(c.Get(hdrMailIMAPPort), 993),
-		SMTPHost: strings.TrimSpace(c.Get(hdrMailSMTPHost)),
+		SMTPHost: strings.TrimSpace(hdr(hdrMailSMTPHost)),
 		SMTPPort: atoiDefault(c.Get(hdrMailSMTPPort), 587),
 		// Optional DAV URLs — never required to validate the spec.
-		CalDAVURL:  strings.TrimSpace(c.Get(hdrMailCalDAVURL)),
-		CardDAVURL: strings.TrimSpace(c.Get(hdrMailCardDAVURL)),
+		CalDAVURL:  strings.TrimSpace(hdr(hdrMailCalDAVURL)),
+		CardDAVURL: strings.TrimSpace(hdr(hdrMailCardDAVURL)),
 		// Optional rule-store URL — never required to validate the spec.
-		RulesURL: strings.TrimSpace(c.Get(hdrMailRulesURL)),
+		RulesURL: strings.TrimSpace(hdr(hdrMailRulesURL)),
 		// Optional thread-store URL — never required to validate the spec.
-		ThreadsURL: strings.TrimSpace(c.Get(hdrMailThreadsURL)),
+		ThreadsURL: strings.TrimSpace(hdr(hdrMailThreadsURL)),
 		// Optional categories URL — never required to validate the spec.
-		CategoriesURL: strings.TrimSpace(c.Get(hdrMailCategoriesURL)),
+		CategoriesURL: strings.TrimSpace(hdr(hdrMailCategoriesURL)),
 		// Optional smart-folders URL — never required to validate the spec.
-		SmartFoldersURL: strings.TrimSpace(c.Get(hdrMailSmartFoldersURL)),
+		SmartFoldersURL: strings.TrimSpace(hdr(hdrMailSmartFoldersURL)),
 		// Optional team-inbox URL + acting member — never required to validate the
 		// spec (only present for shared-mailbox team operations).
-		TeamInboxURL: strings.TrimSpace(c.Get(hdrMailTeamInboxURL)),
-		Member:       strings.TrimSpace(c.Get(hdrMailMember)),
+		TeamInboxURL: strings.TrimSpace(hdr(hdrMailTeamInboxURL)),
+		Member:       strings.TrimSpace(hdr(hdrMailMember)),
 	}
 
 	if spec.Auth == "" {

@@ -128,7 +128,11 @@ func doReq(t *testing.T, app *fiber.App, method, target, body string) (*fiber.Ct
 // waitFired polls until the capture reports a fire, or fails after a timeout.
 func waitFired(t *testing.T, cap *captureSchedSMTP) []byte {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
+	// Generous deadline: the fire is gated on wall-clock (sendAt ~1s out) plus a
+	// 15ms poll, so under -race + full-suite CPU contention it can lag well past a
+	// few seconds. The loop returns as soon as the send fires, so a wide ceiling
+	// only affects the (rare) failure path, never success latency.
+	deadline := time.Now().Add(8 * time.Second)
 	for time.Now().Before(deadline) {
 		if fired, _, raw := cap.snapshot(); fired {
 			return raw
@@ -144,9 +148,11 @@ func waitFired(t *testing.T, cap *captureSchedSMTP) []byte {
 func TestScheduleFiresAndSends(t *testing.T) {
 	app, store, cap, _ := newScheduledApp(t, &fakeMailClient{})
 
-	when := time.Now().Add(200 * time.Millisecond).UTC().Format(time.RFC3339Nano)
-	// RFC3339 (second precision) is what the API accepts; use a near-future second.
-	when = time.Now().Add(1 * time.Second).UTC().Format(time.RFC3339)
+	// RFC3339 (second precision) is what the API accepts. Format TRUNCATES the
+	// sub-second part, so a naive now+1s can land up to ~1s in the PAST (making the
+	// record immediately due and firing before the "not yet" asserts below). Add 2s
+	// so truncation always leaves the deadline ≥1s in the future.
+	when := time.Now().Add(2 * time.Second).UTC().Format(time.RFC3339)
 
 	_, code, b := doReq(t, app, "POST", "/v1/messages",
 		`{"to":"bob@example.com","subject":"Later","text":"hello","sendAt":"`+when+`"}`)
@@ -175,8 +181,9 @@ func TestScheduleFiresAndSends(t *testing.T) {
 	if !strings.Contains(string(raw), "Subject: Later") {
 		t.Fatalf("fired MIME missing subject: %s", raw)
 	}
-	// After a successful send the record is deleted (at-least-once cleanup).
-	deadline := time.Now().Add(2 * time.Second)
+	// After a successful send the record is deleted (at-least-once cleanup). Use a
+	// generous ceiling so CPU contention under -race can't race the cleanup poll.
+	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		if recs, _ := store.List("user@gmail.com"); len(recs) == 0 {
 			return
@@ -205,7 +212,7 @@ func TestScheduledSendHeaderGuardAppliesAtSendTime(t *testing.T) {
 
 	// Wait for the drain to attempt the fire; the build must fail on the guard and
 	// drop the record WITHOUT firing an SMTP send.
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		if recs, _ := store.List("user@gmail.com"); len(recs) == 0 {
 			break
@@ -398,7 +405,7 @@ func TestScheduleRestartCatchUp(t *testing.T) {
 	t.Cleanup(sch.Stop)
 
 	// Boot catch-up must fire it despite the 1h poll interval.
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		if fired, _, _ := cap.snapshot(); fired {
 			return
@@ -518,7 +525,7 @@ func TestScheduledPatchInjectionDroppedAtSendTime(t *testing.T) {
 
 	// 3) Wait for the drain to try to fire it: the fire-time guard must reject the
 	// build and DROP the record, with NO SMTP send.
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		if recs, _ := store.List("user@gmail.com"); len(recs) == 0 {
 			break
@@ -663,7 +670,7 @@ func TestScheduledPermanentBuildFailureIsDropped(t *testing.T) {
 	t.Cleanup(sch.Stop)
 
 	// After a few poll cycles the poison record must be gone (dropped on build fail).
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		if recs, _ := store.List("user@gmail.com"); len(recs) == 0 {
 			break
@@ -766,7 +773,7 @@ func TestScheduledPermanentSendFailureAbandonedAfterBudget(t *testing.T) {
 	t.Cleanup(sch.Stop) // Stop blocks until the drain exits; safe to close KV after.
 
 	// The record must eventually be abandoned (deleted) rather than looping forever.
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(6 * time.Second)
 	for time.Now().Before(deadline) {
 		if recs, _ := store.List("user@gmail.com"); len(recs) == 0 {
 			break

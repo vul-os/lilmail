@@ -9,6 +9,28 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Fixed
+
+- **Brokered spec buffer-aliasing (per-account routing corruption).** In
+  CP-brokered mode the per-request `brokerSpec` was built from `c.Get(...)`
+  strings that alias fasthttp's recycled request buffer; because the spec is
+  stored in `c.Locals` and its fields (e.g. the CardDAV URL) are used as
+  per-account cache/map keys, a later pooled request could silently overwrite an
+  earlier request's retained spec — surfacing as an intermittent cross-account
+  contact bleed. Every header value is now copied (`strings.Clone`) as the spec
+  is parsed, so a spec owns its own memory. (`handlers/jsonapi/broker.go`)
+
+### Tests / Docs
+
+- De-flaked the scheduled-send tests: a `now+1s` deadline formatted at RFC3339
+  **second precision** truncates sub-second and could land ~1s in the past,
+  firing before the "not sent yet" assertions — scheduled 2s out instead, and
+  widened the wall-clock-gated drain waits so `-race` + full-suite CPU contention
+  can't beat the poll cadence.
+- README: documented lilmail's role in the Vulos **cell / edge model** — the
+  `/v1` JSON mail-API library each cell's mailbox serves, behind a minimal
+  central forwarding relay, with `@vulos.to` as the central login.
+
 ---
 
 ## [1.12.0] — 2026-07-06

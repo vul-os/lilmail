@@ -124,8 +124,25 @@ per-request connection spec as `X-Vulos-Broker-Auth` + `X-Vulos-Mail-*` headers.
 This path is gated by a shared secret (`LILMAIL_BROKER_SECRET`, matched in
 constant time): **if the secret is unset or mismatched, the headers are ignored
 entirely** and the request falls back to normal session auth, so standalone
-lilmail never trusts client-supplied connection headers. See
+lilmail never trusts client-supplied connection headers. Each brokered request's
+connection spec is **copied out of the transport buffer** as it is parsed, so one
+request can never mutate another's retained spec — per-account routing stays
+isolated even under a pooled/concurrent server. See
 [docs/API.md](docs/API.md) → *CP-brokered credential mode*.
+
+### Role in the Vulos cell / edge model
+
+In the Vulos hosted topology every user's mailbox lives in a **cell** — a
+self-contained [vulos-mail](https://github.com/vul-os/vulos-mail) instance that
+owns that account's mail. lilmail is the **`/v1` JSON mail-API library** the cell
+serves: vulos-mail embeds/points a lilmail engine at its own IMAP/SMTP and
+reverse-proxies `/v1` to it (brokered mode above), so `@vulos/mail-ui` and Vulos
+Workspace talk to exactly one contract regardless of where the mailbox is hosted.
+The cell is the source of truth; the central tier is only a **minimal forwarding
+relay** for inbound/outbound SMTP (mail into the cell, mail out of the cell), plus
+the shared **`@vulos.to` login** that federates identity. lilmail itself stays
+transport-agnostic and content-blind about that topology: it just speaks IMAP/SMTP
+to whatever mailbox the (brokered or configured) spec points at, and serves `/v1`.
 
 ## Quick start
 
