@@ -220,6 +220,17 @@ func (h *Handler) Register(app *fiber.App) {
 	if h.brokerSecret != "" {
 		h.registerSmartFolders(g)
 	}
+
+	// Team inbox — registered when the broker path is active (vulos-mail hosts the
+	// collaborative shared-mailbox store and its base URL arrives per request as
+	// X-Vulos-Mail-Teaminbox-Url, ONLY for a shared mailbox, with the acting member
+	// as X-Vulos-Mail-Member). When a request carries no team-inbox URL (a plain
+	// personal account, or standalone/session lilmail), the whole /v1/team surface
+	// reports 501. All team authorization is member-scoped upstream; a non-member
+	// gets 403 and internal notes never enter the send path. See team.go.
+	if h.brokerSecret != "" {
+		h.registerTeam(g)
+	}
 }
 
 // requireAuth gates the group, returning 401 JSON (never a redirect) when the

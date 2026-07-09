@@ -91,6 +91,22 @@ const (
 	// extraction to this URL, presenting the shared broker secret as
 	// X-Vulos-Broker-Auth and the validated mailbox as the `account` field.
 	hdrMailSmartFoldersURL = "X-Vulos-Mail-Smartfolders-Url"
+
+	// Team-inbox base URL for a SHARED mailbox. Optional: sent only by a backend
+	// that hosts the collaborative team-inbox store (vulos-mail) AND only when the
+	// brokered mailbox (spec.Email) is a shared mailbox. When absent, the /v1/team
+	// surface reports 501 — a plain personal account has no team inbox. lilmail
+	// brokers all team operations to this URL, presenting the shared broker secret
+	// as X-Vulos-Broker-Auth, the shared mailbox (spec.Email) as `address`, and the
+	// ACTING MEMBER (X-Vulos-Mail-Member) as `member`.
+	hdrMailTeamInboxURL = "X-Vulos-Mail-Teaminbox-Url"
+
+	// The acting team member's OWN account — who is operating the shared mailbox.
+	// The CP sets this to the authenticated end user (distinct from spec.Email, the
+	// shared mailbox). All team-inbox authorization is against THIS member; it is
+	// never client-controlled input to the handlers (it comes from the broker
+	// headers, which are only trusted after the constant-time secret check).
+	hdrMailMember = "X-Vulos-Mail-Member"
 )
 
 // brokerEnvSecret is the env var that gates the whole brokered path. When empty,
@@ -139,6 +155,15 @@ type brokerSpec struct {
 	// (vulos-mail's /internal/smartfolders). Empty when the backend does not do
 	// semantic auto-foldering — the client then shows no smart-folders.
 	SmartFoldersURL string
+	// TeamInboxURL is the collaborative team-inbox store base URL (vulos-mail's
+	// /internal/teaminbox). Empty when the brokered mailbox is not a shared mailbox
+	// (a plain personal account has no team inbox — the /v1/team surface reports 501).
+	TeamInboxURL string
+	// Member is the ACTING team member's own account (the authenticated end user
+	// operating the shared mailbox), from X-Vulos-Mail-Member. Empty when the
+	// request is not a team-inbox operation. All team authorization is against this
+	// member; it is never client-controlled (it arrives in the secret-gated headers).
+	Member string
 }
 
 // brokerDialIMAP builds a live MailClient from a validated broker spec. It is a
@@ -260,6 +285,10 @@ func (h *Handler) parseBroker(c *fiber.Ctx) (brokerSpec, bool) {
 		CategoriesURL: strings.TrimSpace(c.Get(hdrMailCategoriesURL)),
 		// Optional smart-folders URL — never required to validate the spec.
 		SmartFoldersURL: strings.TrimSpace(c.Get(hdrMailSmartFoldersURL)),
+		// Optional team-inbox URL + acting member — never required to validate the
+		// spec (only present for shared-mailbox team operations).
+		TeamInboxURL: strings.TrimSpace(c.Get(hdrMailTeamInboxURL)),
+		Member:       strings.TrimSpace(c.Get(hdrMailMember)),
 	}
 
 	if spec.Auth == "" {
