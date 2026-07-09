@@ -9,7 +9,7 @@ It exists so rich clients can talk to lilmail over a stable, machine-readable
 contract instead of scraping HTML fragments:
 
 - **Vulos Mail** — the React webmail (`@vulos/mail-ui`).
-- **Vulos Workspace** — the suite shell's Mail surface.
+- **Vulos Workspace** — the Workspace hub app's Mail surface.
 - Any third-party tool or script.
 
 The HTMX UI keeps rendering server-side HTML; the JSON API returns

@@ -8,7 +8,7 @@
 [![Latest release](https://img.shields.io/github/v/tag/exolutionza/lilmail?label=release&sort=semver)](https://github.com/exolutionza/lilmail/releases)
 [![CI](https://github.com/exolutionza/lilmail/actions/workflows/ci.yml/badge.svg)](https://github.com/exolutionza/lilmail/actions/workflows/ci.yml)
 
-<sub><img src="docs/assets/vulos-logo.png" height="14" alt="VulOS"> Part of <strong><a href="https://vulos.org">VulOS</a></strong> — the open, self-hostable web OS &amp; app suite. Runs standalone, or combined under one login by <a href="https://vulos.org">Vulos Workspace</a>.</sub>
+<sub><img src="docs/assets/vulos-logo.png" height="14" alt="VulOS"> Part of <strong><a href="https://vulos.org">VulOS</a></strong> — the open, self-hostable web OS &amp; app suite. Runs standalone, or as an app hosted by the Vulos OS.</sub>
 
 <br>
 
@@ -35,22 +35,23 @@ opt-in via config keys and adds zero overhead when disabled.
 ## Part of VulOS
 
 [VulOS](https://vulos.org) is an open, self-hostable web OS + app suite. Each
-product is self-hostable on its own and can be combined under one login by
-**Vulos Workspace**:
+product is self-hostable on its own and can be surfaced together inside the
+**Vulos Workspace** hub app, which the OS hosts:
 
 - **Vulos Mail** — mail + calendar + contacts (engine: **lilmail**; UI: `@vulos/mail-ui`; server: vulos-mail)
 - **Vulos Talk** — team chat + channels/Spaces + huddles
 - **Vulos Meet** — video meetings (LiveKit SFU)
 - **Vulos Office** — documents: docs, sheets, slides, PDF
 - **Vulos Relay** — sovereign connectivity fabric (`@vulos/relay-client`)
-- **Vulos Workspace** — the open suite shell (one login, app switcher, admin)
-- **Vulos OS** — the web-native desktop
+- **Vulos Workspace** — an OS-hosted productivity hub that consolidates Mail, Office, Talk & Meet
+- **Vulos OS** — the web-native desktop (the shell that hosts the suite apps)
 
 **lilmail** is the **engine of the Vulos Mail product** (mail + calendar +
 contacts): a complete IMAP/SMTP webmail client that also exposes a clean `/v1`
 JSON API consumed by the shared `@vulos/mail-ui` React components and the
-vulos-mail server. It runs standalone **and** is combined by Vulos Workspace.
-Products link/embed each other only through clean seams (here, the `/v1` HTTP
+vulos-mail server. It runs standalone **and** as an app hosted by the Vulos OS
+(the OS is the shell; the Workspace hub app can surface its Mail). Products
+link/embed each other only through clean seams (here, the `/v1` HTTP
 contract) — they never import one another's code.
 
 ## Features
@@ -62,7 +63,7 @@ contract) — they never import one another's code.
 - **IMAP** mailbox browsing and **SMTP** sending
 - **JSON API** (`/v1`) — a clean REST surface (folders, messages, search, flags,
   delete) for rich clients, served alongside the HTMX UI from the same engine and
-  the same session auth. Powers the Vulos Mail React webmail and Vulos Workspace.
+  the same session auth. Powers the Vulos Mail React webmail and the Workspace hub app.
 - **OAuth2 / OpenID Connect** — authorization-code flow, PKCE (S256), automatic
   refresh-token handling, XOAUTH2 and OAUTHBEARER SASL; password login still works
 - **Conversation threading** — JWZ algorithm (`References` / `In-Reply-To` /
