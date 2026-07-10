@@ -249,3 +249,38 @@ func TestLoadConfig_CacheFolderDefault(t *testing.T) {
 		t.Fatalf("Cache.Folder override = %q, want the configured value", cfg2.Cache.Folder)
 	}
 }
+
+// TestLoadConfig_IMAPTLSDefaultAndOverride verifies the IMAP `tls` field is
+// parsed: it defaults to true (implicit-TLS / imaps), and an explicit
+// `tls = false` selects plain IMAP. Regression for #8 — the field was shown in
+// config.toml.example but was absent from IMAPConfig, so it was silently ignored
+// and every connection used TLS, making plain IMAP fail with
+// "tls: first record does not look like a TLS handshake".
+func TestLoadConfig_IMAPTLSDefaultAndOverride(t *testing.T) {
+	// No `tls` key → secure default (true).
+	cfg, err := LoadConfig(writeTempConfig(t, minimalIMAP))
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if !cfg.IMAP.TLS {
+		t.Fatalf("IMAP.TLS default = false, want true (implicit-TLS default)")
+	}
+
+	// Explicit `tls = false` → plain IMAP (the #8 fix: this must now be honored).
+	cfgPlain, err := LoadConfig(writeTempConfig(t, minimalIMAP+"tls = false\n"))
+	if err != nil {
+		t.Fatalf("LoadConfig (tls=false): %v", err)
+	}
+	if cfgPlain.IMAP.TLS {
+		t.Fatalf("IMAP.TLS with `tls = false` = true, want false (#8: plain IMAP must be honored)")
+	}
+
+	// Explicit `tls = true` → TLS.
+	cfgTLS, err := LoadConfig(writeTempConfig(t, minimalIMAP+"tls = true\n"))
+	if err != nil {
+		t.Fatalf("LoadConfig (tls=true): %v", err)
+	}
+	if !cfgTLS.IMAP.TLS {
+		t.Fatalf("IMAP.TLS with `tls = true` = false, want true")
+	}
+}

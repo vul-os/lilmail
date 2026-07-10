@@ -9,6 +9,19 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+## [1.12.1] - 2026-07-10
+
+### Fixed
+
+- **Plain IMAP (`tls = false`) was ignored — connections always used TLS (#8).**
+  The `[imap] tls` field was shown in `config.toml.example` but was absent from
+  `IMAPConfig`, so it was never parsed; every connection used implicit TLS and a
+  plain-IMAP server failed with `tls: first record does not look like a TLS
+  handshake`. `IMAPConfig` now has a `tls` field (defaults to `true`, so existing
+  TLS setups are unchanged); `tls = false` dials plain IMAP. Adds
+  `api.NewClientTLS` + a config regression test.
+  (`config/config.go`, `handlers/api/client.go`, `handlers/web/auth.go`)
+
 ### Fixed
 
 - **Brokered spec buffer-aliasing (per-account routing corruption).** In

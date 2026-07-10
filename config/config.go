@@ -47,6 +47,13 @@ type AuthConfig struct {
 type IMAPConfig struct {
 	Server string `toml:"server"`
 	Port   int    `toml:"port"`
+	// TLS selects an implicit-TLS (imaps) connection on connect. Defaults to
+	// true, preserving the previous always-TLS behaviour; set `tls = false` for
+	// a plain-IMAP server (e.g. port 143) that does not speak TLS on connect.
+	// Fixes #8 — the field was shown in the config docs/example but never parsed,
+	// so plain IMAP always failed with
+	// "tls: first record does not look like a TLS handshake".
+	TLS bool `toml:"tls"`
 }
 
 type SMTPConfig struct {
@@ -303,6 +310,11 @@ func LoadConfig(filepath string) (*Config, error) {
 	// Set default values
 	config.SMTP.Port = 587 // Default to STARTTLS port
 	config.SMTP.UseSTARTTLS = true
+
+	// IMAP defaults to implicit TLS (imaps). Because defaults are applied BEFORE
+	// the TOML decode below, an explicit `tls = false` in the config overrides
+	// this and an absent key keeps the secure default. (Fixes #8.)
+	config.IMAP.TLS = true
 
 	// Default SSL configuration
 	config.SSL.Port = 443

@@ -90,12 +90,41 @@ type Client struct {
 	username string // Add username field
 }
 
-// NewClient creates a new IMAP client
-func NewClient(server string, port int, email, password string) (*Client, error) {
-	c, err := client.DialTLS(fmt.Sprintf("%s:%d", server, port), nil)
+// dialIMAP opens an IMAP connection to server:port. When useTLS is true it uses
+// implicit TLS (imaps); when false it dials plain IMAP (e.g. port 143). Fixes #8
+// — plain-IMAP servers previously failed with "tls: first record does not look
+// like a TLS handshake" because the connection was always TLS.
+func dialIMAP(server string, port int, useTLS bool) (*client.Client, error) {
+	addr := fmt.Sprintf("%s:%d", server, port)
+	if useTLS {
+		c, err := client.DialTLS(addr, nil)
+		if err != nil {
+			log.Printf("DialTLS %s connection err: %v", addr, err)
+			return nil, fmt.Errorf("connection error: %v", err)
+		}
+		return c, nil
+	}
+	c, err := client.Dial(addr)
 	if err != nil {
-		log.Printf("DialTLS %s:%d connection err: %v", server, port, err)
+		log.Printf("Dial (plain IMAP) %s connection err: %v", addr, err)
 		return nil, fmt.Errorf("connection error: %v", err)
+	}
+	return c, nil
+}
+
+// NewClient creates a new implicit-TLS IMAP client. Backward-compatible default;
+// use NewClientTLS to choose plain vs TLS explicitly (e.g. from config.IMAP.TLS).
+func NewClient(server string, port int, email, password string) (*Client, error) {
+	return NewClientTLS(server, port, email, password, true)
+}
+
+// NewClientTLS creates a new IMAP client, using implicit TLS when useTLS is true
+// or a plain (non-TLS) connection when false. Fixes #8 — config `tls = false`
+// now actually connects to plain-IMAP servers instead of failing the handshake.
+func NewClientTLS(server string, port int, email, password string, useTLS bool) (*Client, error) {
+	c, err := dialIMAP(server, port, useTLS)
+	if err != nil {
+		return nil, err
 	}
 
 	err = c.Login(email, password)

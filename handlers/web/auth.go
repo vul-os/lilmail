@@ -77,11 +77,12 @@ func (h *AuthHandler) HandleLogin(c *fiber.Ctx) error {
 		})
 	}
 
-	client, err := api.NewClient(
+	client, err := api.NewClientTLS(
 		h.config.IMAP.Server,
 		h.config.IMAP.Port,
 		username,
 		password,
+		h.config.IMAP.TLS,
 	)
 	if err != nil {
 		return c.Status(401).Render("login", fiber.Map{
@@ -286,11 +287,12 @@ func (h *AuthHandler) CreateIMAPClient(c *fiber.Ctx) (api.MailClient, error) {
 	}
 
 	// Create new IMAP client
-	return api.NewClient(
+	return api.NewClientTLS(
 		h.config.IMAP.Server,
 		h.config.IMAP.Port,
 		username,
 		creds.Password,
+		h.config.IMAP.TLS,
 	)
 }
 
