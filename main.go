@@ -291,20 +291,6 @@ func main() {
 		return c.Send(swBytes)
 	})
 
-	// Standalone marketing site (landing + docs viewer) for lilmail.vulos.org.
-	// Mounted at /site/* and registered BEFORE the protected group so it stays
-	// public and never shadows the webmail app at / (which is behind sign-in).
-	// The embedded docs viewer fetches ./docs/<slug>.md from this same route.
-	if siteSub, subErr := fs.Sub(siteFS, "site"); subErr == nil {
-		app.Use("/site", filesystem.New(filesystem.Config{
-			Root:   http.FS(siteSub),
-			Index:  "index.html",
-			MaxAge: int(time.Hour / time.Second),
-		}))
-	} else {
-		log.Printf("marketing site unavailable: %v", subErr)
-	}
-
 	// Initialize web handlers
 	webAuthHandler := web.NewAuthHandler(store, config)
 	webEmailHandler := web.NewEmailHandler(store, config, webAuthHandler)
@@ -373,8 +359,8 @@ func main() {
 		return c.SendString("OK")
 	})
 
-	// Auth-gated root: logged-out visitors see the marketing landing (200);
-	// logged-in users are redirected to the inbox.
+	// Auth-gated root: logged-in users go to the inbox, logged-out visitors to
+	// sign-in. (The marketing landing moved to the centralized vulos-cloud site.)
 	app.Get("/", func(c *fiber.Ctx) error {
 		sess, err := store.Get(c)
 		if err == nil {
@@ -382,16 +368,7 @@ func main() {
 				return c.Redirect("/inbox")
 			}
 		}
-		// Unauthenticated: serve the marketing landing.
-		// Inject <base href="/site/"> so all ./assets/... refs resolve to /site/assets/...
-		data, readErr := siteFS.ReadFile("site/index.html")
-		if readErr != nil {
-			return c.Redirect("/login")
-		}
-		html := strings.Replace(string(data), "<head>", `<head><base href="/site/">`, 1)
-		c.Set("Content-Type", "text/html; charset=utf-8")
-		c.Set("Cache-Control", "no-store")
-		return c.SendString(html)
+		return c.Redirect("/login")
 	})
 
 	// CSRF middleware for all web (cookie-session) protected routes.
