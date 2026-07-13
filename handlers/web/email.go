@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"lilmail/config"
 	"lilmail/handlers/api"
+	"lilmail/handlers/htmlsafe"
 	"lilmail/models"
 	"lilmail/storage"
 	"lilmail/utils"
@@ -334,10 +335,20 @@ func (h *EmailHandler) HandleEmailView(c *fiber.Ctx) error {
 		preparedHTML, hasRemote = prepareEmailHTML(email.HTML)
 	}
 
+	// Sanitize the HTML that feeds the Edit-Draft path. The email-viewer template
+	// stashes this into data-html; restoreDraft() then assigns it via innerHTML
+	// into the compose contenteditable in the MAIN (un-sandboxed) app document.
+	// Raw mail HTML there is a stored-XSS sink (innerHTML fires load/error handlers
+	// on inserted nodes), so it must be defanged server-side. This is SEPARATE from
+	// preparedHTML above, which drives the sandboxed reading-pane iframe and stays
+	// full-fidelity.
+	editableHTML := editableDraftHTML(email.HTML)
+
 	// Important: Set empty layout and only render the partial
 	return c.Render("partials/email-viewer", fiber.Map{
 		"Email":         email,
 		"EmailHTML":     preparedHTML,
+		"EditableHTML":  editableHTML,
 		"HasRemote":     hasRemote,
 		"Self":          self,
 		"CurrentFolder": folderName,
@@ -899,6 +910,21 @@ func (h *EmailHandler) HandleAutocomplete(c *fiber.Ctx) error {
 		out = append(out, suggestion{Email: r.Email, Name: r.Name})
 	}
 	return c.JSON(out)
+}
+
+// editableDraftHTML returns a sanitized copy of a message's HTML body that is
+// safe to place into the compose contenteditable. The email-viewer template
+// assigns this value into #compose-rich-body via innerHTML in the MAIN app
+// document (restoreDraft() → fill()), which — unlike the sandboxed reading-pane
+// iframe — is NOT script-isolated, so raw attacker-controlled mail HTML would run
+// (e.g. <img src=x onerror=...>, <svg onload=...>). We defang it with the shared
+// htmlsafe policy (strips script/style/iframe/svg/forms, all on* handlers, and
+// javascript:/vbscript:/data: URLs) while keeping benign formatting.
+func editableDraftHTML(rawHTML string) string {
+	if rawHTML == "" {
+		return ""
+	}
+	return htmlsafe.SanitizeSnippet(rawHTML)
 }
 
 // stripHTMLForPlain produces a minimal plain-text version of an HTML string by
