@@ -8,11 +8,6 @@ import (
 // reUnsafe matches any character outside the safe set [A-Za-z0-9._@+-].
 var reUnsafe = regexp.MustCompile(`[^A-Za-z0-9._@+\-]+`)
 
-// reDotDot matches standalone ".." sequences (surrounded by underscores,
-// start-of-string, or end-of-string) that could look like parent-directory
-// references even after path separators have been replaced.
-var reDotDot = regexp.MustCompile(`(^|_)\.\.($|_)`)
-
 // SanitizeUsername converts a username into a safe single filesystem path
 // segment. It replaces any character outside [A-Za-z0-9._@+-] with an
 // underscore, collapses runs of underscores, replaces ".." sequences, and

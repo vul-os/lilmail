@@ -10,20 +10,17 @@
 // — it lives in the session.  Additional accounts are stored as JSON values keyed
 // by their email address.
 //
-// Thread safety: bbolt handles concurrent reads and serialises writes internally.
-// AccountStore adds a sync.Mutex only for the openDBs map.
+// Thread safety: bbolt handles concurrent reads and serialises writes internally,
+// so AccountStore needs no lock of its own.
 package web
 
 import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"sync"
 
 	bolt "go.etcd.io/bbolt"
 )
-
-const accountsBucket = "accounts"
 
 // AccountEntry holds one additional mail account.
 type AccountEntry struct {
@@ -45,7 +42,6 @@ type AccountEntry struct {
 
 // AccountStore manages per-primary-user account lists.
 type AccountStore struct {
-	mu     sync.Mutex
 	db     *bolt.DB
 	dbPath string
 }

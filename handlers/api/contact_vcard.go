@@ -36,14 +36,8 @@ import (
 // CardFromContact / ContactFromCard are exported so the jsonapi import/export
 // surface can turn contacts into vCard bytes and back without re-implementing the
 // mapping. They wrap the internal round-trip used by the CardDAV client.
-func CardFromContact(ct models.Contact) vcard.Card    { return cardFromContact(ct) }
+func CardFromContact(ct models.Contact) vcard.Card   { return cardFromContact(ct) }
 func ContactFromCard(card vcard.Card) models.Contact { return contactFromCard(card, "") }
-
-// knownTypes are the well-known lowercase TYPE tokens the UI offers. Any other
-// (non-empty) token is preserved verbatim as a custom label.
-var knownEmailPhoneTypes = map[string]bool{
-	"home": true, "work": true, "mobile": true, "other": true,
-}
 
 // normType lowercases and trims a type label. Empty stays empty (unlabelled).
 func normType(s string) string { return strings.ToLower(strings.TrimSpace(s)) }

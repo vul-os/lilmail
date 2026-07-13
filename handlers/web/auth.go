@@ -22,7 +22,6 @@ const demoAuthType = "demo"
 type AuthHandler struct {
 	store  *session.Store
 	config *config.Config
-	client *api.Client
 }
 
 // NewAuthHandler creates a new instance of AuthHandler
