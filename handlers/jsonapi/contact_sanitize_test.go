@@ -11,8 +11,8 @@ import (
 // stripped from every scalar field before the card is written.
 func TestSanitizeStripsControlChars(t *testing.T) {
 	ct := sanitizeContact(models.Contact{
-		Name:  "Ada\r\nEMAIL:injected@evil.com",
-		Note:  "line1\nline2",
+		Name:   "Ada\r\nEMAIL:injected@evil.com",
+		Note:   "line1\nline2",
 		Emails: []string{"ok@x.com\r\nFN:evil"},
 	})
 	if strings.ContainsAny(ct.Name, "\r\n") {

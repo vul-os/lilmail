@@ -20,13 +20,13 @@ type mockRuleStore struct {
 	created           *models.MailRule
 	createdIncomingID string
 	updatedID         string
-	deletedID   string
-	reorderArgs []string
-	runFolder   string
-	runLimit    int
-	runMatched  int
-	runApplied  int
-	err         error
+	deletedID         string
+	reorderArgs       []string
+	runFolder         string
+	runLimit          int
+	runMatched        int
+	runApplied        int
+	err               error
 }
 
 func (m *mockRuleStore) List(context.Context) ([]models.MailRule, error) { return m.rules, m.err }

@@ -83,19 +83,19 @@ func icalDate(t time.Time) string {
 
 // InviteParams carries everything needed to build a REQUEST/CANCEL invite.
 type InviteParams struct {
-	Method    string // "REQUEST" or "CANCEL"
-	UID       string
-	Sequence  int
-	Organizer string // bare email of the organizer
-	OrgName   string
-	Summary   string
+	Method      string // "REQUEST" or "CANCEL"
+	UID         string
+	Sequence    int
+	Organizer   string // bare email of the organizer
+	OrgName     string
+	Summary     string
 	Description string
-	Location  string
-	Start     time.Time
-	End       time.Time
-	AllDay    bool
-	Recurrence string // raw RRULE value, optional
-	Attendees []models.Attendee
+	Location    string
+	Start       time.Time
+	End         time.Time
+	AllDay      bool
+	Recurrence  string // raw RRULE value, optional
+	Attendees   []models.Attendee
 }
 
 // BuildRequestICS builds a METHOD:REQUEST (or CANCEL) VCALENDAR body ready to be

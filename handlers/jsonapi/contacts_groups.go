@@ -50,7 +50,7 @@ func (h *Handler) handleListGroups(c *fiber.Ctx) error {
 	if err != nil {
 		return fail(c, fiber.StatusBadGateway, "could not list groups")
 	}
-	counts := map[string]int{}   // lowercase -> count
+	counts := map[string]int{}     // lowercase -> count
 	display := map[string]string{} // lowercase -> first-seen display name
 	for _, ct := range contacts {
 		for _, g := range ct.Groups {

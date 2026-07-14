@@ -126,7 +126,7 @@ func TestSpamSettings_Validation(t *testing.T) {
 		`{"block":["a b@x.example"]}`,              // internal whitespace
 		`{"allow":["localhost"]}`,                  // bare single label (no dot)
 		`{"block":["a@@x.example"]}`,               // double @
-		`{"allow":["notés@x.example"]}`,       // non-ASCII
+		`{"allow":["notés@x.example"]}`,            // non-ASCII
 	}
 	for _, b := range bad {
 		code, resp := spamDo(t, app, "PUT", b, true)

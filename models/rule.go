@@ -20,9 +20,10 @@ type MailRule struct {
 }
 
 // RuleCondition is one predicate over a message field.
-//   field: from | to | subject | body | attachment
-//   op:    contains | not_contains | equals | matches | exists
-//          ("exists" is only meaningful for field "attachment"; value ignored)
+//
+//	field: from | to | subject | body | attachment
+//	op:    contains | not_contains | equals | matches | exists
+//	       ("exists" is only meaningful for field "attachment"; value ignored)
 type RuleCondition struct {
 	Field string `json:"field"`
 	Op    string `json:"op"`
@@ -30,8 +31,9 @@ type RuleCondition struct {
 }
 
 // RuleAction is one thing to do when a rule matches.
-//   type:  label | move | mark_read | star | archive | trash | stop
-//          (value = target folder/label for label & move; ignored otherwise)
+//
+//	type:  label | move | mark_read | star | archive | trash | stop
+//	       (value = target folder/label for label & move; ignored otherwise)
 type RuleAction struct {
 	Type  string `json:"type"`
 	Value string `json:"value,omitempty"`

@@ -34,11 +34,11 @@ import (
 // outbound signature / auto-reply body.
 func TestSanitizerNeutralisesEventHandlerSeparators(t *testing.T) {
 	live := []string{
-		`<a onclick="alert(1)">y</a>`,   // whitespace separator (already covered)
-		`<a/onclick="alert(1)">y</a>`,   // slash separator — the confirmed bypass
+		`<a onclick="alert(1)">y</a>`,    // whitespace separator (already covered)
+		`<a/onclick="alert(1)">y</a>`,    // slash separator — the confirmed bypass
 		"<a\tonclick=\"alert(1)\">y</a>", // tab separator
-		`<img/src=x/onerror=alert(1)>`,  // slash-separated onerror
-		`<xss/onmouseover=alert(1)>t`,   // unknown element + slash handler
+		`<img/src=x/onerror=alert(1)>`,   // slash-separated onerror
+		`<xss/onmouseover=alert(1)>t`,    // unknown element + slash handler
 	}
 	for _, in := range live {
 		out := strings.ToLower(sanitizeSnippetHTML(in))

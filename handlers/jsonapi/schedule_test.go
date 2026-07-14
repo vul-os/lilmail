@@ -759,10 +759,10 @@ func TestScheduledPermanentSendFailureAbandonedAfterBudget(t *testing.T) {
 
 	rec := &scheduledSend{
 		ID: "failforever", Account: "user@gmail.com", From: "user@gmail.com",
-		SendAt:  time.Now().Add(-time.Minute).Unix(),
-		To:      "bob@example.com", Subject: "s", Text: "hi",
+		SendAt: time.Now().Add(-time.Minute).Unix(),
+		To:     "bob@example.com", Subject: "s", Text: "hi",
 		SMTPHost: "smtp.gmail.com", SMTPPort: 587, UseSTARTTLS: true,
-		Secret:  "the-smtp-password", // so it round-trips through re-persist on retry
+		Secret: "the-smtp-password", // so it round-trips through re-persist on retry
 	}
 	if err := store.Put(rec); err != nil {
 		t.Fatalf("seed: %v", err)

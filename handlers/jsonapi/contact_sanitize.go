@@ -15,13 +15,13 @@ import (
 )
 
 const (
-	maxFieldLen    = 1024 // per scalar field (name, org, note is larger below)
-	maxNoteLen     = 8192
-	maxValueLen    = 512  // per email/phone/url/im value
-	maxListItems   = 64   // per typed collection (emails, phones, addresses, ...)
-	maxGroups      = 128  // categories on one card
-	maxGroupLen    = 128
-	maxTypeLen     = 64
+	maxFieldLen  = 1024 // per scalar field (name, org, note is larger below)
+	maxNoteLen   = 8192
+	maxValueLen  = 512 // per email/phone/url/im value
+	maxListItems = 64  // per typed collection (emails, phones, addresses, ...)
+	maxGroups    = 128 // categories on one card
+	maxGroupLen  = 128
+	maxTypeLen   = 64
 )
 
 // sanitizeContact clamps every field of a contact to safe bounds and strips

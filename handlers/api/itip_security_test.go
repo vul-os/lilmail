@@ -19,15 +19,15 @@ import (
 // oversized iCalendar bodies. Parsing must fail closed (nil/err), never panic.
 func TestParseInvite_MalformedNoPanic(t *testing.T) {
 	inputs := map[string][]byte{
-		"empty":            []byte(""),
-		"just-begin":       []byte("BEGIN:VCALENDAR"),
-		"binary-garbage":   []byte("garbage\x00\x01\x02\xff\xfe"),
-		"unterminated":     []byte("BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\n"),
-		"bad-dtstart":      []byte("BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nDTSTART:notadate\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"),
-		"empty-attendee":   []byte("BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nATTENDEE:mailto:\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"),
-		"only-crlf":        []byte("\r\n\r\n\r\n"),
-		"huge-flat":        []byte(strings.Repeat("A:B\r\n", 100000)),
-		"nested-vcal":      []byte("BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nBEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nEND:VEVENT\r\nEND:VCALENDAR\r\nEND:VCALENDAR\r\n"),
+		"empty":          []byte(""),
+		"just-begin":     []byte("BEGIN:VCALENDAR"),
+		"binary-garbage": []byte("garbage\x00\x01\x02\xff\xfe"),
+		"unterminated":   []byte("BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\n"),
+		"bad-dtstart":    []byte("BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nDTSTART:notadate\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"),
+		"empty-attendee": []byte("BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nATTENDEE:mailto:\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"),
+		"only-crlf":      []byte("\r\n\r\n\r\n"),
+		"huge-flat":      []byte(strings.Repeat("A:B\r\n", 100000)),
+		"nested-vcal":    []byte("BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nBEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nEND:VEVENT\r\nEND:VCALENDAR\r\nEND:VCALENDAR\r\n"),
 	}
 	for name, in := range inputs {
 		t.Run(name, func(t *testing.T) {

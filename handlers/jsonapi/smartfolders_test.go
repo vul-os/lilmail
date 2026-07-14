@@ -14,17 +14,17 @@ import (
 // mockSmartFolderStore records calls and returns canned data, standing in for the
 // brokered HTTP client to vulos-mail's smart-folder surface.
 type mockSmartFolderStore struct {
-	account        string // captured by newSmartFolderStore substitution (isolation)
-	resolveOut     map[string]string
-	resolveCalled  bool
-	refileCalled   bool
-	refileMsgID    string
-	refileFolder   string
-	refileTrained  bool
-	fieldsOut      *models.SmartFields
-	fieldsFound    bool
-	fieldsCalled   bool
-	err            error
+	account       string // captured by newSmartFolderStore substitution (isolation)
+	resolveOut    map[string]string
+	resolveCalled bool
+	refileCalled  bool
+	refileMsgID   string
+	refileFolder  string
+	refileTrained bool
+	fieldsOut     *models.SmartFields
+	fieldsFound   bool
+	fieldsCalled  bool
+	err           error
 }
 
 func (m *mockSmartFolderStore) Resolve(_ context.Context, ids []string) (map[string]string, error) {

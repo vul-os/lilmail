@@ -37,14 +37,14 @@ type Contact struct {
 	Emails []string `json:"emails"`
 	Phones []string `json:"phones,omitempty"`
 
-	TypedEmails []TypedValue   `json:"typedEmails,omitempty"`
-	TypedPhones []TypedValue   `json:"typedPhones,omitempty"`
-	Addresses   []Address      `json:"addresses,omitempty"`
-	Websites    []TypedValue   `json:"websites,omitempty"`
-	IMs         []TypedValue   `json:"ims,omitempty"`
-	Birthday    string         `json:"birthday,omitempty"`    // ISO date (YYYY-MM-DD) or vCard raw
-	Anniversary string         `json:"anniversary,omitempty"` // ISO date or vCard raw
-	Groups      []string       `json:"groups,omitempty"`      // CATEGORIES membership
+	TypedEmails []TypedValue `json:"typedEmails,omitempty"`
+	TypedPhones []TypedValue `json:"typedPhones,omitempty"`
+	Addresses   []Address    `json:"addresses,omitempty"`
+	Websites    []TypedValue `json:"websites,omitempty"`
+	IMs         []TypedValue `json:"ims,omitempty"`
+	Birthday    string       `json:"birthday,omitempty"`    // ISO date (YYYY-MM-DD) or vCard raw
+	Anniversary string       `json:"anniversary,omitempty"` // ISO date or vCard raw
+	Groups      []string     `json:"groups,omitempty"`      // CATEGORIES membership
 
 	// Photo is the contact avatar as a data URI ("data:image/png;base64,...").
 	// It maps to the vCard PHOTO property. Only a raster image (PNG/JPEG/GIF/WebP)

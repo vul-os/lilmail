@@ -51,15 +51,15 @@ type richClient struct {
 	searchQuery  string
 
 	// delete-path bookkeeping
-	trashFolder    string
-	trashErr       error
-	moved          [][3]string // {src, uid, dest}
-	moveErr        error
-	deleted        [][2]string // {folder, uid}
-	deleteErr      error
-	savedDraft     bool
-	saveDraftErr   error
-	saveToSentErr  error
+	trashFolder   string
+	trashErr      error
+	moved         [][3]string // {src, uid, dest}
+	moveErr       error
+	deleted       [][2]string // {folder, uid}
+	deleteErr     error
+	savedDraft    bool
+	saveDraftErr  error
+	saveToSentErr error
 }
 
 func (r *richClient) FetchSingleMessage(folder, uid string) (models.Email, error) {
@@ -384,9 +384,9 @@ func TestHandleSend_MissingFields400(t *testing.T) {
 	app := newBrokeredAppCfg(t, cfg, newRich())
 
 	cases := []string{
-		`{"subject":"x","text":"y"}`,          // no to
-		`{"to":"a@b.com","text":"y"}`,         // no subject
-		`{"to":"a@b.com","subject":"x"}`,      // no body
+		`{"subject":"x","text":"y"}`,            // no to
+		`{"to":"a@b.com","text":"y"}`,           // no subject
+		`{"to":"a@b.com","subject":"x"}`,        // no body
 		`{"to":"   ","subject":"x","text":"y"}`, // blank to
 	}
 	for _, body := range cases {
