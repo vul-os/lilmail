@@ -12,6 +12,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -29,6 +30,7 @@ func (h *Handler) registerSettings(g fiber.Router) {
 	g.Get("/settings/signatures", h.handleGetSignatures)
 	g.Put("/settings/signatures", h.handlePutSignatures)
 	g.Get("/settings/identities", h.handleGetIdentities)
+	g.Put("/settings/identities", h.handlePutIdentities)
 	g.Get("/settings/spam", h.handleGetSpam)
 	g.Put("/settings/spam", h.handlePutSpam)
 }
@@ -349,6 +351,194 @@ func (h *Handler) handleGetIdentities(c *fiber.Ctx) error {
 		out = append(out, id)
 	}
 	return c.JSON(fiber.Map{"identities": out})
+}
+
+// maxIdentities bounds how many send-as aliases an account may store. Mirrors
+// vulos-mail's mailsettings.MaxAliases, which is the authoritative bound.
+const maxIdentities = 20
+
+// handlePutIdentities replaces the account's send-as identities (aliases). It is
+// the write half of the identities surface, mirroring handlePutSignatures /
+// handlePutVacation: same auth (session OR broker, scoped to fromEmail), same KV,
+// same "PUT replaces the whole set" contract.
+//
+// AUTHORITY — an alias is a security decision, not a preference: sending as an
+// address means claiming it. lilmail is NOT the authority for that claim. So for a
+// vulos-mail-hosted mailbox the alias list is PUSHED to the engine's broker-gated
+// /internal/identities FIRST, and the engine authorizes each alias against the
+// verified-domain rule (an address at a domain the tenant has proven it owns, or a
+// plus-subaddress of the account's own mailbox). If the engine REFUSES (403) or is
+// unreachable, we store NOTHING and propagate the refusal — fail-closed, so the
+// UI can never offer a From the mail server will reject at submission (and no one
+// can register ceo@google.com by writing straight to this surface).
+//
+// For an externally-brokered mailbox (Gmail/Outlook/plain IMAP) there is no
+// vulos-mail engine to authorize against: the identities are stored as the client's
+// read model, `serverEnforced` is false, and the upstream provider's SMTP server
+// remains the authority for what From it will accept. We do not pretend otherwise.
+//
+// The primary mailbox is implicit — it is always returned by GET and is never
+// stored as an alias, so a client cannot remove, rename, or shadow it.
+//
+// SCOPE: send-as ONLY. Registering an alias does NOT make it a delivery address —
+// mail sent TO an alias is not accepted (inbound alias/group delivery is a separate,
+// unbuilt feature).
+func (h *Handler) handlePutIdentities(c *fiber.Ctx) error {
+	store, owner, handled, herr := h.settingsStoreOr501(c)
+	if handled {
+		return herr
+	}
+	var body struct {
+		Identities []identity `json:"identities"`
+	}
+	if err := c.BodyParser(&body); err != nil {
+		return fail(c, fiber.StatusBadRequest, "body must be {identities:[...]}")
+	}
+	if len(body.Identities) > maxIdentities+1 { // +1: a client may echo the primary back
+		return fail(c, fiber.StatusBadRequest, "too many identities")
+	}
+
+	seen := make(map[string]struct{}, len(body.Identities))
+	out := make([]identity, 0, len(body.Identities))
+	aliases := make([]string, 0, len(body.Identities))
+	for _, id := range body.Identities {
+		addr := strings.ToLower(strings.TrimSpace(id.Address))
+		if addr == "" || strings.EqualFold(addr, owner) {
+			continue // blanks, and the implicit primary, are never stored as aliases
+		}
+		// The address becomes a real From header: reject CR/LF/NUL, then the shape.
+		if err := api.ValidateHeaderValue(addr); err != nil || !validIdentityAddress(addr) {
+			return fail(c, fiber.StatusBadRequest, "invalid identity address: "+addr)
+		}
+		id.Name = strings.TrimSpace(id.Name)
+		if err := api.ValidateHeaderValue(id.Name); err != nil {
+			return fail(c, fiber.StatusBadRequest, "identity name contains illegal characters")
+		}
+		if _, dup := seen[addr]; dup {
+			continue
+		}
+		seen[addr] = struct{}{}
+		id.Address, id.IsPrimary = addr, false
+		out = append(out, id)
+		aliases = append(aliases, addr)
+	}
+	if len(out) > maxIdentities {
+		return fail(c, fiber.StatusBadRequest, "too many identities")
+	}
+
+	// Register with the authority BEFORE storing (fail-closed).
+	serverEnforced := false
+	if spec, ok := brokerSpecOf(c); ok {
+		if storeURL := identitiesStoreURLFromRules(spec.RulesURL); storeURL != "" {
+			if err := pushIdentities(c.Context(), storeURL, h.brokerSecret, spec.Email, aliases); err != nil {
+				var fe *fiber.Error
+				if errors.As(err, &fe) && (fe.Code == fiber.StatusForbidden ||
+					fe.Code == fiber.StatusBadRequest || fe.Code == fiber.StatusNotImplemented) {
+					msg := fe.Message
+					if msg == "" {
+						msg = "the mail server refused these send-as identities"
+					}
+					return fail(c, fe.Code, msg)
+				}
+				return fail(c, fiber.StatusBadGateway, "could not register send-as identities with the mail server")
+			}
+			serverEnforced = true
+		}
+	}
+
+	if err := store.put(owner, kindIdentities, out); err != nil {
+		return fail(c, fiber.StatusInternalServerError, "could not save identities")
+	}
+	// Echo the same shape GET returns (primary first, never removable).
+	return c.JSON(fiber.Map{
+		"identities":     append([]identity{{Address: owner, IsPrimary: true}}, out...),
+		"serverEnforced": serverEnforced,
+	})
+}
+
+// identitiesStoreURLFromRules derives vulos-mail's /internal/identities endpoint
+// from the brokered rule-store URL (…/internal/mailrules → …/internal/identities),
+// the same derivation the vacation/spam/snooze pushes use. Returns "" when no
+// rule-store URL is brokered — i.e. the mailbox is not vulos-mail-hosted, so there
+// is no send-as authority to register with.
+func identitiesStoreURLFromRules(rulesURL string) string {
+	rulesURL = strings.TrimRight(strings.TrimSpace(rulesURL), "/")
+	if rulesURL == "" {
+		return ""
+	}
+	if strings.HasSuffix(rulesURL, "/internal/mailrules") {
+		return strings.TrimSuffix(rulesURL, "/mailrules") + "/identities"
+	}
+	// Unknown shape: best-effort sibling under the same parent path.
+	if i := strings.LastIndex(rulesURL, "/"); i > 0 {
+		return rulesURL[:i] + "/identities"
+	}
+	return ""
+}
+
+// pushIdentities registers the account's alias addresses with vulos-mail's
+// broker-gated /internal/identities, where they are AUTHORIZED and persisted into
+// the store the send path checks. A non-2xx is returned as a *fiber.Error carrying
+// the upstream status + message so the caller can propagate a 403 ("not an address
+// this account may send as") rather than a generic failure. Package var for the
+// test seam (mirrors pushVacationConfig).
+var pushIdentities = func(ctx context.Context, storeURL, secret, account string, aliases []string) error {
+	if aliases == nil {
+		aliases = []string{}
+	}
+	b, _ := json.Marshal(map[string]any{"account": account, "aliases": aliases})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, storeURL, bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-Vulos-Broker-Auth", secret)
+	req.Header.Set("Content-Type", "application/json")
+	hc := &http.Client{Timeout: 15 * time.Second}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		var e struct {
+			Error string `json:"error"`
+		}
+		_ = json.Unmarshal(raw, &e)
+		return &fiber.Error{Code: resp.StatusCode, Message: e.Error}
+	}
+	return nil
+}
+
+// validIdentityAddress reports whether a is a safe send-as address:
+// "<local>@<domain>" with exactly one '@', a label-shaped domain, and no control /
+// whitespace / injection character. It is the LOCAL (defence-in-depth) half of the
+// check — vulos-mail re-validates authoritatively AND decides whether the account
+// may actually claim the address (this function does not, and cannot, know that).
+func validIdentityAddress(a string) bool {
+	if a == "" || len(a) > 254 {
+		return false
+	}
+	at := 0
+	for _, r := range a {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= '0' && r <= '9':
+		case r == '.' || r == '-' || r == '_' || r == '+':
+		case r == '@':
+			at++
+		default:
+			return false
+		}
+	}
+	if at != 1 {
+		return false
+	}
+	i := strings.IndexByte(a, '@')
+	if a[:i] == "" {
+		return false
+	}
+	return validSpamDomain(a[i+1:])
 }
 
 // --- helpers -----------------------------------------------------------------

@@ -253,6 +253,14 @@ func parseFutureSendAt(raw string) (time.Time, error) {
 // encrypted at rest by the store, so the drain can reconnect + send at sendAt with
 // no live request context. Rejects a non-future/absurd sendAt (400) and enforces
 // the per-account pending quota (429).
+//
+// `from` is the already-GATED sender (handleSend → sendFrom): the authenticated
+// mailbox, or one of its REGISTERED send-as identities. The record is nonetheless
+// OWNED by the authenticated mailbox — the store keys every read/list/cancel on
+// Account, so ownership must never move to an alias (a scheduled send the owner
+// could neither see nor cancel, in a namespace that is not theirs). From (the
+// header the message fires with) and Account (who owns the record) are therefore
+// resolved separately.
 func (h *Handler) scheduleSend(c *fiber.Ctx, body composeBody, plain string, atts []api.OutgoingAttachment, from string) error {
 	if h.schedule == nil {
 		return fail(c, fiber.StatusNotImplemented, "scheduled send is not enabled")
@@ -261,7 +269,8 @@ func (h *Handler) scheduleSend(c *fiber.Ctx, body composeBody, plain string, att
 	if err != nil {
 		return fail(c, fiber.StatusBadRequest, err.Error())
 	}
-	if strings.TrimSpace(from) == "" {
+	owner := strings.TrimSpace(h.fromEmail(c))
+	if owner == "" || strings.TrimSpace(from) == "" {
 		return fail(c, fiber.StatusUnauthorized, "not authenticated")
 	}
 
@@ -284,10 +293,10 @@ func (h *Handler) scheduleSend(c *fiber.Ctx, body composeBody, plain string, att
 
 	rec := &scheduledSend{
 		ID:           newScheduleID(),
-		Account:      from,
+		Account:      owner, // record ownership: always the authenticated mailbox
 		SendAt:       when.Unix(),
 		Created:      time.Now().Unix(),
-		From:         from,
+		From:         from, // header sender: the owner, or a registered send-as identity
 		To:           body.To,
 		Cc:           body.Cc,
 		Bcc:          body.Bcc,

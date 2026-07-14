@@ -33,6 +33,50 @@ type composeBody struct {
 	// send: the message is persisted and delivered at sendAt via the drain (through
 	// the same guarded MIME path), not sent immediately. Empty => send now.
 	SendAt string `json:"sendAt"`
+	// From, when set, sends as one of the account's REGISTERED send-as identities
+	// (/v1/settings/identities) instead of the primary mailbox. Empty => primary.
+	// An address that is not a registered identity is REFUSED (403) — see sendFrom.
+	From string `json:"from"`
+}
+
+// sendFrom resolves the From address for a compose: the account's own mailbox
+// unless the client asked to send as another identity, in which case it MUST be one
+// the account has REGISTERED (/v1/settings/identities). Anything else is refused
+// (403) — a client may not name an arbitrary From.
+//
+// This is a gate, not the authority: vulos-mail re-checks the From at submission
+// (Manager.senderAllowed) against the verified-domain rule and rejects a send-as it
+// never authorized, so a bypass of this surface still cannot emit spoofed mail. The
+// same registered list is what the engine holds, because the identities PUT pushes
+// it there (settings.go handlePutIdentities).
+//
+// It follows settingsStoreOr501's contract: when handled==true the error response
+// has ALREADY been written and the caller must return herr immediately.
+func (h *Handler) sendFrom(c *fiber.Ctx, requested string) (from string, handled bool, herr error) {
+	owner := h.fromEmail(c)
+	requested = strings.TrimSpace(requested)
+	if requested == "" || strings.EqualFold(requested, owner) {
+		return owner, false, nil
+	}
+	// The From becomes a real header: reject CR/LF/NUL before anything else.
+	if err := api.ValidateHeaderValue(requested); err != nil {
+		return "", true, fail(c, fiber.StatusBadRequest, "from contains illegal characters")
+	}
+	if h.kv == nil {
+		// No settings storage → no identities can be registered → only the primary
+		// mailbox is sendable (fail-closed).
+		return "", true, fail(c, fiber.StatusForbidden, "not an authorized send-as identity")
+	}
+	var stored []identity
+	if err := newSettingsStore(h.kv).get(owner, kindIdentities, &stored); err != nil {
+		return "", true, fail(c, fiber.StatusInternalServerError, "could not load identities")
+	}
+	for _, id := range stored {
+		if strings.EqualFold(strings.TrimSpace(id.Address), requested) {
+			return strings.ToLower(requested), false, nil
+		}
+	}
+	return "", true, fail(c, fiber.StatusForbidden, "not an authorized send-as identity")
 }
 
 // handleSend builds a MIME message from the JSON body and sends it over SMTP,
@@ -58,7 +102,13 @@ func (h *Handler) handleSend(c *fiber.Ctx) error {
 		return failErr(c, err)
 	}
 
-	from := h.fromEmail(c)
+	// Send-as: the primary mailbox, or a REGISTERED identity the client picked in the
+	// compose From selector. An unregistered address is refused here and would be
+	// refused again by the mail server at submission.
+	from, handled, herr := h.sendFrom(c, body.From)
+	if handled {
+		return herr
+	}
 
 	// Scheduled send: a future sendAt persists the message and returns 202 without
 	// sending now; the drain delivers it at sendAt through the SAME BuildMIMEMessage
@@ -148,7 +198,12 @@ func (h *Handler) handleSaveDraft(c *fiber.Ctx) error {
 		return failErr(c, err)
 	}
 
-	from := h.fromEmail(c)
+	// A draft keeps the identity it was composed under, gated exactly like a send —
+	// so a draft can't be used to stage a From the account may not claim.
+	from, handled, herr := h.sendFrom(c, body.From)
+	if handled {
+		return herr
+	}
 	rawMessage, err := api.BuildMIMEMessage(api.MIMEMessageOptions{
 		From:        from,
 		To:          body.To,

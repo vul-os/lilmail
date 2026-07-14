@@ -689,20 +689,36 @@ func TestScheduledPermanentBuildFailureIsDropped(t *testing.T) {
 	}
 }
 
-// From is server-forced (vector 1): a client cannot schedule a send that fires AS
-// another account. Even if the JSON body carried a "from", the persisted record's
-// From/Account are set from the authed identity (fromEmail), not the body.
+// From is server-gated (vector 1): a client cannot schedule a send that fires AS
+// another account. A "from" in the body is honoured ONLY when it is one of the
+// account's REGISTERED send-as identities (/v1/settings/identities, itself
+// authorized by the mail server); an unregistered address is REFUSED outright, so
+// no record is created at all — and the record's Account (its ownership key) is
+// ALWAYS the authed identity, never the body's from.
 func TestScheduledFromIsServerForced(t *testing.T) {
 	app, store, _, _ := newScheduledApp(t, &fakeMailClient{})
 
 	when := time.Now().Add(30 * time.Minute).UTC().Format(time.RFC3339)
-	// Attempt to smuggle a spoofed "from" in the body.
+	// Attempt to smuggle a spoofed "from" in the body: refused, nothing persisted.
 	_, code, b := doReq(t, app, "POST", "/v1/messages",
 		`{"from":"ceo@victim.com","to":"bob@example.com","subject":"s","text":"hi","sendAt":"`+when+`"}`)
+	if code != fiber.StatusForbidden {
+		t.Fatalf("spoofed from: want 403, got %d: %s", code, b)
+	}
+	if recs, _ := store.List("user@gmail.com"); len(recs) != 0 {
+		t.Fatalf("a refused send-as must not persist a record, got %d", len(recs))
+	}
+	// The spoofed account must have nothing either.
+	if r2, _ := store.List("ceo@victim.com"); len(r2) != 0 {
+		t.Fatalf("spoofed from created a record under victim account: %d", len(r2))
+	}
+
+	// No "from" at all → the authed identity, as before.
+	_, code, b = doReq(t, app, "POST", "/v1/messages",
+		`{"to":"bob@example.com","subject":"s","text":"hi","sendAt":"`+when+`"}`)
 	if code != fiber.StatusAccepted {
 		t.Fatalf("schedule: want 202, got %d: %s", code, b)
 	}
-	// The record must be owned by and fire AS the authed account, not the spoof.
 	recs, err := store.List("user@gmail.com")
 	if err != nil || len(recs) != 1 {
 		t.Fatalf("want 1 record for authed account, got %d (err %v)", len(recs), err)
@@ -710,9 +726,41 @@ func TestScheduledFromIsServerForced(t *testing.T) {
 	if recs[0].From != "user@gmail.com" || recs[0].Account != "user@gmail.com" {
 		t.Fatalf("From/Account not server-forced: From=%q Account=%q", recs[0].From, recs[0].Account)
 	}
-	// The spoofed account must have nothing.
-	if r2, _ := store.List("ceo@victim.com"); len(r2) != 0 {
-		t.Fatalf("spoofed from created a record under victim account: %d", len(r2))
+}
+
+// A scheduled send AS a REGISTERED send-as identity fires with that From, but the
+// record stays OWNED by the authenticated mailbox — ownership never follows the
+// alias (otherwise the owner could neither list nor cancel their own scheduled send,
+// and the record would sit in a namespace that isn't theirs).
+func TestScheduledSendAsRegisteredIdentityKeepsOwnership(t *testing.T) {
+	app, store, _, _ := newScheduledApp(t, &fakeMailClient{})
+
+	// Register the alias first (no vulos-mail engine wired in this app → stored as
+	// the client's read model; the engine re-checks authoritatively at submission).
+	if _, code, b := doReq(t, app, "PUT", "/v1/settings/identities",
+		`{"identities":[{"address":"sales@brand.example"}]}`); code != fiber.StatusOK {
+		t.Fatalf("register identity: %d %s", code, b)
+	}
+
+	when := time.Now().Add(30 * time.Minute).UTC().Format(time.RFC3339)
+	_, code, b := doReq(t, app, "POST", "/v1/messages",
+		`{"from":"sales@brand.example","to":"bob@example.com","subject":"s","text":"hi","sendAt":"`+when+`"}`)
+	if code != fiber.StatusAccepted {
+		t.Fatalf("schedule as alias: want 202, got %d: %s", code, b)
+	}
+	recs, err := store.List("user@gmail.com")
+	if err != nil || len(recs) != 1 {
+		t.Fatalf("the record must be owned by the authed account, got %d (err %v)", len(recs), err)
+	}
+	if recs[0].Account != "user@gmail.com" {
+		t.Fatalf("ownership moved to the alias: Account=%q", recs[0].Account)
+	}
+	if recs[0].From != "sales@brand.example" {
+		t.Fatalf("the registered identity must be the From: %q", recs[0].From)
+	}
+	// The alias is not an owner namespace.
+	if r2, _ := store.List("sales@brand.example"); len(r2) != 0 {
+		t.Fatalf("a record was created under the alias namespace: %d", len(r2))
 	}
 }
 

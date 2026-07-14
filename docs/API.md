@@ -398,9 +398,35 @@ The From/identity list the compose window offers. The primary mailbox is **alway
 returned first with `isPrimary:true` (never removable), followed by any send-as
 aliases. Each identity may link a default signature by id.
 
-| Method | Path | Returns |
-|--------|------|---------|
-| `GET` | `/v1/settings/identities` | `{ identities: Identity[] }` |
+| Method | Path | Body | Returns |
+|--------|------|------|---------|
+| `GET` | `/v1/settings/identities` | — | `{ identities: Identity[] }` |
+| `PUT` | `/v1/settings/identities` | `{ identities: Identity[] }` | `{ identities: Identity[], serverEnforced }` |
+
+`PUT` **replaces the whole set of aliases**. The primary mailbox is implicit: it is
+never stored, never writable, and always re-added on read.
+
+**SEND-AS ONLY.** An identity is an address you may send *from*. It is **not** an
+inbound address — mail sent **to** an alias is **not** delivered to this mailbox
+(inbound alias / group delivery is a separate feature that does not exist yet).
+
+**The mail server is the authority.** For a vulos-mail-hosted mailbox the alias list
+is pushed to vulos-mail's broker-gated `/internal/identities`, which accepts an
+alias **only** when it is an address at a **verified domain owned by this account's
+tenant**, or a **plus-subaddress of the account's own mailbox** (`you+tag@…`).
+Anything else — a foreign domain, an unverified domain, another tenant's domain, an
+arbitrary localpart on a shared service domain — is refused with `403`, and **nothing
+is stored** (fail-closed). An unreachable engine is a `502`, also storing nothing.
+`serverEnforced` reports whether that registration happened: for an externally
+brokered mailbox (Gmail/Outlook/plain IMAP) there is no such authority, the
+identities are the client's read model, and the upstream provider's SMTP server
+decides what From it will accept.
+
+Compose honours the choice: `POST /v1/messages` (and `/v1/drafts`) accept
+`"from": "<address>"`, which must be the primary mailbox or a **registered**
+identity — anything else is `403` (and vulos-mail re-checks it again at submission).
+A scheduled send fires with that From but the record stays **owned** by the
+authenticated mailbox.
 
 ```jsonc
 // Identity
