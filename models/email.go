@@ -67,6 +67,33 @@ type Email struct {
 	// client validates the scheme and only POSTs to the one-click target — it
 	// never auto-follows a hostile URL.
 	Unsubscribe *Unsubscribe `json:"unsubscribe,omitempty"`
+	// Brand carries a VERIFIED sender brand logo (BIMI) — populated ONLY when the
+	// message passed DMARC (alignment implied) AND the From domain publishes a BIMI
+	// record whose logo we fetched, screened, and sanitized. Nil otherwise. It is a
+	// privacy-safe sender image (keyed on the SENDER's own DNS + authentication,
+	// leaking nothing about the recipient) and doubles as an anti-phishing signal:
+	// a logo appears ONLY for a genuinely authenticated sender (fail-closed). The
+	// logo is a sanitized SVG data URI safe to render in an <img> (image context —
+	// no script execution). Never trusted from a client; set server-side only.
+	Brand *BrandIndicator `json:"brand,omitempty"`
+}
+
+// BrandIndicator is a verified BIMI brand logo for a sender domain. Present only
+// when DMARC passed and the domain published a BIMI record with a usable logo.
+type BrandIndicator struct {
+	// Domain is the DMARC-aligned From domain the logo was verified for.
+	Domain string `json:"domain"`
+	// Logo is a sanitized SVG rendered as a `data:image/svg+xml;base64,…` URI. It
+	// is safe to place in an <img src> — an SVG in image context cannot execute
+	// script or load external resources — and it additionally passed a strict
+	// server-side sanitizer (no <script>/<foreignObject>/event handlers/external
+	// references), so a non-compliant logo yields NO indicator (fail-closed).
+	Logo string `json:"logo"`
+	// VMC reports whether the BIMI record also referenced a Verified Mark
+	// Certificate (the `a=` tag). Informational: a VMC means a CA attested the
+	// mark, a stronger trust tier than a self-asserted logo. We do not yet validate
+	// the certificate chain, so this only reflects the record, not a verification.
+	VMC bool `json:"vmc,omitempty"`
 }
 
 // SmartFields is the schema.org structured data extracted from a message by

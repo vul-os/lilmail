@@ -55,6 +55,10 @@ type Handler struct {
 	// keyed by the OWNER (fromEmail) so per-user isolation is structural. Secrets
 	// (connected-account passwords) are encrypted at rest with config.Encryption.Key.
 	kv storage.KV
+	// bimi resolves VERIFIED sender brand logos (BIMI) for the single-message read,
+	// gated fail-closed on DMARC pass. Per-domain cached, screened outbound fetch.
+	// Never nil after New (the resolver itself is cheap and safe to hold).
+	bimi *api.BIMIResolver
 }
 
 // New builds a JSON API handler. auth is the same *web.AuthHandler the HTMX UI
@@ -64,7 +68,7 @@ type Handler struct {
 // Scheduled send is OFF in this constructor (no durable store). Use NewWithStore
 // to enable it; standalone/tests that don't need send-later keep the simpler form.
 func New(store *session.Store, cfg *config.Config, auth *web.AuthHandler) *Handler {
-	return &Handler{store: store, config: cfg, auth: auth, brokerSecret: readBrokerSecret()}
+	return &Handler{store: store, config: cfg, auth: auth, brokerSecret: readBrokerSecret(), bimi: api.NewBIMIResolver()}
 }
 
 // NewWithStore is New plus a durable KV store, which enables scheduled send: it
@@ -441,6 +445,9 @@ func (h *Handler) handleMessage(c *fiber.Ctx) error {
 	if store, serr := h.smartFolderStoreFor(c); serr == nil {
 		h.attachSmartFields(c.Context(), store, &email)
 	}
+	// Verified sender brand logo (BIMI): privacy-safe sender image gated fail-closed
+	// on DMARC pass (see attachBrandIndicator). Best-effort + additive.
+	h.attachBrandIndicator(c.Context(), &email)
 	return c.JSON(email)
 }
 
