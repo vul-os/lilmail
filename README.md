@@ -32,6 +32,20 @@ Everything beyond core mail — CalDAV calendar, CardDAV contacts, an AI mail
 assistant, real-time notifications, Web Push, and multi-account support — is
 opt-in via config keys and adds zero overhead when disabled.
 
+> ### Where this fits in Vulos (2026-07): lilmail is the mail **connector**
+>
+> Vulos treats mail as a **connector, not a service it runs**: the Workspace/OS
+> inbox connects to whatever mailbox you already have — Gmail, Outlook, any IMAP
+> — rather than making you move to a Vulos mailbox. **lilmail is exactly that
+> connector.** Because it logs into any IMAP/SMTP account (password *or*
+> OAuth2/OIDC) and exposes a clean `/v1` JSON API, Workspace's mail plane talks
+> to it directly (at `/api/mail/v1`) and renders the result with the shared
+> [`@vulos/mail-ui`](https://github.com/vul-os/vulos-mail/tree/main/packages/mail-ui)
+> UI. So lilmail and `mail-ui` are the **live keepers** of Vulos mail — the
+> "bring your own email" path. (The machinery for Vulos to *run its own mail
+> server* — `vulos-mail`'s engine, `vulos-deliver`, `vesend` — is dormant/research
+> by contrast; lilmail is not.)
+
 ## Part of VulOS
 
 [VulOS](https://vulos.org) is an open, self-hostable web OS + app suite. Each
