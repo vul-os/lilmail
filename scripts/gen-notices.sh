@@ -65,6 +65,21 @@ HEADER
   done
 
   echo "================================================================================"
+  echo "Go standard library (compiled into the lilmail binary)"
+  echo "================================================================================"
+  echo
+  echo "--------------------------------------------------------------------------------"
+  echo "Component : The Go Programming Language standard library"
+  echo "Version   : $(go env GOVERSION)"
+  echo "Licence   : BSD-3-Clause (plus the Go patent grant, reproduced below)"
+  echo "--------------------------------------------------------------------------------"
+  echo
+  cat "$(go env GOROOT)/LICENSE"
+  echo
+  cat "$(go env GOROOT)/PATENTS"
+  echo
+
+  echo "================================================================================"
   echo "Go modules (compiled into the lilmail binary)"
   echo "================================================================================"
   echo
