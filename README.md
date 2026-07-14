@@ -263,3 +263,18 @@ make check   # go build ./... && go vet ./... && go test ./...
 ## License
 
 Released under the **MIT License** — see [LICENSE](LICENSE).
+
+### Third-party notices
+
+lilmail redistributes third-party software: Go modules compiled into the binary,
+and the vendored JavaScript (htmx, Alpine.js) served to the browser. Their
+licences (MIT, BSD, ISC, Apache-2.0) require the copyright notice and licence
+text to accompany every copy, so lilmail ships them:
+
+- [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt) — name, version, licence and
+  full licence text for every component. Generated from the real dependency graph
+  by `make notices` (`scripts/gen-notices.sh`); never hand-edited.
+- A running lilmail serves it at **`/licenses.txt`**, linked from the login page
+  and from Settings → About.
+- Each vendored bundle also has its upstream licence next to it, e.g.
+  `assets/vendor/htmx.min.js.LICENSE`.

@@ -1,0 +1,20 @@
+{{- define "depInfo" -}}
+{{- range $i, $dep := . }}
+--------------------------------------------------------------------------------
+Module  : {{ $dep.Name }}
+Version : {{ $dep.Version }}
+Licence : {{ $dep.LicenceType }}
+--------------------------------------------------------------------------------
+
+{{ $dep | licenceText }}
+{{ end }}
+{{- end -}}
+Direct Go module dependencies
+{{ template "depInfo" .Direct }}
+{{- if .Indirect }}
+
+================================================================================
+Indirect Go module dependencies
+================================================================================
+{{ template "depInfo" .Indirect }}
+{{- end }}

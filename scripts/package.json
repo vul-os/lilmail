@@ -4,6 +4,7 @@
   "description": "Playwright screenshotter for lilmail",
   "type": "module",
   "private": true,
+  "license": "MIT",
   "scripts": {
     "screenshots": "node screenshots.mjs"
   },

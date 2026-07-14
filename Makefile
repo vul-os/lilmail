@@ -1,8 +1,14 @@
-.PHONY: build test vet screenshots demo-screenshots clean
+.PHONY: build test vet notices screenshots demo-screenshots clean
 
 # Build the lilmail binary
 build:
 	go build -o lilmail .
+
+# Regenerate THIRD-PARTY-NOTICES.txt from the real dependency graph (Go modules
+# + vendored browser assets). The file is embedded in the binary and served at
+# /licenses.txt; re-run after changing go.mod or assets/vendor/.
+notices:
+	./scripts/gen-notices.sh
 
 # Run all tests
 test:

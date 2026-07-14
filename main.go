@@ -98,6 +98,15 @@ var templatesFS embed.FS
 //go:embed all:assets
 var assetsFS embed.FS
 
+// thirdPartyNotices is the generated attribution file for every third-party
+// component lilmail redistributes (Go modules linked into this binary and the
+// vendored JavaScript served to the browser). Their licences require the notice
+// to accompany the copy, so it is embedded in the binary and served at
+// /licenses.txt. Regenerate with ./scripts/gen-notices.sh.
+//
+//go:embed THIRD-PARTY-NOTICES.txt
+var thirdPartyNotices string
+
 var store *session.Store
 
 // Helper function to determine if request is an API request
@@ -289,6 +298,17 @@ func main() {
 		c.Set("Cache-Control", "no-cache")
 		c.Set("Service-Worker-Allowed", "/") // Allow SW to control the full origin.
 		return c.Send(swBytes)
+	})
+
+	// Third-party notices. lilmail redistributes MIT/BSD/ISC/Apache-2.0 code
+	// (Go modules compiled into this binary, plus the vendored JS served to the
+	// browser); those licences require their copyright notice and licence text
+	// to travel with every copy. Served unauthenticated so any user of a running
+	// lilmail can read them. Regenerate with ./scripts/gen-notices.sh.
+	app.Get("/licenses.txt", func(c *fiber.Ctx) error {
+		c.Set("Content-Type", "text/plain; charset=utf-8")
+		c.Set("Cache-Control", "public, max-age=3600")
+		return c.SendString(thirdPartyNotices)
 	})
 
 	// Initialize web handlers

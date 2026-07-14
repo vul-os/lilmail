@@ -42,7 +42,7 @@ lilmail/
 │   └── calendar-week.html
 ├── assets/
 │   ├── css/mail.css         # Hand-written CSS (dark mode, responsive)
-│   ├── vendor/              # htmx.min.js, alpine.min.js, tailwind.js
+│   ├── vendor/              # htmx.min.js, alpine.min.js (+ their .LICENSE files)
 │   └── sw.js                # Service worker (Web Push)
 ├── scripts/                 # Developer tooling (Playwright screenshotter)
 ├── docs/                    # Documentation and screenshots
