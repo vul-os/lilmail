@@ -351,6 +351,86 @@ func TestHandlers_DisabledReturns404(t *testing.T) {
 	}
 }
 
+// capturingSSEServer records the request body it receives and replies with a
+// single SSE completion carrying `content`. It lets a test assert BOTH that the
+// smart-compose / smart-reply features parse the model output correctly AND that
+// the user's mail content is sent to exactly this configured endpoint and nowhere
+// else — the sovereign-routing property (the account's own model/gateway).
+func capturingSSEServer(t *testing.T, content string, gotBody *string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		*gotBody = string(b)
+		w.Header().Set("Content-Type", "text/event-stream")
+		lit, _ := json.Marshal(content)
+		fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":%s}}]}\n\n", string(lit))
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+}
+
+// Smart Compose happy path: POST /ai/compose with the draft-so-far returns the
+// model's continuation, and the draft is forwarded to the configured endpoint
+// (and only there).
+func TestCompose_ReturnsCompletionAndForwardsDraft(t *testing.T) {
+	var gotBody string
+	srv := capturingSSEServer(t, "look forward to your reply.", &gotBody)
+	defer srv.Close()
+	app := buildTestApp(config.AIConfig{Enabled: true, Endpoint: srv.URL, Model: "m"})
+
+	status, body := fiberPost(t, app, "/ai/compose", map[string]any{
+		"draft_so_far": "Thanks for the meeting today. I ",
+		"instruction":  "continue",
+	})
+	if status != http.StatusOK {
+		t.Fatalf("compose status = %d, body=%s", status, body)
+	}
+	var resp struct {
+		Completion string `json:"completion"`
+	}
+	if err := json.Unmarshal([]byte(body), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Completion != "look forward to your reply." {
+		t.Fatalf("completion = %q", resp.Completion)
+	}
+	if !strings.Contains(gotBody, "Thanks for the meeting today") {
+		t.Fatalf("the draft was not forwarded to the configured model endpoint: %q", gotBody)
+	}
+}
+
+// Smart Reply happy path: POST /ai/reply returns three suggestions parsed from the
+// model's JSON, and the thread is forwarded to the configured endpoint only.
+func TestReply_ReturnsSuggestionsAndForwardsThread(t *testing.T) {
+	var gotBody string
+	// The reply prompt asks the model for a JSON object of 3 toned suggestions.
+	modelJSON := `{"suggestions":[{"tone":"concise","text":"Sounds good."},{"tone":"detailed","text":"Yes, that works for me — see you then."},{"tone":"decline","text":"Sorry, I can't make it."}]}`
+	srv := capturingSSEServer(t, modelJSON, &gotBody)
+	defer srv.Close()
+	app := buildTestApp(config.AIConfig{Enabled: true, Endpoint: srv.URL, Model: "m"})
+
+	status, body := fiberPost(t, app, "/ai/reply", map[string]any{
+		"thread": "From: bob\nAre you free Tuesday at 3pm?",
+	})
+	if status != http.StatusOK {
+		t.Fatalf("reply status = %d, body=%s", status, body)
+	}
+	var resp struct {
+		Suggestions []struct {
+			Tone string `json:"tone"`
+			Text string `json:"text"`
+		} `json:"suggestions"`
+	}
+	if err := json.Unmarshal([]byte(body), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Suggestions) != 3 || resp.Suggestions[0].Text != "Sounds good." {
+		t.Fatalf("suggestions parsed wrong: %+v", resp.Suggestions)
+	}
+	if !strings.Contains(gotBody, "Are you free Tuesday") {
+		t.Fatalf("the thread was not forwarded to the configured model endpoint: %q", gotBody)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Test 8: handler returns 502 when endpoint is unreachable
 // ---------------------------------------------------------------------------
