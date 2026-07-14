@@ -1,17 +1,20 @@
 package jsonapi
 
-// identities_test.go — the send-as identities WRITE path (/v1/settings/identities
-// PUT) and the compose From gate.
+// identities_test.go — the identities WRITE path (/v1/settings/identities PUT) and
+// the compose From gate.
 //
 //   - PUT round-trips through the KV; GET still leads with the primary
 //   - PUT is auth-gated (no session, no broker → 401) and per-owner isolated
 //   - a vulos-mail-hosted mailbox PUSHES the aliases to the engine, which is the
-//     AUTHORITY: a refusal (403 "not an address this account may send as") or an
-//     unreachable engine stores NOTHING (fail-closed)
+//     AUTHORITY: a refusal (403 "not an address this account may send as", 409 "that
+//     address is already a mailbox/group/another account's alias") or an unreachable
+//     engine stores NOTHING (fail-closed)
 //   - malformed / injecting addresses are refused locally (400)
 //   - compose sends AS the chosen identity, and an UNREGISTERED From is refused (403)
 //
-// Send-as only: none of this makes an alias a deliverable inbound address.
+// lilmail is not the authority and never routes inbound mail: what a registered alias
+// RECEIVES is decided by the engine (vulos-mail's recipient resolver), which is where
+// the inbound-alias contract is tested.
 
 import (
 	"context"
@@ -234,6 +237,35 @@ func TestIdentitiesPutFailsClosedWhenEngineRefuses(t *testing.T) {
 		`{"to":"bob@x.com","subject":"hi","text":"hi","from":"ceo@google.com"}`, "")
 	if code != fiber.StatusForbidden {
 		t.Fatalf("send as a refused alias: got %d (%s), want 403", code, b)
+	}
+}
+
+// A COLLISION is a distinct refusal and must reach the user as one: an alias is an
+// inbound delivery address, so an address that is already a mailbox, a group, or
+// another account's alias cannot also be this account's alias. The engine answers
+// 409; lilmail must propagate that status and its reason verbatim, not flatten it
+// into a generic 502 ("could not register") which would read as our fault and hide
+// the fix from the user.
+func TestIdentitiesPutPropagatesEngineCollision(t *testing.T) {
+	app, _ := newIdentitiesApp(t)
+	var pushed []string
+	stubPushIdentities(t, &pushed, &fiber.Error{
+		Code:    fiber.StatusConflict,
+		Message: "that address is already a mailbox, a group, or another account's alias: team@brand.example",
+	})
+
+	code, b := identDo(t, app, "PUT", "/v1/settings/identities",
+		`{"identities":[{"address":"team@brand.example"}]}`, "http://rules.internal/internal/mailrules")
+	if code != fiber.StatusConflict {
+		t.Fatalf("engine collision: got %d (%s), want 409", code, b)
+	}
+	if !strings.Contains(string(b), "team@brand.example") {
+		t.Fatalf("the engine's reason must be surfaced: %s", b)
+	}
+	// Nothing stored (fail-closed), so the compose menu never offers it.
+	_, b = identDo(t, app, "GET", "/v1/settings/identities", "", "")
+	if ids := identityList(t, b); len(ids) != 1 || !ids[0].IsPrimary {
+		t.Fatalf("a colliding alias must not be stored: %s", b)
 	}
 }
 

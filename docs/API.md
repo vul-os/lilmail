@@ -406,9 +406,18 @@ aliases. Each identity may link a default signature by id.
 `PUT` **replaces the whole set of aliases**. The primary mailbox is implicit: it is
 never stored, never writable, and always re-added on read.
 
-**SEND-AS ONLY.** An identity is an address you may send *from*. It is **not** an
-inbound address — mail sent **to** an alias is **not** delivered to this mailbox
-(inbound alias / group delivery is a separate feature that does not exist yet).
+**BOTH DIRECTIONS** (vulos-mail-hosted mailboxes). An identity is an address you send
+*from* **and receive at**: mail sent **to** a registered alias is delivered to this
+mailbox. The same rule authorizes both, and it is re-checked on every message — so an
+alias on a domain that lapses stops sending *and* receiving at once.
+
+Inbound resolution order (vulos-mail): **exact mailbox → group → alias →
+plus-address → catch-all**. An alias therefore never shadows a real mailbox or a
+group, and a catch-all never swallows an alias.
+
+**Plus-addressing needs no registration.** `you+anything@yourdomain` already reaches
+`you@yourdomain`, with the tag preserved in `X-Original-To:` for rules. Registering
+`you+tag@…` as an identity only adds it to the compose From menu.
 
 **The mail server is the authority.** For a vulos-mail-hosted mailbox the alias list
 is pushed to vulos-mail's broker-gated `/internal/identities`, which accepts an
@@ -416,11 +425,17 @@ alias **only** when it is an address at a **verified domain owned by this accoun
 tenant**, or a **plus-subaddress of the account's own mailbox** (`you+tag@…`).
 Anything else — a foreign domain, an unverified domain, another tenant's domain, an
 arbitrary localpart on a shared service domain — is refused with `403`, and **nothing
-is stored** (fail-closed). An unreachable engine is a `502`, also storing nothing.
+is stored** (fail-closed). An address that already *means* something else (a mailbox,
+a group, or another account's alias) is a routing collision, refused with `409` —
+also storing nothing. An unreachable engine is a `502`, also storing nothing.
 `serverEnforced` reports whether that registration happened: for an externally
 brokered mailbox (Gmail/Outlook/plain IMAP) there is no such authority, the
-identities are the client's read model, and the upstream provider's SMTP server
-decides what From it will accept.
+identities are the client's read model, the upstream provider's SMTP server decides
+what From it will accept, and nothing here makes an address inbound-deliverable.
+
+> **Catch-all** is *not* part of this surface: it is a per-domain admin decision (opt-in,
+> verified domains only, last in precedence), driven through vulos-mail's broker-gated
+> `POST /api/admin/domains/catchall`.
 
 Compose honours the choice: `POST /v1/messages` (and `/v1/drafts`) accept
 `"from": "<address>"`, which must be the primary mailbox or a **registered**

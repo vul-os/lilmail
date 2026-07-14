@@ -362,27 +362,33 @@ const maxIdentities = 20
 // handlePutVacation: same auth (session OR broker, scoped to fromEmail), same KV,
 // same "PUT replaces the whole set" contract.
 //
-// AUTHORITY — an alias is a security decision, not a preference: sending as an
-// address means claiming it. lilmail is NOT the authority for that claim. So for a
-// vulos-mail-hosted mailbox the alias list is PUSHED to the engine's broker-gated
-// /internal/identities FIRST, and the engine authorizes each alias against the
-// verified-domain rule (an address at a domain the tenant has proven it owns, or a
-// plus-subaddress of the account's own mailbox). If the engine REFUSES (403) or is
-// unreachable, we store NOTHING and propagate the refusal — fail-closed, so the
-// UI can never offer a From the mail server will reject at submission (and no one
-// can register ceo@google.com by writing straight to this surface).
+// AUTHORITY — an alias is a security decision, not a preference: claiming an address
+// means claiming both the right to SEND as it and the right to RECEIVE at it.
+// lilmail is NOT the authority for that claim. So for a vulos-mail-hosted mailbox the
+// alias list is PUSHED to the engine's broker-gated /internal/identities FIRST, and
+// the engine authorizes each alias against the verified-domain rule (an address at a
+// domain the tenant has proven it owns, or a plus-subaddress of the account's own
+// mailbox) and against the routing namespace (it may not already be a mailbox, a
+// group, or another account's alias). If the engine REFUSES (403 unauthorized / 409
+// collision) or is unreachable, we store NOTHING and propagate the refusal —
+// fail-closed, so the UI can never offer a From the mail server will reject at
+// submission, nor promise an inbound address that will not receive (and no one can
+// register ceo@google.com by writing straight to this surface).
 //
 // For an externally-brokered mailbox (Gmail/Outlook/plain IMAP) there is no
 // vulos-mail engine to authorize against: the identities are stored as the client's
 // read model, `serverEnforced` is false, and the upstream provider's SMTP server
-// remains the authority for what From it will accept. We do not pretend otherwise.
+// remains the authority for what From it will accept — and, since the mailbox is not
+// ours, nothing here makes an address inbound-deliverable. We do not pretend otherwise.
 //
 // The primary mailbox is implicit — it is always returned by GET and is never
 // stored as an alias, so a client cannot remove, rename, or shadow it.
 //
-// SCOPE: send-as ONLY. Registering an alias does NOT make it a delivery address —
-// mail sent TO an alias is not accepted (inbound alias/group delivery is a separate,
-// unbuilt feature).
+// SCOPE (vulos-mail-hosted): BOTH directions. A registered alias is a send-as
+// identity AND an inbound delivery address — mail sent to it is delivered to this
+// mailbox, ranked below an exact mailbox and a group and above a catch-all. (A
+// `you+tag@` subaddress already delivers to the mailbox without being registered;
+// registering it only adds it to the From menu.)
 func (h *Handler) handlePutIdentities(c *fiber.Ctx) error {
 	store, owner, handled, herr := h.settingsStoreOr501(c)
 	if handled {
@@ -432,15 +438,21 @@ func (h *Handler) handlePutIdentities(c *fiber.Ctx) error {
 		if storeURL := identitiesStoreURLFromRules(spec.RulesURL); storeURL != "" {
 			if err := pushIdentities(c.Context(), storeURL, h.brokerSecret, spec.Email, aliases); err != nil {
 				var fe *fiber.Error
+				// Propagate the authority's own refusal verbatim, with its own status —
+				// 403 "you may not claim that address", 409 "that address is already a
+				// mailbox, a group, or another account's alias" (an alias is an INBOUND
+				// address, so a collision is a real routing conflict, not a preference),
+				// 400 malformed, 501 not configured. Anything else is an upstream fault.
 				if errors.As(err, &fe) && (fe.Code == fiber.StatusForbidden ||
+					fe.Code == fiber.StatusConflict ||
 					fe.Code == fiber.StatusBadRequest || fe.Code == fiber.StatusNotImplemented) {
 					msg := fe.Message
 					if msg == "" {
-						msg = "the mail server refused these send-as identities"
+						msg = "the mail server refused these identities"
 					}
 					return fail(c, fe.Code, msg)
 				}
-				return fail(c, fiber.StatusBadGateway, "could not register send-as identities with the mail server")
+				return fail(c, fiber.StatusBadGateway, "could not register identities with the mail server")
 			}
 			serverEnforced = true
 		}
