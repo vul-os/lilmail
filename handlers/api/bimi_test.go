@@ -157,6 +157,58 @@ func TestResolveNoRecord(t *testing.T) {
 	}
 }
 
+// TestScreenedHTTPGetRefusesInternalTargets proves the REAL BIMI fetcher — the
+// one wired into NewBIMIResolver, not the stub the resolver tests inject — is
+// actually bound to the SSRF screen. BIMI fetches a fully sender-controlled URL
+// (the l= tag in the sender's DNS), so if screenedHTTPGet were ever wired
+// without screenDialIP a malicious sender could aim it at loopback, RFC1918, or
+// the cloud metadata endpoint and use the mail server as an SSRF proxy. The
+// dialer's Control screen must refuse these at connect time (before any bytes
+// leave the box), so each call errors out rather than returning a body.
+//
+// Hermetic: screenDialIP rejects the address before a TCP connect is attempted,
+// so no packet is ever sent to these hosts.
+func TestScreenedHTTPGetRefusesInternalTargets(t *testing.T) {
+	cases := []struct {
+		name, url, wantErrContains string
+	}{
+		{"loopback", "https://127.0.0.1:9/logo.svg", "internal"},
+		{"rfc1918", "https://10.1.2.3:9/logo.svg", "internal"},
+		{"link-local", "https://169.254.1.1:9/logo.svg", "internal"},
+		{"cloud metadata v4", "https://169.254.169.254/latest/meta-data/", "metadata"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body, ctype, err := screenedHTTPGet(context.Background(), tc.url)
+			if err == nil {
+				t.Fatalf("screenedHTTPGet(%q) returned no error — the BIMI fetcher reached an internal target (SSRF)", tc.url)
+			}
+			if body != nil || ctype != "" {
+				t.Fatalf("a refused SSRF fetch must return no body/type, got body=%d ctype=%q", len(body), ctype)
+			}
+			if !strings.Contains(err.Error(), tc.wantErrContains) {
+				t.Fatalf("error %q should mention %q (screenDialIP refusal)", err.Error(), tc.wantErrContains)
+			}
+		})
+	}
+}
+
+// TestScreenedHTTPGetRefusesIPv6Metadata closes the IPv6 half of the SSRF
+// surface for the BIMI fetcher: the IPv6 cloud-metadata literal must be refused
+// at dial time just like its v4 counterpart.
+func TestScreenedHTTPGetRefusesIPv6Metadata(t *testing.T) {
+	body, _, err := screenedHTTPGet(context.Background(), "https://[fd00:ec2::254]:80/x")
+	if err == nil {
+		t.Fatal("IPv6 cloud-metadata target must be refused by the BIMI fetcher")
+	}
+	if body != nil {
+		t.Fatal("refused fetch must return no body")
+	}
+	if !strings.Contains(err.Error(), "metadata") {
+		t.Fatalf("error %q should mention metadata refusal", err.Error())
+	}
+}
+
 func TestResolveCachesPerDomain(t *testing.T) {
 	txtCalls, getCalls := 0, 0
 	svg := `<svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>`
