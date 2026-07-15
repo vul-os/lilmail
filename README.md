@@ -2,13 +2,13 @@
 
 <img src="docs/assets/lilmail-wordmark.png" alt="lilmail" height="56">
 
-**A lightweight, database-free webmail client in a single Go binary.**
+**A lightweight, database-free PIM client — mail + calendar + contacts — in a single Go binary.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/tag/exolutionza/lilmail?label=release&sort=semver)](https://github.com/exolutionza/lilmail/releases)
 [![CI](https://github.com/exolutionza/lilmail/actions/workflows/ci.yml/badge.svg)](https://github.com/exolutionza/lilmail/actions/workflows/ci.yml)
 
-<sub><img src="docs/assets/vulos-logo.png" height="14" alt="VulOS"> Part of <strong><a href="https://vulos.org">VulOS</a></strong> — the open, self-hostable web OS &amp; app suite. Runs standalone, or as an app hosted by the Vulos OS.</sub>
+<sub><img src="docs/assets/vulos-logo.png" height="14" alt="VulOS"> The PIM engine behind <strong><a href="https://vulos.org">VulOS</a></strong> — an independent project the Vulos OS integrates over its <code>/v1</code> API. Runs fully standalone.</sub>
 
 <br>
 
@@ -20,11 +20,12 @@
 
 ## What is lilmail?
 
-lilmail is a self-hostable webmail client that connects to any IMAP/SMTP
-mailbox and ships as **one self-contained Go binary**. The UI is server-rendered
-HTML (Go templates + HTMX + Alpine.js) with every frontend asset embedded via
-`embed.FS` — no build step, no CDN, and no external services to run by default.
-Drop the binary next to a `config.toml` and it runs, comfortably, on 64 MB of RAM.
+lilmail is a self-hostable **PIM client** — mail, calendar, and contacts — that
+connects to the **user's own** IMAP/SMTP + CalDAV + CardDAV account and ships as
+**one self-contained Go binary**. The UI is server-rendered HTML (Go templates +
+HTMX + Alpine.js) with every frontend asset embedded via `embed.FS` — no build
+step, no CDN, and no external services to run by default. Drop the binary next to
+a `config.toml` and it runs, comfortably, on 64 MB of RAM.
 
 Log in with a classic username/password or **OAuth2 / OpenID Connect** (full
 PKCE flow with XOAUTH2 and OAUTHBEARER SASL and automatic token refresh).
@@ -32,42 +33,33 @@ Everything beyond core mail — CalDAV calendar, CardDAV contacts, an AI mail
 assistant, real-time notifications, Web Push, and multi-account support — is
 opt-in via config keys and adds zero overhead when disabled.
 
-> ### Where this fits in Vulos (2026-07): lilmail is the mail **connector**
+> ### Where this fits in Vulos: the **PIM engine** (the GNOME model)
 >
-> Vulos treats mail as a **connector, not a service it runs**: the Workspace/OS
-> inbox connects to whatever mailbox you already have — Gmail, Outlook, any IMAP
-> — rather than making you move to a Vulos mailbox. **lilmail is exactly that
-> connector.** Because it logs into any IMAP/SMTP account (password *or*
-> OAuth2/OIDC) and exposes a clean `/v1` JSON API, Workspace's mail plane talks
-> to it directly (at `/api/mail/v1`) and renders the result with the shared
-> [`@vulos/mail-ui`](https://github.com/vul-os/vulos-mail/tree/main/packages/mail-ui)
-> UI. So lilmail and `mail-ui` are the **live keepers** of Vulos mail — the
-> "bring your own email" path. (The machinery for Vulos to *run its own mail
-> server* — `vulos-mail`'s engine, `vulos-deliver`, `vesend` — is dormant/research
-> by contrast; lilmail is not.)
+> lilmail is a fully **independent project** — think Evolution + Evolution-Data-
+> Server for the web. It talks to the **user's own** accounts (Gmail, Outlook, any
+> IMAP/CalDAV/CardDAV) over OAuth/password and exposes a stable **`/v1`** JSON API
+> (mail + `/v1/calendar` + `/v1/contacts`). That `/v1` is the shared source of
+> truth: the **Vulos OS consumes it** — thin standalone Calendar/Contacts widgets,
+> a mail surface, and optionally lilmail's own UI. **Vulos hosts no mail**; lilmail
+> is a client engine pointed at the accounts you already have. lilmail links to the
+> OS only through that clean `/v1` seam — never by importing one another's code.
 
 ## Part of VulOS
 
-[VulOS](https://vulos.org) is an open, self-hostable web OS + app suite. Each
-product is self-hostable on its own and can be surfaced together inside the
-**Vulos Workspace** hub app, which the OS hosts:
+[VulOS](https://vulos.org) is an open, self-hostable web OS + app suite. lilmail
+is its **PIM engine** and stands alone; the OS integrates it over `/v1`. The
+sibling products (each self-hostable) are:
 
-- **Mail (experimental connector)** — bring-your-own IMAP/SMTP mailbox (Gmail/Outlook/any IMAP) surfaced in Workspace/OS (connector: **lilmail**; UI: `@vulos/mail-ui`). Mail is a connector, not a billed product.
 - **Vulos Talk** — team chat + channels/Spaces + huddles
 - **Vulos Meet** — video meetings (LiveKit SFU)
 - **Vulos Office** — documents: docs, sheets, slides, PDF
 - **Vulos Relay** — sovereign connectivity fabric (`@vulos/relay-client`)
-- **Vulos Workspace** — an OS-hosted productivity hub that consolidates Mail, Office, Talk & Meet
 - **Vulos OS** — the web-native desktop (the shell that hosts the suite apps)
 
-**lilmail** is the **Vulos mail connector** (bring-your-own IMAP/SMTP, plus
-calendar + contacts): a complete IMAP/SMTP webmail client that also exposes a
-clean `/v1` JSON API consumed by the shared `@vulos/mail-ui` React components.
-Mail is a connector, not a product Vulos runs or bills. It runs standalone
-**and** as an app hosted by the Vulos OS
-(the OS is the shell; the Workspace hub app can surface its Mail). Products
-link/embed each other only through clean seams (here, the `/v1` HTTP
-contract) — they never import one another's code.
+**lilmail** is a complete IMAP/SMTP + CalDAV + CardDAV client that also exposes a
+clean `/v1` JSON API. It is not a service Vulos runs or bills — it is a client
+engine the user points at their own mailbox, and the OS builds its Calendar,
+Contacts, and mail surfaces on the same `/v1` contract.
 
 ## Features
 
@@ -78,10 +70,10 @@ contract) — they never import one another's code.
 - **IMAP** mailbox browsing and **SMTP** sending
 - **JSON API** (`/v1`) — a clean REST surface (folders/labels, paginated
   messages, search, flags, move/archive/spam, delete, snooze, compose + drafts,
-  attachment upload/download, scheduled send, calendar, contacts, and rules) for
+  attachment upload/download, scheduled send, calendar, contacts, settings) for
   rich clients, served alongside the HTMX UI from the same engine and the same
-  session auth. Powers the Vulos webmail (`@vulos/mail-ui`) and the Workspace hub app. See
-  [docs/API.md](docs/API.md).
+  session auth. This is the stable contract the Vulos OS builds its mail, Calendar,
+  and Contacts surfaces on. See [docs/API.md](docs/API.md).
 - **OAuth2 / OpenID Connect** — authorization-code flow, PKCE (S256), automatic
   refresh-token handling, XOAUTH2 and OAUTHBEARER SASL; password login still works
 - **Conversation threading** — JWZ algorithm (`References` / `In-Reply-To` /
@@ -118,7 +110,7 @@ page never does a full reload.
 ```mermaid
 flowchart TD
     UI["HTMX/Alpine UI (HTMX/SSE)"] --> Server
-    React["React clients (Vulos webmail, Workspace) (fetch JSON)"] --> Server
+    React["External UIs (Vulos OS Calendar/Contacts widgets, mail surface) (fetch /v1 JSON)"] --> Server
     Server["Fiber HTTP server — HTMX routes + /v1 JSON API (one Go binary);<br/>same mail engine + session auth under both"]
     Server --> IMAP["IMAP/SMTP (your mail server)"]
     Server --> Store["durable store (seam): bbolt by default;<br/>optional Postgres (threads, drafts, recipients, accounts)"]
@@ -133,32 +125,19 @@ backs both the server-rendered HTMX UI and the `/v1` JSON API. See
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the request lifecycle and
 [docs/API.md](docs/API.md) for the JSON API reference.
 
-**CP-brokered mode (Vulos Cloud, off by default).** In the Vulos Cloud
-deployment lilmail runs behind the control plane (CP), which custodies each
-user's external mailbox credentials and reverse-proxies to `/v1`, injecting the
-per-request connection spec as `X-Vulos-Broker-Auth` + `X-Vulos-Mail-*` headers.
-This path is gated by a shared secret (`LILMAIL_BROKER_SECRET`, matched in
-constant time): **if the secret is unset or mismatched, the headers are ignored
-entirely** and the request falls back to normal session auth, so standalone
-lilmail never trusts client-supplied connection headers. Each brokered request's
-connection spec is **copied out of the transport buffer** as it is parsed, so one
-request can never mutate another's retained spec — per-account routing stays
-isolated even under a pooled/concurrent server. See
-[docs/API.md](docs/API.md) → *CP-brokered credential mode*.
-
-### Role in the Vulos cell / edge model
-
-In the Vulos hosted topology every user's mailbox lives in a **cell** — a
-self-contained [vulos-mail](https://github.com/vul-os/vulos-mail) instance that
-owns that account's mail. lilmail is the **`/v1` JSON mail-API library** the cell
-serves: vulos-mail embeds/points a lilmail engine at its own IMAP/SMTP and
-reverse-proxies `/v1` to it (brokered mode above), so `@vulos/mail-ui` and Vulos
-Workspace talk to exactly one contract regardless of where the mailbox is hosted.
-The cell is the source of truth; the central tier is only a **minimal forwarding
-relay** for inbound/outbound SMTP (mail into the cell, mail out of the cell), plus
-the shared **`@vulos.to` login** that federates identity. lilmail itself stays
-transport-agnostic and content-blind about that topology: it just speaks IMAP/SMTP
-to whatever mailbox the (brokered or configured) spec points at, and serves `/v1`.
+**Injected-credential mode (optional, off by default).** Normally lilmail holds
+its own session and connects to the user's mailbox itself. As an option, an
+embedding host (or the test harness) may inject the per-request connection spec as
+`X-Vulos-Broker-Auth` + `X-Vulos-Mail-*` headers, so lilmail builds the IMAP/SMTP/
+DAV client straight from the headers. Those headers only ever describe the **user's
+own** account. The path is gated by a shared secret (`LILMAIL_BROKER_SECRET`,
+matched in constant time): **if the secret is unset or mismatched, the headers are
+ignored entirely** and the request falls back to normal session auth, so standalone
+lilmail never trusts client-supplied connection headers. Each request's spec is
+**copied out of the transport buffer** as it is parsed, so one request can never
+mutate another's retained spec — per-account routing stays isolated even under a
+pooled/concurrent server. See [docs/API.md](docs/API.md) → *Injected-credential
+mode*.
 
 ## Quick start
 

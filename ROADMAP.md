@@ -1,9 +1,11 @@
 # LilMail Roadmap 🗺️
 
-LilMail aims to be a **simple, self-hostable, resource-light alternative to
-Thunderbird** for the web — a single Go binary, no database to administer, and
-a UI that stays out of your way. This document tracks where we are and where
-we're going.
+LilMail is an **independent, self-hostable PIM client** — mail, calendar, and
+contacts — for the web: a resource-light alternative to Thunderbird in a single
+Go binary, with no database to administer and a UI that stays out of your way. It
+talks to the user's own IMAP/SMTP + CalDAV + CardDAV accounts and exposes a stable
+`/v1` JSON API; the Vulos OS integrates it over that seam (it is not a hosted
+service). This document tracks where we are and where we're going.
 
 > Scope philosophy: stay small and fast. Every feature below is weighed against
 > the "runs on 64 MB of RAM, no external services" promise. Power-user features
@@ -133,10 +135,10 @@ we're going.
 
 ## ✅ Recently shipped (unreleased)
 
-- **JSON API (`/v1`)** — a machine-readable REST surface (folders, messages,
-  search, flags, delete) served alongside the HTMX UI from the same engine and
-  session auth. This is the contract the Vulos webmail (`@vulos/mail-ui`) and
-  Vulos Workspace consume. See [docs/API.md](docs/API.md).
+- **JSON API (`/v1`)** — a machine-readable REST surface (mail, calendar,
+  contacts, settings) served alongside the HTMX UI from the same engine and
+  session auth. This is the stable contract the Vulos OS builds its mail,
+  Calendar, and Contacts surfaces on. See [docs/API.md](docs/API.md).
 - **Optional Postgres storage** — a durable KV seam with bbolt (default,
   single-binary) and an opt-in Postgres backend for shared / multi-instance
   deploys, configured via `[storage]`. See [docs/CONFIGURATION.md](docs/CONFIGURATION.md#storage).

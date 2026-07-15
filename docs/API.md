@@ -1,19 +1,25 @@
-# lilmail JSON API (`/v1`)
+# lilmail `/v1` API — the PIM contract
 
-lilmail serves a clean JSON/REST API under `/v1`, **alongside** the
-server-rendered HTMX UI. Both surfaces share the same mail engine and the same
-session authentication — the JSON API is purely additive, so the standalone
-HTMX experience is unchanged whether or not any client uses `/v1`.
+`/v1` is lilmail's stable, machine-readable **contract**: JSON mail + calendar +
+contacts served over one HTTP surface. lilmail is a standalone PIM client — it
+connects to the **user's own** IMAP/SMTP/CalDAV/CardDAV account and exposes what
+it reads/writes there as `/v1`. It hosts no mail itself and depends on no central
+server.
 
-It exists so rich clients can talk to lilmail over a stable, machine-readable
-contract instead of scraping HTML fragments:
+`/v1` is the shared source of truth other UIs build on:
 
-- **Vulos webmail** — the shared React webmail (`@vulos/mail-ui`).
-- **Vulos Workspace** — the Workspace hub app's Mail surface.
-- Any third-party tool or script.
+- the **Vulos OS** thin Calendar/Contacts widgets and mail surface consume it;
+- lilmail's own server-rendered HTMX/Alpine UI is a first-class consumer too;
+- any third-party tool or script can drive it.
 
-The HTMX UI keeps rendering server-side HTML; the JSON API returns
-`models.Email` / `MailboxInfo` JSON and never renders templates.
+The API returns `models.Email` / `MailboxInfo` / `models.Calendar*` /
+`models.Contact` JSON and never renders templates, so it is a stable seam an
+external UI can build against. It runs **alongside** the HTMX UI and shares the
+same engine + authentication — using `/v1` never changes the standalone UI.
+
+> **Stability.** `/v1` is load-bearing: external UIs build on it. The mail,
+> `/v1/calendar/*`, and `/v1/contacts` shapes are treated as a stable contract —
+> changes are additive.
 
 ## Authentication
 
@@ -30,20 +36,21 @@ or unauthenticated, the API responds **`401` with a JSON body** (the HTMX UI
 
 Send requests with credentials included (e.g. `fetch(url, { credentials: 'include' })`).
 
-### CP-brokered credential mode (Vulos Cloud)
+### Injected-credential mode (embedding hosts)
 
-In the Vulos Cloud deployment, lilmail runs **behind** the control plane (CP),
-which custodies each user's **external** mailbox credentials (Gmail / Outlook /
-generic IMAP) and reverse-proxies to `/v1`, injecting the per-request connection
-credentials as HTTP headers. In this mode lilmail has no session of its own — the
-mailbox identity and secret arrive on every request, and lilmail builds the IMAP/
-SMTP client **directly from the headers** instead of from a session.
+Normally lilmail holds its own session and connects to the user's mailbox itself.
+As an **option**, an embedding host (or the test harness) may inject the
+per-request connection descriptor as HTTP headers, so lilmail builds the IMAP/
+SMTP/DAV client **directly from the headers** instead of from a session. These
+headers only ever describe the **user's own** account (endpoint + a short-lived
+OAuth token or password) that lilmail then talks to — lilmail hosts no mail and
+depends on no central server.
 
-This path is **off by default** and is gated by a shared secret:
+This path is **off by default** and gated by a shared secret:
 
 - Set `LILMAIL_BROKER_SECRET` (environment variable) on the lilmail process.
-- The CP must send `X-Vulos-Broker-Auth: <secret>` on every brokered request.
-  lilmail compares it against `LILMAIL_BROKER_SECRET` in **constant time**.
+- Every request must send `X-Vulos-Broker-Auth: <secret>`. lilmail compares it
+  against `LILMAIL_BROKER_SECRET` in **constant time**.
 - **If `LILMAIL_BROKER_SECRET` is unset, or the presented secret does not match,
   the `X-Vulos-Mail-*` headers are ignored entirely** and the request falls back
   to normal session auth. Standalone lilmail therefore never trusts arbitrary
@@ -64,35 +71,31 @@ When the secret validates, lilmail reads the connection spec from these headers:
 | `X-Vulos-Mail-Smtp-Port` | SMTP port (default `587`; `465` ⇒ implicit TLS, else STARTTLS) |
 | `X-Vulos-Mail-Caldav-Url`  | CalDAV base URL for the account (optional; enables `/v1/calendar/*`) |
 | `X-Vulos-Mail-Carddav-Url` | CardDAV base URL for the account (optional; enables `/v1/contacts`) |
-| `X-Vulos-Mail-Rules-Url`   | vulos-mail rule-store base URL (optional; enables `/v1/rules/*` and snooze auto-return) |
 
 `xoauth2` builds the IMAP client via `NewClientOAuth(host, port, username, token,
 "xoauth2")` and the SMTP client via `NewSMTPClientOAuth`; `plain` uses
-`NewClient(host, port, username, password)` / `NewSMTPClient`. The brokered path
-covers the mail routes — folders, messages, single message, search, flags,
-delete, move, compose (`POST /v1/messages`) and drafts (`POST /v1/drafts`).
+`NewClient(host, port, username, password)` / `NewSMTPClient`. This path covers
+the mail routes — folders, messages, single message, search, flags, delete, move,
+compose (`POST /v1/messages`) and drafts (`POST /v1/drafts`).
 
-**Calendar & contacts (brokered).** When the CP also sends
-`X-Vulos-Mail-Caldav-Url` / `X-Vulos-Mail-Carddav-Url`, the `/v1/calendar/*` and
-`/v1/contacts` routes are served from those per-account DAV base URLs instead of
-the session. Authentication reuses `X-Vulos-Mail-Auth: xoauth2` +
-`X-Vulos-Mail-Secret`: the access token is presented to CalDAV/CardDAV as an HTTP
-`Authorization: Bearer <token>` header (via `api.NewCalDAVClient(cfg, token)` in
-oauth2 mode and `api.CardDAVContactsBearer`). If the relevant DAV URL header is
-**absent** in a brokered request, the read routes return an empty result
-(`{ "events": [] }` / `{ "busy": [] }` / `{ "contacts": [] }`) and the write
-routes (create/delete event) return `501 Not Implemented`
-(`{ "error": "calendar not available for this account" }`) — the session is never
-touched. These routes are registered whenever CalDAV/CardDAV is enabled **or** the
-broker path is active (`LILMAIL_BROKER_SECRET` set), so they exist in CP
-deployments even when the local `[caldav]`/`[carddav]` blocks are off.
+**Calendar & contacts.** When `X-Vulos-Mail-Caldav-Url` /
+`X-Vulos-Mail-Carddav-Url` are present, the `/v1/calendar/*` and `/v1/contacts`
+routes are served from those per-account DAV base URLs instead of the session.
+Authentication reuses `X-Vulos-Mail-Auth: xoauth2` + `X-Vulos-Mail-Secret`: the
+access token is presented to CalDAV/CardDAV as an HTTP `Authorization: Bearer
+<token>` header. If the relevant DAV URL header is **absent**, the read routes
+return an empty result (`{ "events": [] }` / `{ "busy": [] }` /
+`{ "contacts": [] }`) and the write routes return `501 Not Implemented` — the
+session is never touched. These routes are registered whenever CalDAV/CardDAV is
+enabled in config **or** the injected-credential path is active
+(`LILMAIL_BROKER_SECRET` set).
 
 Note: Outlook/Microsoft 365 calendar & contacts (Microsoft Graph) are **not**
 covered by this CalDAV/CardDAV path; only accounts that expose CalDAV/CardDAV
-(e.g. Gmail, generic DAV) work in brokered calendar/contacts mode.
+(e.g. Gmail, generic DAV) work here.
 
-The headers are only ever read **inside** the `/v1` group, after the broker
-secret has been validated — never on unauthenticated or HTMX paths.
+The headers are only ever read **inside** the `/v1` group, after the secret has
+been validated — never on unauthenticated or HTMX paths.
 
 ## Conventions
 
@@ -126,7 +129,7 @@ secret has been validated — never on unauthenticated or HTMX paths.
 | `DELETE` | `/v1/messages/:uid`            | `folder`, `hard`        | —              | `204` |
 | `POST`   | `/v1/messages/:uid/move`       | `folder`                | `{ toFolder, folder? }` | `204` |
 | `POST`   | `/v1/messages/:uid/spam`       | `folder`                | —              | `{ folder }` (Junk/Spam target) |
-| `POST`   | `/v1/messages/:uid/snooze`     | `folder`                | `{ until }`    | `204`, or `200 { snoozed, autoReturn:false, … }` |
+| `POST`   | `/v1/messages/:uid/snooze`     | `folder`                | `{ until }`    | `200 { snoozed, autoReturn:false, until, folder, note }` |
 | `DELETE` | `/v1/messages/:uid/snooze`     | `folder`                | —              | `204` |
 | `POST`   | `/v1/messages`                 | —                       | `{ to, cc?, bcc?, subject, text?, html?, inReplyTo?, attachments?, sendAt? }`¹ | `201 { sent: true }`, or `202 { scheduled, id, sendAt }` when `sendAt` is set |
 | `POST`   | `/v1/drafts`                   | —                       | `{ to?, cc?, subject?, text?, html?, inReplyTo?, attachments? }`¹     | `201 { saved: true }` |
@@ -149,13 +152,12 @@ discovered Junk/Spam folder — there is no separate training-signal endpoint on
 this backend, so the move IS the report (pair it with an undo toast like archive).
 
 `POST /v1/messages/:uid/snooze` moves the message to the Snoozed folder and, in a
-CP-brokered deployment with a rule-store URL, registers the auto-return with
-vulos-mail so the message re-appears in the inbox at `until` (`204`). When no such
-backend is brokered (standalone/session, or a plain Gmail/IMAP account) the move
-still happens but there is no auto-return; the response is `200` with
-`{ snoozed:true, autoReturn:false, … }` so the client can surface the caveat.
-`DELETE /v1/messages/:uid/snooze` clears a pending auto-return (it does **not**
-move the message back — the caller does that).
+validates + echoes `until`. lilmail is a client and does not itself run a
+delivery-side scheduler, so it does **not** auto-return the message to the inbox:
+the response is `200 { snoozed:true, autoReturn:false, until, folder, note }` and
+the client is responsible for surfacing the due time / returning the message.
+`DELETE /v1/messages/:uid/snooze` is a no-op acknowledgement kept for symmetry
+(the caller moves the message back itself); it returns `204`.
 
 `DELETE /v1/messages/:uid` MOVES the message to the Trash folder by default
 (discovered via the `\Trash` special-use, with name fallbacks Trash / Deleted /
@@ -182,7 +184,7 @@ carries the part's `Content-Type` and a `Content-Disposition: attachment;
 filename="…"` (with an RFC 5987 `filename*` form for non-ASCII names). Both the
 content type and filename are sanitized against response-header injection; an
 untrusted/malformed content type falls back to `application/octet-stream`.
-Downloads are capped at 25 MiB. Works in both session and CP-brokered modes.
+Downloads are capped at 25 MiB. Works in both session and injected-credential modes.
 Unknown part / message ⇒ `404`; unauthenticated ⇒ `401`.
 
 **Upload (compose).** Attaching a file to an outgoing message is a two-step,
@@ -248,7 +250,7 @@ a scheduled one: the compose payload is persisted and delivered at the due time 
 a background drain, and the call returns `202 { scheduled:true, id, sendAt }`
 instead of `201 { sent:true }`. Omit `sendAt` (or pass an empty string) for an
 immediate send. A past/absurd `sendAt` is `400`; a value beyond one year is `400`.
-For accounts authenticated with a short-lived OAuth token (brokered Gmail/Outlook,
+For accounts authenticated with a short-lived OAuth token (injected Gmail/Outlook creds,
 or a session OAuth login) the horizon tightens to ~12 h — beyond that the captured
 token would be expired at fire time, so the schedule is refused up front rather
 than accepted and silently failed.
@@ -313,36 +315,11 @@ reads from `GET /v1/messages/:uid`.
 `path` is the CardDAV object path; pass it back on `PUT`/`DELETE` to target the
 exact card.
 
-### Rules / filters (brokered only)
-
-Inbound-mail filters. lilmail does **not** own rule state — the authoritative
-per-account rule store lives in vulos-mail (where inbound delivery runs, so rules
-can fire on new mail). These routes are registered **only when the broker path is
-active**; each CRUD call is brokered over HTTP to the rule-store base URL that
-vulos-mail injects as `X-Vulos-Mail-Rules-Url`. When a request carries no
-rule-store URL (standalone/session lilmail, or a plain Gmail/IMAP brokered
-account), every rules route returns `501` ("not supported by this mailbox
-backend") and the mail-ui hides the Filters surface.
-
-| Method | Path | Body | Returns |
-|--------|------|------|---------|
-| `GET`    | `/v1/rules`          | —                   | `{ rules: MailRule[] }` |
-| `POST`   | `/v1/rules`          | `MailRule`          | `201 { rule }` |
-| `PUT`    | `/v1/rules/:id`      | `MailRule`          | `{ rule }` |
-| `DELETE` | `/v1/rules/:id`      | —                   | `204` |
-| `POST`   | `/v1/rules/reorder`  | `{ order: [id,…] }` | `{ rules: MailRule[] }` |
-| `POST`   | `/v1/rules/run`      | `{ folder?, limit? }` | `{ matched, applied }` |
-
-A `MailRule` needs a `name`, at least one condition, and at least one action.
-Footgun actions (auto-forward, permanent delete) are refused client-side with a
-`400` before the request is ever brokered — use trash for recoverable removal.
-`POST /v1/rules/run` applies the account's rules to an existing folder on demand.
-
 ### Settings — vacation responder (`/v1/settings/vacation`)
 
 Per-account out-of-office responder config. Durable-KV backed — returns `501`
 when no store is wired. Owner is the authenticated identity (session email or
-brokered mailbox); a caller only ever reads/writes **their own** config.
+injected-credential mailbox); a caller only ever reads/writes **their own** config.
 
 | Method | Path | Body | Returns |
 |--------|------|------|---------|
@@ -366,15 +343,13 @@ stored-XSS payload cannot ride the auto-reply). Loop/backscatter protection is
 built in: auto-replies are never sent to another auto-reply (`Auto-Submitted`),
 to list mail (`List-*` / `Precedence: bulk`), or to a null/bounce sender.
 
-**Enforcement note (broker model):** in the CP-brokered deployment lilmail proxies
-to the upstream provider's IMAP and does **not** run the inbound delivery path, so
-storing `enabled:true` here does not by itself make the provider auto-reply. This
-endpoint is the authoritative **config** the client edits; actual enforcement
-happens where delivery runs — standalone lilmail with a local delivery path
-applies it on inbound; a backend that exposes a rule/Sieve store can push it as a
-Sieve `vacation` action (a follow-up wiring); a plain Gmail/IMAP brokered account
-stores + exposes the config, and the provider's own vacation setting must be used
-to enforce. The GET always echoes the stored config so the UI stays truthful.
+**Enforcement note:** lilmail is a **client** — it connects to the user's provider
+over IMAP/SMTP and does **not** run the inbound delivery path, so storing
+`enabled:true` here does not by itself make the provider auto-reply. This endpoint
+is the authoritative **config** the client edits and stores; actual enforcement
+must be set on the provider's own vacation/out-of-office feature (Gmail, Fastmail,
+a self-hosted Dovecot/Sieve, …). The GET always echoes the stored config so the UI
+stays truthful about what it holds.
 
 ### Settings — signatures (`/v1/settings/signatures`)
 
@@ -401,47 +376,24 @@ aliases. Each identity may link a default signature by id.
 | Method | Path | Body | Returns |
 |--------|------|------|---------|
 | `GET` | `/v1/settings/identities` | — | `{ identities: Identity[] }` |
-| `PUT` | `/v1/settings/identities` | `{ identities: Identity[] }` | `{ identities: Identity[], serverEnforced }` |
+| `PUT` | `/v1/settings/identities` | `{ identities: Identity[] }` | `{ identities: Identity[] }` |
 
 `PUT` **replaces the whole set of aliases**. The primary mailbox is implicit: it is
 never stored, never writable, and always re-added on read.
 
-**BOTH DIRECTIONS** (vulos-mail-hosted mailboxes). An identity is an address you send
-*from* **and receive at**: mail sent **to** a registered alias is delivered to this
-mailbox. The same rule authorizes both, and it is re-checked on every message — so an
-alias on a domain that lapses stops sending *and* receiving at once.
-
-Inbound resolution order (vulos-mail): **exact mailbox → group → alias →
-plus-address → catch-all**. An alias therefore never shadows a real mailbox or a
-group, and a catch-all never swallows an alias.
-
-**Plus-addressing needs no registration.** `you+anything@yourdomain` already reaches
-`you@yourdomain`, with the tag preserved in `X-Original-To:` for rules. Registering
-`you+tag@…` as an identity only adds it to the compose From menu.
-
-**The mail server is the authority.** For a vulos-mail-hosted mailbox the alias list
-is pushed to vulos-mail's broker-gated `/internal/identities`, which accepts an
-alias **only** when it is an address at a **verified domain owned by this account's
-tenant**, or a **plus-subaddress of the account's own mailbox** (`you+tag@…`).
-Anything else — a foreign domain, an unverified domain, another tenant's domain, an
-arbitrary localpart on a shared service domain — is refused with `403`, and **nothing
-is stored** (fail-closed). An address that already *means* something else (a mailbox,
-a group, or another account's alias) is a routing collision, refused with `409` —
-also storing nothing. An unreachable engine is a `502`, also storing nothing.
-`serverEnforced` reports whether that registration happened: for an externally
-brokered mailbox (Gmail/Outlook/plain IMAP) there is no such authority, the
-identities are the client's read model, the upstream provider's SMTP server decides
-what From it will accept, and nothing here makes an address inbound-deliverable.
-
-> **Catch-all** is *not* part of this surface: it is a per-domain admin decision (opt-in,
-> verified domains only, last in precedence), driven through vulos-mail's broker-gated
-> `POST /api/admin/domains/catchall`.
+**lilmail is a client, not the send-as authority.** These identities are the
+**client's read model** — the list the compose window offers. The user's own
+provider SMTP server remains the authority for what From it will actually accept,
+and re-checks it at submission time. Each address is still validated locally for
+shape and header-injection (CR/LF/NUL in the address or name ⇒ `400`) before it is
+stored. Nothing here makes an address inbound-deliverable — inbound delivery is the
+provider's concern, not lilmail's.
 
 Compose honours the choice: `POST /v1/messages` (and `/v1/drafts`) accept
 `"from": "<address>"`, which must be the primary mailbox or a **registered**
-identity — anything else is `403` (and vulos-mail re-checks it again at submission).
-A scheduled send fires with that From but the record stays **owned** by the
-authenticated mailbox.
+identity — anything else is `403` (and the provider's SMTP server re-checks it at
+submission). A scheduled send fires with that From but the record stays **owned**
+by the authenticated mailbox.
 
 ```jsonc
 // Identity

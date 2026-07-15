@@ -187,7 +187,7 @@ func (h *Handler) handleCreateEvent(c *fiber.Ctx) error {
 
 	uid := body.UID
 	if uid == "" {
-		uid = fmt.Sprintf("lilmail-%d@vulos", start.UnixNano())
+		uid = fmt.Sprintf("lilmail-%d@lilmail.local", start.UnixNano())
 	}
 	organizer := h.fromEmail(c)
 	ev := body.toEvent(uid, organizer, start, end)

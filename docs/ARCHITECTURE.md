@@ -16,13 +16,12 @@ lilmail/
 ├── handlers/
 │   ├── ai/                  # AI mail assistant endpoints
 │   ├── api/                 # Mail ENGINE: IMAP/SMTP client, MIME, threading, CalDAV
-│   ├── jsonapi/             # /v1 JSON REST API over the engine (for React clients)
+│   ├── jsonapi/             # /v1 JSON REST API over the engine (for external UIs)
 │   └── web/                 # HTML page handlers (inbox, viewer, settings, …) — HTMX
 ├── models/
 │   ├── email.go             # Email, Attachment, Thread, Invite model types
 │   ├── calendar.go          # CalDAV event types
-│   ├── contact.go           # CardDAV contact types
-│   └── rule.go              # Inbound mail-filter (rule) types
+│   └── contact.go           # CardDAV contact types
 ├── storage/
 │   ├── session.go           # bbolt-backed session/credential store
 │   ├── kv.go                # Durable KV seam + backend selector (Open)
@@ -135,8 +134,7 @@ when the Vulos OS gateway injects `X-Vulos-Storage-*` headers on a request *and*
 the request is **authenticated as coming from the gateway**: the operator must
 set `VULOS_STORAGE_BROKER_SECRET` and the request must present a matching
 `X-Vulos-Storage-Broker-Auth` header (constant-time compared via
-`crypto/subtle`). This is the **same broker-auth gate** the MAIL credential
-broker uses (`LILMAIL_BROKER_SECRET` + `X-Vulos-Broker-Auth`), not a bare on/off
+`crypto/subtle`). This is the **same auth gate** the mail credential-injection seam uses (`LILMAIL_BROKER_SECRET` + `X-Vulos-Broker-Auth`), not a bare on/off
 toggle — the secret being set is the enable signal. Absent the secret, or with an
 absent/mismatched auth header, the storage headers are ignored entirely and the
 attachment route behaves exactly as before (fetch from IMAP every time). See
@@ -153,7 +151,7 @@ read-through (IMAP stays authoritative; a cache miss or any S3 error falls back 
 IMAP and is never surfaced to the user); the client is a minimal self-contained
 AWS SigV4 GET/PUT (no new dependency, single binary preserved). The seam is **off
 by default** so standalone lilmail never trusts injected storage headers — the
-same fail-closed posture as the CP credential broker.
+same fail-closed posture as the mail credential-injection seam.
 
 ### JSON API (`handlers/jsonapi`)
 
@@ -161,20 +159,20 @@ A clean `/v1` JSON/REST surface served alongside the HTMX UI. It reuses the same
 mail engine (`handlers/api`) and the same session auth path
 (`web.AuthHandler.CreateIMAPClient`), so there is no duplicated mail logic and
 the HTMX UI is untouched. Unlike the HTMX `SessionMiddleware` (which redirects to
-`/login`), the API returns `401` JSON. This is the contract consumed by the
-React clients (the Vulos webmail `@vulos/mail-ui`, Vulos Workspace). See [API.md](API.md).
+`/login`), the API returns `401` JSON. This is the stable contract the Vulos OS
+builds its mail, Calendar, and Contacts surfaces on. See [API.md](API.md).
 
 Two subsystems live inside this package:
 
-- **CP-brokered credential mode** (`broker.go`): a first middleware validates
+- **Injected-credential mode** (`broker.go`): a first middleware validates
   `X-Vulos-Broker-Auth` against `LILMAIL_BROKER_SECRET` (constant-time) and, when
   it matches, parses the `X-Vulos-Mail-*` headers into a per-request connection
   spec so lilmail builds the IMAP/SMTP/DAV client directly from them instead of a
-  session. Fail-closed: an unset/mismatched secret makes the headers ignored
-  entirely, so standalone lilmail never trusts client-supplied connection headers.
-  Calendar/contacts/rules and snooze auto-return ride the same gate via their own
-  per-account URL headers (`X-Vulos-Mail-Caldav-Url` / `-Carddav-Url` /
-  `-Rules-Url`).
+  session. It only ever describes the user's own account; lilmail hosts no mail and
+  depends on no central server. Fail-closed: an unset/mismatched secret makes the
+  headers ignored entirely, so standalone lilmail never trusts client-supplied
+  connection headers. Calendar/contacts ride the same gate via their own per-account
+  URL headers (`X-Vulos-Mail-Caldav-Url` / `-Carddav-Url`).
 - **Scheduled send** (`schedule.go` / `schedule_store.go`): `POST /v1/messages`
   with a future `sendAt` persists the compose payload (SMTP transport captured and
   encrypted at rest in the KV seam) and a single poll-based drain goroutine

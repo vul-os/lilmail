@@ -9,6 +9,29 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Changed
+
+- **Reframed as an independent PIM client.** lilmail is a standalone mail +
+  calendar + contacts client that talks to the user's **own**
+  IMAP/SMTP/CalDAV/CardDAV account and exposes a stable `/v1` JSON API. It hosts
+  no mail and depends on no central Vulos server; the Vulos OS integrates it over
+  `/v1`. README/ROADMAP/ARCHITECTURE/API docs updated to this model (the old
+  central-mail / `@vulos.to` / CP-broker framing is retired).
+
+### Removed
+
+- **Dropped the central `vulos-mail` feature-proxy coupling from `/v1`.** Several
+  `/v1` surfaces existed only to reverse-proxy to a central `vulos-mail` engine's
+  `/internal/*` endpoints and were permanent `501`s in every standalone
+  deployment. Removed the six proxies — **rules/filters, threads, categories,
+  smart-folders, team-inbox, spam-settings** — and the best-effort
+  vacation/identities/snooze push-to-central paths, keeping the local KV
+  read-model + IMAP behaviour. The header credential-injection seam remains but is
+  now a generic per-request credential injector (not a "Vulos Cloud CP" custody
+  path); the orphaned rule/thread/category/smart-folder/team-store header fields
+  and `models/rule.go` were deleted. The standalone `/v1` contract (mail +
+  `/v1/calendar` + `/v1/contacts`) is unchanged. (~5,000 LOC removed.)
+
 ## [1.12.1] - 2026-07-10
 
 ### Fixed
