@@ -52,7 +52,7 @@ opt-in via config keys and adds zero overhead when disabled.
 product is self-hostable on its own and can be surfaced together inside the
 **Vulos Workspace** hub app, which the OS hosts:
 
-- **Vulos Mail** — mail + calendar + contacts (engine: **lilmail**; UI: `@vulos/mail-ui`; server: vulos-mail)
+- **Mail (experimental connector)** — bring-your-own IMAP/SMTP mailbox (Gmail/Outlook/any IMAP) surfaced in Workspace/OS (connector: **lilmail**; UI: `@vulos/mail-ui`). Mail is a connector, not a billed product.
 - **Vulos Talk** — team chat + channels/Spaces + huddles
 - **Vulos Meet** — video meetings (LiveKit SFU)
 - **Vulos Office** — documents: docs, sheets, slides, PDF
@@ -60,10 +60,11 @@ product is self-hostable on its own and can be surfaced together inside the
 - **Vulos Workspace** — an OS-hosted productivity hub that consolidates Mail, Office, Talk & Meet
 - **Vulos OS** — the web-native desktop (the shell that hosts the suite apps)
 
-**lilmail** is the **engine of the Vulos Mail product** (mail + calendar +
-contacts): a complete IMAP/SMTP webmail client that also exposes a clean `/v1`
-JSON API consumed by the shared `@vulos/mail-ui` React components and the
-vulos-mail server. It runs standalone **and** as an app hosted by the Vulos OS
+**lilmail** is the **Vulos mail connector** (bring-your-own IMAP/SMTP, plus
+calendar + contacts): a complete IMAP/SMTP webmail client that also exposes a
+clean `/v1` JSON API consumed by the shared `@vulos/mail-ui` React components.
+Mail is a connector, not a product Vulos runs or bills. It runs standalone
+**and** as an app hosted by the Vulos OS
 (the OS is the shell; the Workspace hub app can surface its Mail). Products
 link/embed each other only through clean seams (here, the `/v1` HTTP
 contract) — they never import one another's code.
@@ -79,7 +80,7 @@ contract) — they never import one another's code.
   messages, search, flags, move/archive/spam, delete, snooze, compose + drafts,
   attachment upload/download, scheduled send, calendar, contacts, and rules) for
   rich clients, served alongside the HTMX UI from the same engine and the same
-  session auth. Powers the Vulos Mail React webmail and the Workspace hub app. See
+  session auth. Powers the Vulos webmail (`@vulos/mail-ui`) and the Workspace hub app. See
   [docs/API.md](docs/API.md).
 - **OAuth2 / OpenID Connect** — authorization-code flow, PKCE (S256), automatic
   refresh-token handling, XOAUTH2 and OAUTHBEARER SASL; password login still works
@@ -117,7 +118,7 @@ page never does a full reload.
 ```mermaid
 flowchart TD
     UI["HTMX/Alpine UI (HTMX/SSE)"] --> Server
-    React["React clients (Vulos Mail, Workspace) (fetch JSON)"] --> Server
+    React["React clients (Vulos webmail, Workspace) (fetch JSON)"] --> Server
     Server["Fiber HTTP server — HTMX routes + /v1 JSON API (one Go binary);<br/>same mail engine + session auth under both"]
     Server --> IMAP["IMAP/SMTP (your mail server)"]
     Server --> Store["durable store (seam): bbolt by default;<br/>optional Postgres (threads, drafts, recipients, accounts)"]

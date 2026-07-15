@@ -135,8 +135,8 @@ we're going.
 
 - **JSON API (`/v1`)** — a machine-readable REST surface (folders, messages,
   search, flags, delete) served alongside the HTMX UI from the same engine and
-  session auth. This is the contract the Vulos Mail React webmail and Vulos
-  Workspace consume. See [docs/API.md](docs/API.md).
+  session auth. This is the contract the Vulos webmail (`@vulos/mail-ui`) and
+  Vulos Workspace consume. See [docs/API.md](docs/API.md).
 - **Optional Postgres storage** — a durable KV seam with bbolt (default,
   single-binary) and an opt-in Postgres backend for shared / multi-instance
   deploys, configured via `[storage]`. See [docs/CONFIGURATION.md](docs/CONFIGURATION.md#storage).

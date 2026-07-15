@@ -8,7 +8,7 @@ HTMX experience is unchanged whether or not any client uses `/v1`.
 It exists so rich clients can talk to lilmail over a stable, machine-readable
 contract instead of scraping HTML fragments:
 
-- **Vulos Mail** — the React webmail (`@vulos/mail-ui`).
+- **Vulos webmail** — the shared React webmail (`@vulos/mail-ui`).
 - **Vulos Workspace** — the Workspace hub app's Mail surface.
 - Any third-party tool or script.
 

@@ -162,7 +162,7 @@ mail engine (`handlers/api`) and the same session auth path
 (`web.AuthHandler.CreateIMAPClient`), so there is no duplicated mail logic and
 the HTMX UI is untouched. Unlike the HTMX `SessionMiddleware` (which redirects to
 `/login`), the API returns `401` JSON. This is the contract consumed by the
-React clients (Vulos Mail, Vulos Workspace). See [API.md](API.md).
+React clients (the Vulos webmail `@vulos/mail-ui`, Vulos Workspace). See [API.md](API.md).
 
 Two subsystems live inside this package:
 
