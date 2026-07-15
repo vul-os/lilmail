@@ -6,10 +6,10 @@ This directory contains screenshots used in the README and documentation.
 
 | File | Status | Notes |
 |------|--------|-------|
-| `hero.png` | Real (demo mode) | Inbox view with seeded messages |
-| `login.png` | Real (demo mode) | Login page — no IMAP required |
+| `hero.png` | Real (demo mode) | Three-pane reading view with a message open (demo data) |
+| `login.png` | Real (demo mode) | Login page — connect your own IMAP mailbox |
 | `inbox.png` | Real (demo mode) | Inbox with 10 seeded messages, threads, unread badges |
-| `message.png` | Real (demo mode) | Message viewer open (GitHub PR notification) |
+| `message.png` | Real (demo mode) | Message viewer open (email with attachments) |
 | `compose.png` | Real (demo mode) | Compose modal: TO/CC/BCC fields, subject, toolbar |
 | `search.png` | Real (demo mode) | Search results filtered to "roadmap" thread |
 | `calendar.png` | Needs CalDAV | Requires `[caldav]` config + live CalDAV server |

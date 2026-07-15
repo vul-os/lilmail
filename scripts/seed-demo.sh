@@ -30,7 +30,7 @@ DEMO_PASSWORD="${LILMAIL_DEMO_PASSWORD:-demo}"
 
 # Reproducible secrets (safe for local use; not for production).
 JWT_SECRET="${LILMAIL_JWT_SECRET:-lilmail-demo-jwt-secret-not-for-production}"
-ENC_KEY="${LILMAIL_ENC_KEY:-lilmail-demo-enc-key32}"  # exactly 32 chars
+ENC_KEY="${LILMAIL_ENC_KEY:-lilmail-demo-enc-key-32-bytes!!!}"  # exactly 32 chars
 
 DO_SCREENSHOTS=0
 if [[ "${1:-}" == "--screenshots" ]]; then
