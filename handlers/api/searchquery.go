@@ -4,10 +4,9 @@
 //
 // The web client sends Gmail-flavoured operator queries (e.g.
 // `from:alice subject:"quarterly report" has:attachment is:unread -draft`).
-// vulos-mail's local FTS engine parses these directly, but lilmail's brokered
-// path delegates to the account's IMAP server via IMAP SEARCH. This file maps
-// the operator grammar onto an *imap.SearchCriteria program so the IMAP server
-// does the filtering natively, instead of a single raw TEXT match.
+// lilmail delegates the search to the account's own IMAP server via IMAP SEARCH.
+// This file maps the operator grammar onto an *imap.SearchCriteria program so the
+// IMAP server does the filtering natively, instead of a single raw TEXT match.
 //
 // Operator -> IMAP criterion mapping (see parseSearchQuery):
 //

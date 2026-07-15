@@ -155,51 +155,6 @@ func TestVacationIsolation(t *testing.T) {
 	}
 }
 
-func TestVacationActiveWindow(t *testing.T) {
-	// vacationActive is the scheduling contract; test it directly.
-	base := mustTime(t, "2026-07-15T12:00:00Z")
-	cfg := vacationConfig{Enabled: true, StartAt: "2026-07-10T00:00:00Z", EndAt: "2026-07-20T00:00:00Z"}
-	if !vacationActive(cfg, base) {
-		t.Fatal("should be active inside window")
-	}
-	if vacationActive(cfg, mustTime(t, "2026-07-05T00:00:00Z")) {
-		t.Fatal("should be inactive before window")
-	}
-	if vacationActive(cfg, mustTime(t, "2026-07-25T00:00:00Z")) {
-		t.Fatal("should be inactive after window")
-	}
-	cfg.Enabled = false
-	if vacationActive(cfg, base) {
-		t.Fatal("disabled responder must never be active")
-	}
-}
-
-func TestShouldAutoReplyLoopProtection(t *testing.T) {
-	// A normal message from a real sender: reply.
-	if !shouldAutoReply("bob@example.com", map[string]string{"From": "bob@example.com"}) {
-		t.Fatal("should reply to a normal message")
-	}
-	// Null sender (bounce): never reply.
-	if shouldAutoReply("", nil) {
-		t.Fatal("must not reply to a null sender")
-	}
-	// Auto-submitted: never reply (loop protection).
-	if shouldAutoReply("x@y.com", map[string]string{"Auto-Submitted": "auto-replied"}) {
-		t.Fatal("must not reply to an auto-reply")
-	}
-	// List mail: never reply.
-	if shouldAutoReply("x@y.com", map[string]string{"List-Id": "<news.example.com>"}) {
-		t.Fatal("must not reply to list mail")
-	}
-	if shouldAutoReply("x@y.com", map[string]string{"Precedence": "bulk"}) {
-		t.Fatal("must not reply to bulk precedence")
-	}
-}
-
-// TestVacationPushesToEngine verifies that a PUT for a vulos-mail-hosted account
-// (rule-store URL brokered) ALSO pushes the config to vulos-mail's
-// /internal/vacation endpoint — the firing engine — while the KV still serves the
-// UI's read model.
 // --- Signatures --------------------------------------------------------------
 
 func TestSignaturesRoundTripAndSanitize(t *testing.T) {

@@ -2,9 +2,9 @@
 // separate from the HTMX/Alpine web UI in handlers/web.
 //
 // WHY THIS EXISTS: the handlers/web routes render HTML fragments for HTMX. That
-// is perfect for the zero-build single-binary standalone UI, but a rich React
-// client (Vulos Mail's webmail and Vulos Workspace's mail surface) needs a
-// stable machine-readable contract. This package is that contract — it returns
+// is perfect for the zero-build single-binary standalone UI, but a rich JSON
+// client (e.g. the Vulos OS mail surface) needs a stable machine-readable
+// contract. This package is that contract — it returns
 // models.Email / MailboxInfo as JSON and never renders templates.
 //
 // It is purely additive: it reuses the SAME engine (handlers/api) and the SAME

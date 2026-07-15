@@ -109,59 +109,12 @@ func (h *Handler) handlePutVacation(c *fiber.Ctx) error {
 	return c.JSON(vacationPublic(in))
 }
 
-// vacationActive reports whether the responder should fire for a message received
-// at `now`, given the config's enabled flag + optional start/end window. It is the
-// single source of truth the delivery path (or a test) uses so the "scheduling"
-// contract is enforced in one place. Loop/backscatter protection is a SEPARATE
-// gate (shouldAutoReply) applied to the triggering message's headers.
-func vacationActive(cfg vacationConfig, now time.Time) bool {
-	if !cfg.Enabled {
-		return false
-	}
-	if s, err := parseOptRFC3339(cfg.StartAt); err == nil && s != nil && now.Before(*s) {
-		return false
-	}
-	if e, err := parseOptRFC3339(cfg.EndAt); err == nil && e != nil && now.After(*e) {
-		return false
-	}
-	return true
-}
-
-// shouldAutoReply is the loop/backscatter guard: an out-of-office reply must NEVER
-// be sent to another auto-reply, to list traffic, or to a null/bounce sender —
-// that is how mail loops and backscatter storms form. It inspects the triggering
-// message's headers and returns false when any auto-submission / list marker is
-// present, or the envelope sender is empty. Applied by the delivery path before
-// composing a reply. Header names are matched case-insensitively.
-func shouldAutoReply(fromEnvelope string, headers map[string]string) bool {
-	if strings.TrimSpace(fromEnvelope) == "" {
-		return false // null sender (a bounce / DSN) — never reply
-	}
-	lower := make(map[string]string, len(headers))
-	for k, v := range headers {
-		lower[strings.ToLower(strings.TrimSpace(k))] = strings.ToLower(v)
-	}
-	// RFC 3834 / common auto-response markers.
-	if v := lower["auto-submitted"]; v != "" && v != "no" {
-		return false
-	}
-	if lower["x-auto-response-suppress"] != "" {
-		return false
-	}
-	if lower["precedence"] == "bulk" || lower["precedence"] == "list" || lower["precedence"] == "junk" {
-		return false
-	}
-	// Any List-* header => mailing list; do not reply.
-	for k := range lower {
-		if strings.HasPrefix(k, "list-") {
-			return false
-		}
-	}
-	if lower["x-mailer"] == "" && lower["x-loop"] != "" {
-		return false
-	}
-	return true
-}
+// NOTE: lilmail stores the vacation-responder config as the client's read model
+// (GET/PUT below) but never FIRES it — an out-of-office responder is delivery-path
+// logic that belongs to the account's own mail server, not to this client. The
+// former vacationActive/shouldAutoReply firing helpers were remnants of the removed
+// central engine and have been deleted; the account's provider owns auto-reply
+// scheduling and loop/backscatter (RFC 3834) protection.
 
 func vacationPublic(cfg vacationConfig) fiber.Map {
 	return fiber.Map{
@@ -266,8 +219,9 @@ func (h *Handler) handleGetIdentities(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"identities": out})
 }
 
-// maxIdentities bounds how many send-as aliases an account may store. Mirrors
-// vulos-mail's mailsettings.MaxAliases, which is the authoritative bound.
+// maxIdentities bounds how many send-as aliases an account may store client-side.
+// It is a local sanity bound; the account's provider remains the authority for
+// which From addresses the account may actually claim.
 const maxIdentities = 20
 
 // handlePutIdentities replaces the account's send-as identities (aliases). It is
@@ -335,8 +289,9 @@ func (h *Handler) handlePutIdentities(c *fiber.Ctx) error {
 // validIdentityAddress reports whether a is a safe send-as address:
 // "<local>@<domain>" with exactly one '@', a label-shaped domain, and no control /
 // whitespace / injection character. It is the LOCAL (defence-in-depth) half of the
-// check — vulos-mail re-validates authoritatively AND decides whether the account
-// may actually claim the address (this function does not, and cannot, know that).
+// check — the account's provider re-validates authoritatively AND decides whether
+// the account may actually claim the address (this function does not, and cannot,
+// know that).
 func validIdentityAddress(a string) bool {
 	if a == "" || len(a) > 254 {
 		return false

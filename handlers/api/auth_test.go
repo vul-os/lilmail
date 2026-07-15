@@ -86,6 +86,75 @@ func TestDecryptJSONWrongKey(t *testing.T) {
 	}
 }
 
+// TestDecryptJSONTamperedCiphertextFailsGCMAuth verifies the AES-256-GCM
+// authentication tag is enforced: flipping a single bit anywhere in the encrypted
+// blob (nonce or ciphertext) must make DecryptJSON fail rather than return forged
+// plaintext. This is the at-rest integrity guarantee for stored credentials.
+func TestDecryptJSONTamperedCiphertextFailsGCMAuth(t *testing.T) {
+	enc, err := EncryptJSON(&Credentials{Email: "dan@example.com", Password: "pw"}, testKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := base64.StdEncoding.DecodeString(enc)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	// Flip the last byte (inside the GCM tag) — decryption must reject it.
+	tampered := make([]byte, len(raw))
+	copy(tampered, raw)
+	tampered[len(tampered)-1] ^= 0x01
+	var got Credentials
+	if err := DecryptJSON(base64.StdEncoding.EncodeToString(tampered), &got, testKey); err == nil {
+		t.Fatal("tampered ciphertext decrypted without error — GCM auth tag not enforced")
+	}
+
+	// Flip a byte inside the nonce region too (first byte) — also must fail.
+	tampered2 := make([]byte, len(raw))
+	copy(tampered2, raw)
+	tampered2[0] ^= 0x01
+	if err := DecryptJSON(base64.StdEncoding.EncodeToString(tampered2), &got, testKey); err == nil {
+		t.Fatal("nonce tampering decrypted without error — GCM auth tag not enforced")
+	}
+}
+
+// TestDecryptJSONTruncatedAndMalformed verifies the decrypt primitive fails closed
+// on inputs too short to contain a nonce, on non-base64 input, and on empty input —
+// never panicking or returning junk.
+func TestDecryptJSONTruncatedAndMalformed(t *testing.T) {
+	var got Credentials
+	// Not valid base64.
+	if err := DecryptJSON("!!!not base64!!!", &got, testKey); err == nil {
+		t.Error("expected error on non-base64 input")
+	}
+	// Valid base64 but far shorter than the 12-byte GCM nonce.
+	if err := DecryptJSON(base64.StdEncoding.EncodeToString([]byte("short")), &got, testKey); err == nil {
+		t.Error("expected error on ciphertext shorter than the nonce")
+	}
+	// Empty string.
+	if err := DecryptJSON("", &got, testKey); err == nil {
+		t.Error("expected error on empty ciphertext")
+	}
+}
+
+// TestEncryptJSONRejectsInvalidKeyLength verifies AES only accepts 16/24/32-byte
+// keys: a wrong-length key must fail closed at encrypt AND decrypt rather than
+// silently producing a weak/undefined cipher.
+func TestEncryptJSONRejectsInvalidKeyLength(t *testing.T) {
+	badKey := "too-short-key" // 13 bytes — not a valid AES key length
+	if _, err := EncryptJSON(&Credentials{Email: "e@x.com"}, badKey); err == nil {
+		t.Error("EncryptJSON accepted an invalid-length AES key")
+	}
+	// A blob made with a valid key must not be decryptable under a bad-length key.
+	enc, err := EncryptJSON(&Credentials{Email: "e@x.com"}, testKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got Credentials
+	if err := DecryptJSON(enc, &got, badKey); err == nil {
+		t.Error("DecryptJSON accepted an invalid-length AES key")
+	}
+}
+
 // TestDecryptJSONLegacyCredentials verifies that blobs previously produced by
 // the old EncryptCredentials function (same AES-256-GCM + base64 wire format)
 // are still readable by DecryptJSON.  The fixture below was captured from a

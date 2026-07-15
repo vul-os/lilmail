@@ -44,11 +44,11 @@ type composeBody struct {
 // the account has REGISTERED (/v1/settings/identities). Anything else is refused
 // (403) — a client may not name an arbitrary From.
 //
-// This is a gate, not the authority: vulos-mail re-checks the From at submission
-// (Manager.senderAllowed) against the verified-domain rule and rejects a send-as it
-// never authorized, so a bypass of this surface still cannot emit spoofed mail. The
-// same registered list is what the engine holds, because the identities PUT pushes
-// it there (settings.go handlePutIdentities).
+// This is a gate, not the authority: the account's own provider SMTP server
+// re-checks the From at submission and rejects a send-as it never authorized, so a
+// bypass of this surface still cannot emit spoofed mail. The registered list here is
+// only the client's read model of what the user has claimed (settings.go
+// handlePutIdentities); the provider remains the authority.
 //
 // It follows settingsStoreOr501's contract: when handled==true the error response
 // has ALREADY been written and the caller must return herr immediately.

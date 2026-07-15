@@ -735,8 +735,8 @@ func TestScheduledFromIsServerForced(t *testing.T) {
 func TestScheduledSendAsRegisteredIdentityKeepsOwnership(t *testing.T) {
 	app, store, _, _ := newScheduledApp(t, &fakeMailClient{})
 
-	// Register the alias first (no vulos-mail engine wired in this app → stored as
-	// the client's read model; the engine re-checks authoritatively at submission).
+	// Register the alias first (stored as the client's read model; the account's
+	// provider re-checks authoritatively at submission).
 	if _, code, b := doReq(t, app, "PUT", "/v1/settings/identities",
 		`{"identities":[{"address":"sales@brand.example"}]}`); code != fiber.StatusOK {
 		t.Fatalf("register identity: %d %s", code, b)

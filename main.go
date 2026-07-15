@@ -316,8 +316,8 @@ func main() {
 	webEmailHandler := web.NewEmailHandler(store, config, webAuthHandler)
 	webCalendarHandler := web.NewCalendarHandler(store, config, webAuthHandler)
 
-	// JSON/REST API (/v1/*) — machine-readable contract for rich React clients
-	// (Vulos Mail webmail, Vulos Workspace). Additive: reuses the same engine +
+	// JSON/REST API (/v1/*) — machine-readable contract for rich JSON clients
+	// (e.g. the Vulos OS mail surface). Additive: reuses the same engine +
 	// session auth as the HTMX UI, returns 401 JSON instead of redirecting.
 	//
 	// A durable KV store (bbolt by default, Postgres when configured) backs

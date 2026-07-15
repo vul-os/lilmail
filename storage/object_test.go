@@ -123,6 +123,55 @@ func TestEndpointSafety(t *testing.T) {
 	}
 }
 
+// TestExportedEndpointAllowed pins the EXPORTED transport-safety contract that
+// other seams (handlers/api dav_url.go, dial_screen.go) rely on directly, covering
+// edge cases the header-driven path does not exercise (IPv6 loopback/link-local,
+// uppercase scheme, empty host, public FQDN with no private suffix).
+func TestExportedEndpointAllowed(t *testing.T) {
+	cases := []struct {
+		raw  string
+		want bool
+	}{
+		{"https://example.com", true},   // TLS to a public host → ok
+		{"HTTPS://example.com", true},   // scheme is case-insensitive
+		{"http://example.com", false},   // plaintext to a public host → refused
+		{"http://127.0.0.1:9000", true}, // loopback
+		{"http://[::1]:9000", true},     // IPv6 loopback
+		{"http://[fe80::1]:9000", true}, // IPv6 link-local
+		{"http://10.1.2.3", true},       // private range
+		{"http://minio:9000", true},     // single-label internal name
+		{"http://svc.internal", true},   // internal suffix
+		{"http://host.local", true},     // local suffix
+		{"ws://example.com", false},     // non-http(s) scheme
+		{"http://8.8.8.8", false},       // public IP over plaintext → refused
+	}
+	for _, c := range cases {
+		u, err := url.Parse(c.raw)
+		if err != nil {
+			t.Fatalf("parse %q: %v", c.raw, err)
+		}
+		if got := EndpointAllowed(u); got != c.want {
+			t.Errorf("EndpointAllowed(%q) = %v, want %v", c.raw, got, c.want)
+		}
+	}
+}
+
+// TestExportedHostIsLocalOrPrivate pins the host-classification helper directly.
+func TestExportedHostIsLocalOrPrivate(t *testing.T) {
+	private := []string{"localhost", "127.0.0.1", "::1", "fe80::1", "10.0.0.1", "192.168.0.1", "172.16.0.1", "minio", "db.internal", "cache.local"}
+	public := []string{"example.com", "8.8.8.8", "1.1.1.1", "s3.amazonaws.com", ""}
+	for _, h := range private {
+		if !HostIsLocalOrPrivate(h) {
+			t.Errorf("HostIsLocalOrPrivate(%q) = false, want true", h)
+		}
+	}
+	for _, h := range public {
+		if HostIsLocalOrPrivate(h) {
+			t.Errorf("HostIsLocalOrPrivate(%q) = true, want false", h)
+		}
+	}
+}
+
 func TestObjectStoreFromHeaders_DefaultPrefixAndRegion(t *testing.T) {
 	t.Setenv(storageBrokerSecretEnv, testStorageSecret)
 	st, ok := ObjectStoreFromHeaders(headerGetter(map[string]string{

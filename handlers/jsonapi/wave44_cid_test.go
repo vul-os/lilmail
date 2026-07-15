@@ -5,7 +5,7 @@
 // attachment ref with {"inline":true,"contentId":...,"data":...} is BodyParsed,
 // resolved through resolveAttachments (the exact seam handleSend/handleSaveDraft
 // use), and fed into api.BuildMIMEMessage — asserting the disposition/Content-ID
-// survive end to end so vulos-mail-ui can switch inline paste from data: to cid:.
+// survive end to end so the web client can switch inline paste from data: to cid:.
 package jsonapi
 
 import (
