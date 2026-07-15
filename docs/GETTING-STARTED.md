@@ -13,7 +13,7 @@ common configuration scenarios.
 | SMTP server | Any SMTP server (port 587 STARTTLS or 465 implicit TLS) |
 
 A pre-built binary is available on the
-[Releases](https://github.com/exolutionza/lilmail/releases) page — no Go
+[Releases](https://github.com/vul-os/lilmail/releases) page — no Go
 installation required to run it.
 
 ## Installation
@@ -21,7 +21,7 @@ installation required to run it.
 ### Option A — pre-built binary
 
 1. Download the archive for your OS from
-   [Releases](https://github.com/exolutionza/lilmail/releases).
+   [Releases](https://github.com/vul-os/lilmail/releases).
 2. Extract the archive to a directory of your choice.
 3. Copy `config.toml.example` to `config.toml` in the same directory (or use
    the example below).
@@ -31,7 +31,7 @@ installation required to run it.
 ### Option B — build from source
 
 ```bash
-git clone https://github.com/exolutionza/lilmail.git
+git clone https://github.com/vul-os/lilmail.git
 cd lilmail
 go build -o lilmail
 ```

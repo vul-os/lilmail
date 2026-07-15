@@ -5,8 +5,8 @@
 **A lightweight, database-free PIM client — mail + calendar + contacts — in a single Go binary.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Latest release](https://img.shields.io/github/v/tag/exolutionza/lilmail?label=release&sort=semver)](https://github.com/exolutionza/lilmail/releases)
-[![CI](https://github.com/exolutionza/lilmail/actions/workflows/ci.yml/badge.svg)](https://github.com/exolutionza/lilmail/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/tag/vul-os/lilmail?label=release&sort=semver)](https://github.com/vul-os/lilmail/releases)
+[![CI](https://github.com/vul-os/lilmail/actions/workflows/ci.yml/badge.svg)](https://github.com/vul-os/lilmail/actions/workflows/ci.yml)
 
 <sub><img src="docs/assets/vulos-logo.png" height="14" alt="VulOS"> The PIM engine behind <strong><a href="https://vulos.org">VulOS</a></strong> — an independent project the Vulos OS integrates over its <code>/v1</code> API. Runs fully standalone.</sub>
 
@@ -148,7 +148,7 @@ mode*.
 
 ```bash
 # Clone
-git clone https://github.com/exolutionza/lilmail.git
+git clone https://github.com/vul-os/lilmail.git
 cd lilmail
 
 # Configure — copy the example and fill in your mail server details + secrets
@@ -161,7 +161,7 @@ go run main.go            # or: make build && ./lilmail
 Open **http://localhost:3000** and sign in.
 
 Prefer a pre-built binary? Grab the latest archive from
-[Releases](https://github.com/exolutionza/lilmail/releases) — only `config.toml`
+[Releases](https://github.com/vul-os/lilmail/releases) — only `config.toml`
 needs to be present alongside it.
 
 ## Configuration
