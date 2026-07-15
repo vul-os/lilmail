@@ -141,7 +141,7 @@ been validated — never on unauthenticated or HTMX paths.
 ¹ Each entry of `attachments[]` is `{ token? , data? , filename?, contentType?, contentId?, inline? }`
 — see [Attachments](#attachments) for the two-step upload flow and `cid:` inline images.
 
-`POST /v1/folders` creates an IMAP mailbox (a "label" in the mail-ui); the name
+`POST /v1/folders` creates an IMAP mailbox (a "label" in the mail UI); the name
 may not contain the IMAP control characters `\r \n \t * % "` and may not collide
 with a protected system folder (Inbox/Sent/Drafts/Spam/Trash/Archive/Snoozed/…),
 which return `409`. `DELETE /v1/folders` deletes a user mailbox by `name` (body)

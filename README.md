@@ -48,13 +48,18 @@ opt-in via config keys and adds zero overhead when disabled.
 
 [VulOS](https://vulos.org) is an open, self-hostable web OS + app suite. lilmail
 is its **PIM engine** and stands alone; the OS integrates it over `/v1`. The
-sibling products (each self-hostable) are:
+sibling products (each free, OSS, and self-hostable) are:
 
-- **Vulos Talk** — team chat + channels/Spaces + huddles
-- **Vulos Meet** — video meetings (LiveKit SFU)
-- **Vulos Office** — documents: docs, sheets, slides, PDF
-- **Vulos Relay** — sovereign connectivity fabric (`@vulos/relay-client`)
 - **Vulos OS** — the web-native desktop (the shell that hosts the suite apps)
+- **Vulos Office** — documents: docs, sheets, slides, PDF, and whiteboards
+- **Vulos Files** — file storage + P2P sharing, built into the OS
+- **Vulos Relay** — sovereign connectivity / reachability fabric (`@vulos/relay-client`)
+- **llmux** — sovereign AI gateway
+
+lilmail is just an app like the others — one of the apps that runs on the OS.
+The OS and all apps are free OSS you self-host; Vulos bills for only **Relay**
+(reachability) and **backup storage** (buckets). Chat and video are **third-party**
+(Matrix/Element; Element Call / Jitsi), not products built by Vulos.
 
 **lilmail** is a complete IMAP/SMTP + CalDAV + CardDAV client that also exposes a
 clean `/v1` JSON API. It is not a service Vulos runs or bills — it is a client
