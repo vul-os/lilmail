@@ -4,20 +4,15 @@ package jsonapi
 // the compose From gate.
 //
 //   - PUT round-trips through the KV; GET still leads with the primary
-//   - PUT is auth-gated (no session, no broker → 401) and per-owner isolated
-//   - a vulos-mail-hosted mailbox PUSHES the aliases to the engine, which is the
-//     AUTHORITY: a refusal (403 "not an address this account may send as", 409 "that
-//     address is already a mailbox/group/another account's alias") or an unreachable
-//     engine stores NOTHING (fail-closed)
+//   - PUT is auth-gated (no session, no injected creds → 401) and per-owner isolated
 //   - malformed / injecting addresses are refused locally (400)
 //   - compose sends AS the chosen identity, and an UNREGISTERED From is refused (403)
 //
-// lilmail is not the authority and never routes inbound mail: what a registered alias
-// RECEIVES is decided by the engine (vulos-mail's recipient resolver), which is where
-// the inbound-alias contract is tested.
+// lilmail is a CLIENT: it is not the authority for what From an account may send as
+// (the user's provider SMTP server is). Identities are stored as the compose menu's
+// read model and validated locally for shape + header-injection.
 
 import (
-	"context"
 	"encoding/json"
 	"io"
 	"net/http/httptest"
@@ -61,9 +56,9 @@ func newIdentitiesApp(t *testing.T) (*fiber.App, *Handler) {
 	return app, h
 }
 
-// identDo issues a brokered request. rulesURL != "" marks the mailbox as
-// vulos-mail-hosted (the header the identities/vacation/spam pushes derive from).
-func identDo(t *testing.T, app *fiber.App, method, target, body, rulesURL string) (int, []byte) {
+// identDo issues a request with injected credentials. The trailing string arg is a
+// legacy no-op (kept so existing call sites read unchanged).
+func identDo(t *testing.T, app *fiber.App, method, target, body, _ string) (int, []byte) {
 	t.Helper()
 	var r io.Reader
 	if body != "" {
@@ -75,29 +70,12 @@ func identDo(t *testing.T, app *fiber.App, method, target, body, rulesURL string
 	for k, v := range brokeredHeaders() {
 		req.Header.Set(k, v)
 	}
-	if rulesURL != "" {
-		req.Header.Set(hdrMailRulesURL, rulesURL)
-	}
 	resp, err := app.Test(req, 5000)
 	if err != nil {
 		t.Fatalf("%s %s: %v", method, target, err)
 	}
 	b, _ := io.ReadAll(resp.Body)
 	return resp.StatusCode, b
-}
-
-// stubPushIdentities swaps the engine push for a capture (and an optional refusal).
-func stubPushIdentities(t *testing.T, captured *[]string, refuse error) {
-	t.Helper()
-	orig := pushIdentities
-	pushIdentities = func(_ context.Context, _, _, _ string, aliases []string) error {
-		if refuse != nil {
-			return refuse
-		}
-		*captured = append([]string{}, aliases...)
-		return nil
-	}
-	t.Cleanup(func() { pushIdentities = orig })
 }
 
 func identityList(t *testing.T, b []byte) []identity {
@@ -184,110 +162,8 @@ func TestIdentitiesIsolation(t *testing.T) {
 	}
 }
 
-// A vulos-mail-hosted mailbox registers its aliases with the ENGINE, which is the
-// authority. The pushed list is exactly the alias addresses (never the primary).
-func TestIdentitiesPutPushesAliasesToEngine(t *testing.T) {
-	app, _ := newIdentitiesApp(t)
-	var pushed []string
-	stubPushIdentities(t, &pushed, nil)
-
-	code, b := identDo(t, app, "PUT", "/v1/settings/identities",
-		`{"identities":[{"address":"sales@brand.example"},{"address":"user+news@gmail.com"}]}`,
-		"http://rules.internal/internal/mailrules")
-	if code != fiber.StatusOK {
-		t.Fatalf("put: %d %s", code, b)
-	}
-	if len(pushed) != 2 || pushed[0] != "sales@brand.example" || pushed[1] != "user+news@gmail.com" {
-		t.Fatalf("aliases pushed to the engine = %v", pushed)
-	}
-	var out struct {
-		ServerEnforced bool `json:"serverEnforced"`
-	}
-	json.Unmarshal(b, &out)
-	if !out.ServerEnforced {
-		t.Fatalf("a vulos-mail-hosted save must report serverEnforced: %s", b)
-	}
-}
-
-// THE security regression: the engine refuses an alias the account may not claim
-// (a foreign domain). The refusal is propagated AND nothing is stored — the UI can
-// never offer a From the mail server will reject.
-func TestIdentitiesPutFailsClosedWhenEngineRefuses(t *testing.T) {
-	app, _ := newIdentitiesApp(t)
-	var pushed []string
-	stubPushIdentities(t, &pushed, &fiber.Error{
-		Code: fiber.StatusForbidden, Message: "alias is not an address this account may send as: ceo@google.com",
-	})
-
-	code, b := identDo(t, app, "PUT", "/v1/settings/identities",
-		`{"identities":[{"address":"ceo@google.com"}]}`, "http://rules.internal/internal/mailrules")
-	if code != fiber.StatusForbidden {
-		t.Fatalf("engine refusal: got %d (%s), want 403", code, b)
-	}
-	if !strings.Contains(string(b), "ceo@google.com") {
-		t.Fatalf("the engine's reason must be surfaced: %s", b)
-	}
-	// Nothing stored: GET is back to the primary alone.
-	_, b = identDo(t, app, "GET", "/v1/settings/identities", "", "")
-	if ids := identityList(t, b); len(ids) != 1 || !ids[0].IsPrimary {
-		t.Fatalf("a refused alias must not be stored: %s", b)
-	}
-	// …and it is not sendable.
-	code, b = identDo(t, app, "POST", "/v1/messages",
-		`{"to":"bob@x.com","subject":"hi","text":"hi","from":"ceo@google.com"}`, "")
-	if code != fiber.StatusForbidden {
-		t.Fatalf("send as a refused alias: got %d (%s), want 403", code, b)
-	}
-}
-
-// A COLLISION is a distinct refusal and must reach the user as one: an alias is an
-// inbound delivery address, so an address that is already a mailbox, a group, or
-// another account's alias cannot also be this account's alias. The engine answers
-// 409; lilmail must propagate that status and its reason verbatim, not flatten it
-// into a generic 502 ("could not register") which would read as our fault and hide
-// the fix from the user.
-func TestIdentitiesPutPropagatesEngineCollision(t *testing.T) {
-	app, _ := newIdentitiesApp(t)
-	var pushed []string
-	stubPushIdentities(t, &pushed, &fiber.Error{
-		Code:    fiber.StatusConflict,
-		Message: "that address is already a mailbox, a group, or another account's alias: team@brand.example",
-	})
-
-	code, b := identDo(t, app, "PUT", "/v1/settings/identities",
-		`{"identities":[{"address":"team@brand.example"}]}`, "http://rules.internal/internal/mailrules")
-	if code != fiber.StatusConflict {
-		t.Fatalf("engine collision: got %d (%s), want 409", code, b)
-	}
-	if !strings.Contains(string(b), "team@brand.example") {
-		t.Fatalf("the engine's reason must be surfaced: %s", b)
-	}
-	// Nothing stored (fail-closed), so the compose menu never offers it.
-	_, b = identDo(t, app, "GET", "/v1/settings/identities", "", "")
-	if ids := identityList(t, b); len(ids) != 1 || !ids[0].IsPrimary {
-		t.Fatalf("a colliding alias must not be stored: %s", b)
-	}
-}
-
-// An unreachable engine is also fail-closed: 502, and nothing is stored.
-func TestIdentitiesPutFailsClosedWhenEngineUnreachable(t *testing.T) {
-	app, _ := newIdentitiesApp(t)
-	var pushed []string
-	stubPushIdentities(t, &pushed, context.DeadlineExceeded)
-
-	code, b := identDo(t, app, "PUT", "/v1/settings/identities",
-		`{"identities":[{"address":"sales@brand.example"}]}`, "http://rules.internal/internal/mailrules")
-	if code != fiber.StatusBadGateway {
-		t.Fatalf("unreachable engine: got %d (%s), want 502", code, b)
-	}
-	_, b = identDo(t, app, "GET", "/v1/settings/identities", "", "")
-	if ids := identityList(t, b); len(ids) != 1 {
-		t.Fatalf("an unregistered alias must not be stored: %s", b)
-	}
-}
-
 // Malformed / header-injecting addresses are refused locally, before anything is
-// pushed or stored.
+// stored.
 func TestIdentitiesPutRejectsMalformed(t *testing.T) {
 	app, _ := newIdentitiesApp(t)
 	for _, bad := range []string{

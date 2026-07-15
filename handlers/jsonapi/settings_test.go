@@ -1,7 +1,6 @@
 package jsonapi
 
 import (
-	"context"
 	"encoding/json"
 	"io"
 	"net/http/httptest"
@@ -201,115 +200,6 @@ func TestShouldAutoReplyLoopProtection(t *testing.T) {
 // (rule-store URL brokered) ALSO pushes the config to vulos-mail's
 // /internal/vacation endpoint — the firing engine — while the KV still serves the
 // UI's read model.
-func TestVacationPushesToEngine(t *testing.T) {
-	app, _ := newParityApp(t)
-
-	var (
-		gotURL, gotSecret, gotAccount string
-		gotCfg                        vacationConfig
-		calls                         int
-	)
-	orig := pushVacationConfig
-	pushVacationConfig = func(_ context.Context, url, secret, account string, cfg vacationConfig) error {
-		calls++
-		gotURL, gotSecret, gotAccount, gotCfg = url, secret, account, cfg
-		return nil
-	}
-	t.Cleanup(func() { pushVacationConfig = orig })
-
-	// PUT with the rule-store URL header set (marks a vulos-mail-hosted mailbox).
-	req := httptest.NewRequest("PUT", "/v1/settings/vacation",
-		strings.NewReader(`{"enabled":true,"subject":"OOO","body":"away"}`))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set(hdrBrokerAuth, "s3cr3t")
-	for k, v := range brokeredHeaders() {
-		req.Header.Set(k, v)
-	}
-	req.Header.Set(hdrMailRulesURL, "http://engine:8080/internal/mailrules")
-	resp, err := app.Test(req, 5000)
-	if err != nil {
-		t.Fatalf("put: %v", err)
-	}
-	if resp.StatusCode != fiber.StatusOK {
-		t.Fatalf("put status: %d", resp.StatusCode)
-	}
-	b, _ := io.ReadAll(resp.Body)
-	var putResp map[string]any
-	json.Unmarshal(b, &putResp)
-	if se, _ := putResp["serverEnforced"].(bool); !se {
-		t.Fatalf("serverEnforced should be true when the engine push succeeds: %s", b)
-	}
-
-	// The push landed on the derived /internal/vacation endpoint with the account.
-	if calls != 1 {
-		t.Fatalf("expected exactly one engine push, got %d", calls)
-	}
-	if gotURL != "http://engine:8080/internal/vacation" {
-		t.Fatalf("push URL = %q, want …/internal/vacation", gotURL)
-	}
-	if gotSecret != "s3cr3t" || gotAccount != "user@gmail.com" {
-		t.Fatalf("push secret/account = %q/%q", gotSecret, gotAccount)
-	}
-	if !gotCfg.Enabled || gotCfg.Subject != "OOO" {
-		t.Fatalf("pushed cfg wrong: %+v", gotCfg)
-	}
-
-	// KV still serves the UI read model unchanged.
-	code, gb := doAs(t, app, "user@gmail.com", "GET", "/v1/settings/vacation", "")
-	if code != fiber.StatusOK {
-		t.Fatalf("get: %d", code)
-	}
-	var got vacationConfig
-	json.Unmarshal(gb, &got)
-	if !got.Enabled || got.Subject != "OOO" {
-		t.Fatalf("KV read model not served: %s", gb)
-	}
-}
-
-// TestVacationNoEngineWhenNotHosted verifies that a plain brokered account (no
-// rule-store URL) does NOT attempt an engine push — the external provider owns its
-// own responder — but the config is still stored and reported as not server-enforced.
-func TestVacationNoEngineWhenNotHosted(t *testing.T) {
-	app, _ := newParityApp(t)
-	calls := 0
-	orig := pushVacationConfig
-	pushVacationConfig = func(context.Context, string, string, string, vacationConfig) error {
-		calls++
-		return nil
-	}
-	t.Cleanup(func() { pushVacationConfig = orig })
-
-	// doAs sends brokered headers WITHOUT a rule-store URL.
-	code, b := doAs(t, app, "user@gmail.com", "PUT", "/v1/settings/vacation",
-		`{"enabled":true,"subject":"OOO","body":"away"}`)
-	if code != fiber.StatusOK {
-		t.Fatalf("put: %d", code)
-	}
-	if calls != 0 {
-		t.Fatalf("must not push to an engine for a non-hosted account, got %d calls", calls)
-	}
-	var putResp map[string]any
-	json.Unmarshal(b, &putResp)
-	if se, _ := putResp["serverEnforced"].(bool); se {
-		t.Fatalf("serverEnforced must be false for a non-hosted account: %s", b)
-	}
-}
-
-// TestVacationStoreURLFromRules covers the endpoint derivation.
-func TestVacationStoreURLFromRules(t *testing.T) {
-	cases := map[string]string{
-		"http://e/internal/mailrules":  "http://e/internal/vacation",
-		"http://e/internal/mailrules/": "http://e/internal/vacation",
-		"http://e/some/other/rules":    "http://e/some/other/vacation",
-		"":                             "",
-	}
-	for in, want := range cases {
-		if got := vacationStoreURLFromRules(in); got != want {
-			t.Errorf("vacationStoreURLFromRules(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 // --- Signatures --------------------------------------------------------------
 
 func TestSignaturesRoundTripAndSanitize(t *testing.T) {

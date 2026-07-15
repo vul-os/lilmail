@@ -1,7 +1,6 @@
 package jsonapi
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -18,6 +17,15 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 )
+
+// decode reads r and JSON-unmarshals it into v, failing the test on bad JSON.
+func decode(t *testing.T, r io.Reader, v any) {
+	t.Helper()
+	b, _ := io.ReadAll(r)
+	if err := json.Unmarshal(b, v); err != nil {
+		t.Fatalf("bad JSON: %s", b)
+	}
+}
 
 // brokeredReq builds a brokered /v1 request carrying the valid broker secret,
 // the standard mailbox headers, and any caller-supplied extra headers. Cuts the
@@ -728,235 +736,6 @@ func TestHandleDeleteContact_NoCardDAV501(t *testing.T) {
 	}
 	if called {
 		t.Fatalf("delete seam invoked despite missing CardDAV URL")
-	}
-}
-
-// --- rules: update + footgun rejection on update + validation ---------------
-
-// PUT /v1/rules/:id forwards the path id and the validated rule to the store.
-func TestRules_Update_RoundTrip(t *testing.T) {
-	mock := &mockRuleStore{}
-	app := rulesApp(t, mock)
-
-	rule := models.MailRule{
-		Name: "Renamed", Enabled: true, Match: "all",
-		Conditions: []models.RuleCondition{{Field: "from", Op: "contains", Value: "x"}},
-		Actions:    []models.RuleAction{{Type: "label", Value: "X"}},
-	}
-	body, _ := json.Marshal(rule)
-	resp, _ := app.Test(brokeredReq("PUT", "/v1/rules/r7", bytes.NewReader(body),
-		map[string]string{hdrMailRulesURL: "http://rules.internal/internal/mailrules"}))
-	if resp.StatusCode != fiber.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
-		t.Fatalf("want 200, got %d: %s", resp.StatusCode, b)
-	}
-	if mock.updatedID != "r7" {
-		t.Fatalf("update id = %q; want r7", mock.updatedID)
-	}
-}
-
-// The footgun denylist must reject a permanent-delete action on UPDATE too,
-// before the store is ever contacted.
-func TestRules_Update_RejectsPermanentDelete(t *testing.T) {
-	mock := &mockRuleStore{}
-	app := rulesApp(t, mock)
-
-	rule := models.MailRule{
-		Name: "nuke", Enabled: true, Match: "all",
-		Conditions: []models.RuleCondition{{Field: "from", Op: "contains", Value: "x"}},
-		Actions:    []models.RuleAction{{Type: "delete_forever"}},
-	}
-	body, _ := json.Marshal(rule)
-	resp, _ := app.Test(brokeredReq("PUT", "/v1/rules/r7", bytes.NewReader(body),
-		map[string]string{hdrMailRulesURL: "http://rules.internal/internal/mailrules"}))
-	if resp.StatusCode != fiber.StatusBadRequest {
-		t.Fatalf("want 400 for delete_forever, got %d", resp.StatusCode)
-	}
-	if mock.updatedID != "" {
-		t.Fatalf("forbidden action reached the store (updatedID=%q)", mock.updatedID)
-	}
-}
-
-// Every forbidden action type must be rejected 400 by validateRuleShape.
-func TestValidateRuleShape_AllForbiddenActionsRejected(t *testing.T) {
-	base := models.MailRule{
-		Name:       "r",
-		Conditions: []models.RuleCondition{{Field: "from", Op: "contains", Value: "x"}},
-	}
-	for action := range models.ForbiddenRuleActions {
-		r := base
-		r.Actions = []models.RuleAction{{Type: action}}
-		if err := validateRuleShape(r); err == nil {
-			t.Fatalf("forbidden action %q was NOT rejected", action)
-		}
-	}
-	// Mixed-case / padded forbidden action still rejected (denylist normalizes).
-	r := base
-	r.Actions = []models.RuleAction{{Type: "  Forward  "}}
-	if err := validateRuleShape(r); err == nil {
-		t.Fatalf("padded/mixed-case forbidden action not rejected")
-	}
-}
-
-// validateRuleShape rejects structurally-incomplete rules with clear errors.
-func TestValidateRuleShape_StructuralRejections(t *testing.T) {
-	cond := []models.RuleCondition{{Field: "from", Op: "contains", Value: "x"}}
-	act := []models.RuleAction{{Type: "label", Value: "L"}}
-
-	if err := validateRuleShape(models.MailRule{Conditions: cond, Actions: act}); err == nil {
-		t.Fatal("missing name not rejected")
-	}
-	if err := validateRuleShape(models.MailRule{Name: "n", Actions: act}); err == nil {
-		t.Fatal("missing conditions not rejected")
-	}
-	if err := validateRuleShape(models.MailRule{Name: "n", Conditions: cond}); err == nil {
-		t.Fatal("missing actions not rejected")
-	}
-	// A valid rule passes.
-	if err := validateRuleShape(models.MailRule{Name: "n", Conditions: cond, Actions: act}); err != nil {
-		t.Fatalf("valid rule rejected: %v", err)
-	}
-}
-
-// A malformed rule JSON body is rejected 400 on both create and update.
-func TestRules_MalformedJSON400(t *testing.T) {
-	mock := &mockRuleStore{}
-	app := rulesApp(t, mock)
-
-	for _, path := range []string{"/v1/rules", "/v1/rules/r1"} {
-		method := "POST"
-		if strings.Contains(path, "/r1") {
-			method = "PUT"
-		}
-		resp, _ := app.Test(brokeredReq(method, path, strings.NewReader(`{bad`),
-			map[string]string{hdrMailRulesURL: "http://rules.internal/internal/mailrules"}))
-		if resp.StatusCode != fiber.StatusBadRequest {
-			t.Fatalf("%s %s: want 400 for malformed JSON, got %d", method, path, resp.StatusCode)
-		}
-	}
-}
-
-// --- httpRuleStore: real HTTP client against an httptest server -------------
-
-// The brokered rule-store HTTP client must set the auth + account headers,
-// target the right method/path, and decode the response — exercised end to end
-// against an in-process server (no live vulos-mail).
-func TestHTTPRuleStore_CRUDAgainstServer(t *testing.T) {
-	var gotAuth, gotAccount, gotMethod, gotPath string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotAuth = r.Header.Get(hdrRulesAuth)
-		gotAccount = r.Header.Get(hdrRulesAccount)
-		gotMethod = r.Method
-		gotPath = r.URL.Path
-		w.Header().Set("Content-Type", "application/json")
-		switch {
-		case r.Method == http.MethodGet:
-			io.WriteString(w, `{"rules":[{"id":"r1","name":"News"}]}`)
-		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/reorder"):
-			io.WriteString(w, `{"rules":[{"id":"b"},{"id":"a"}]}`)
-		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/run"):
-			io.WriteString(w, `{"matched":4,"applied":2}`)
-		case r.Method == http.MethodPost:
-			io.WriteString(w, `{"rule":{"id":"r_new","name":"Created"}}`)
-		case r.Method == http.MethodPut:
-			io.WriteString(w, `{"rule":{"id":"r1","name":"Updated"}}`)
-		case r.Method == http.MethodDelete:
-			w.WriteHeader(http.StatusNoContent)
-		}
-	}))
-	defer srv.Close()
-
-	store := newRuleStore(srv.URL+"/internal/mailrules", "the-secret", "user@gmail.com")
-	ctx := context.Background()
-
-	rules, err := store.List(ctx)
-	if err != nil || len(rules) != 1 || rules[0].ID != "r1" {
-		t.Fatalf("List: %+v err=%v", rules, err)
-	}
-	if gotAuth != "the-secret" || gotAccount != "user@gmail.com" {
-		t.Fatalf("auth/account headers not set: %q %q", gotAuth, gotAccount)
-	}
-
-	created, err := store.Create(ctx, models.MailRule{Name: "Created"})
-	if err != nil || created.ID != "r_new" {
-		t.Fatalf("Create: %+v err=%v", created, err)
-	}
-	if gotMethod != http.MethodPost || gotPath != "/internal/mailrules" {
-		t.Fatalf("Create targeted wrong endpoint: %s %s", gotMethod, gotPath)
-	}
-
-	updated, err := store.Update(ctx, "r1", models.MailRule{Name: "Updated"})
-	if err != nil || updated.Name != "Updated" {
-		t.Fatalf("Update: %+v err=%v", updated, err)
-	}
-	if gotPath != "/internal/mailrules/r1" {
-		t.Fatalf("Update path = %q", gotPath)
-	}
-
-	if err := store.Delete(ctx, "r1"); err != nil {
-		t.Fatalf("Delete: %v", err)
-	}
-	if gotMethod != http.MethodDelete || gotPath != "/internal/mailrules/r1" {
-		t.Fatalf("Delete targeted wrong endpoint: %s %s", gotMethod, gotPath)
-	}
-
-	ro, err := store.Reorder(ctx, []string{"b", "a"})
-	if err != nil || len(ro) != 2 || ro[0].ID != "b" {
-		t.Fatalf("Reorder: %+v err=%v", ro, err)
-	}
-
-	matched, applied, err := store.Run(ctx, "INBOX", 50)
-	if err != nil || matched != 4 || applied != 2 {
-		t.Fatalf("Run: matched=%d applied=%d err=%v", matched, applied, err)
-	}
-}
-
-// A non-2xx rule-store response must be surfaced as a *ruleAPIError carrying the
-// upstream status + message, and the handler must propagate that exact status
-// (e.g. a 404 stays 404, not 502).
-func TestHTTPRuleStore_UpstreamErrorPropagates(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		io.WriteString(w, `{"error":"rule not found"}`)
-	}))
-	defer srv.Close()
-
-	t.Setenv(brokerEnvSecret, "s3cr3t")
-	orig := newRuleStore
-	newRuleStore = func(baseURL, secret, account string) ruleStore {
-		return &httpRuleStore{base: srv.URL, secret: secret, account: account, hc: srv.Client()}
-	}
-	t.Cleanup(func() { newRuleStore = orig })
-
-	h := newBrokerHandler(t)
-	app := fiber.New()
-	h.Register(app)
-
-	resp, _ := app.Test(brokeredReq("DELETE", "/v1/rules/missing", nil,
-		map[string]string{hdrMailRulesURL: srv.URL}))
-	if resp.StatusCode != fiber.StatusNotFound {
-		t.Fatalf("upstream 404 must propagate as 404, got %d", resp.StatusCode)
-	}
-	var out struct {
-		Error string `json:"error"`
-	}
-	decode(t, resp.Body, &out)
-	if out.Error != "rule not found" {
-		t.Fatalf("upstream error message lost: %q", out.Error)
-	}
-}
-
-// An unreachable rule store surfaces as 502 (rule store unreachable).
-func TestHTTPRuleStore_UnreachableIs502(t *testing.T) {
-	s := &httpRuleStore{base: "http://127.0.0.1:1", secret: "x", account: "a", hc: http.DefaultClient}
-	_, err := s.List(context.Background())
-	if err == nil {
-		t.Fatal("want error for unreachable store")
-	}
-	var apiErr *ruleAPIError
-	if !errors.As(err, &apiErr) || apiErr.status != http.StatusBadGateway {
-		t.Fatalf("want *ruleAPIError 502, got %v", err)
 	}
 }
 

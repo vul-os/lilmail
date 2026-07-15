@@ -7,14 +7,8 @@
 package jsonapi
 
 import (
-	"bytes"
-	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
-	"errors"
-	"io"
-	"net/http"
 	"strings"
 	"time"
 
@@ -31,8 +25,6 @@ func (h *Handler) registerSettings(g fiber.Router) {
 	g.Put("/settings/signatures", h.handlePutSignatures)
 	g.Get("/settings/identities", h.handleGetIdentities)
 	g.Put("/settings/identities", h.handlePutIdentities)
-	g.Get("/settings/spam", h.handleGetSpam)
-	g.Put("/settings/spam", h.handlePutSpam)
 }
 
 // settingsStoreOr501 resolves the settings store + the authenticated owner. When
@@ -54,20 +46,13 @@ func (h *Handler) settingsStoreOr501(c *fiber.Ctx) (store *settingsStore, owner 
 
 // handleGetVacation returns the account's vacation responder config.
 //
-// ENFORCEMENT NOTE (broker model): lilmail brokers to the upstream provider's
-// IMAP; it does NOT run the inbound delivery path (that is the provider, or
-// vulos-mail where it does). So storing "enabled" here does not, by itself, make
-// the provider auto-reply. This surface is the authoritative CONFIG the client
-// edits; actual enforcement happens where delivery runs:
-//   - standalone lilmail with a local delivery/rules path applies it on inbound;
-//   - a brokered account whose backend exposes a rule/Sieve store (the same
-//     X-Vulos-Mail-Rules-Url the /v1/rules surface uses) can push the vacation
-//     as a Sieve "vacation" action — a follow-up wiring, not this endpoint's job;
-//   - a plain Gmail/IMAP brokered account: the config is stored + exposed, and
-//     enforcement must be set on the provider's own vacation setting.
-//
-// The response therefore always echoes the stored config so the UI is truthful
-// about what WILL apply once the delivery path honours it.
+// ENFORCEMENT NOTE: lilmail is a CLIENT — it connects to the user's own provider
+// over IMAP/SMTP and does NOT run the inbound delivery path, so storing "enabled"
+// here does not, by itself, make the provider auto-reply. This surface is the
+// authoritative CONFIG the client edits; actual enforcement must be set on the
+// provider's own vacation/out-of-office setting (Gmail, Fastmail, a self-hosted
+// Dovecot/Sieve, …). The response always echoes the stored config so the UI is
+// truthful about what it holds.
 func (h *Handler) handleGetVacation(c *fiber.Ctx) error {
 	store, owner, handled, herr := h.settingsStoreOr501(c)
 	if handled {
@@ -121,79 +106,7 @@ func (h *Handler) handlePutVacation(c *fiber.Ctx) error {
 	if err := store.put(owner, kindVacation, &in); err != nil {
 		return fail(c, fiber.StatusInternalServerError, "could not save vacation settings")
 	}
-
-	// Push the config to the firing engine for vulos-mail-hosted mailboxes. The KV
-	// above is the UI's read model; vulos-mail is where inbound DELIVERY runs, so it
-	// is the only place a server-side auto-reply can actually fire. We derive its
-	// broker-gated /internal/vacation endpoint from the same rule-store URL the /v1
-	// rules + snooze surfaces use (present only for a vulos-mail-hosted account). For
-	// an externally-brokered IMAP account (Gmail/Outlook/plain IMAP) there is no such
-	// endpoint: the config is stored + exposed here, but the external provider runs
-	// its own vacation responder — we do not pretend to enforce it. Best-effort: a
-	// push failure does not fail the save (the config is durably stored either way).
-	serverEnforced := false
-	if spec, ok := brokerSpecOf(c); ok {
-		if storeURL := vacationStoreURLFromRules(spec.RulesURL); storeURL != "" {
-			if err := pushVacationConfig(c.Context(), storeURL, h.brokerSecret, spec.Email, in); err == nil {
-				serverEnforced = true
-			}
-		}
-	}
-	out := vacationPublic(in)
-	out["serverEnforced"] = serverEnforced
-	return c.JSON(out)
-}
-
-// vacationStoreURLFromRules derives vulos-mail's /internal/vacation endpoint from
-// the brokered rule-store URL (…/internal/mailrules → …/internal/vacation), the
-// same derivation the snooze schedule uses. Returns "" when no rule-store URL is
-// brokered — i.e. the mailbox is not vulos-mail-hosted, so there is no firing
-// engine to push to.
-func vacationStoreURLFromRules(rulesURL string) string {
-	rulesURL = strings.TrimRight(strings.TrimSpace(rulesURL), "/")
-	if rulesURL == "" {
-		return ""
-	}
-	if strings.HasSuffix(rulesURL, "/internal/mailrules") {
-		return strings.TrimSuffix(rulesURL, "/mailrules") + "/vacation"
-	}
-	// Unknown shape: best-effort sibling under the same parent path.
-	if i := strings.LastIndex(rulesURL, "/"); i > 0 {
-		return rulesURL[:i] + "/vacation"
-	}
-	return ""
-}
-
-// pushVacationConfig PUTs the vacation config to vulos-mail's broker-gated
-// /internal/vacation endpoint so the delivery-time responder honours it. Package
-// var for the test seam (mirrors postSnoozeSchedule).
-var pushVacationConfig = func(ctx context.Context, storeURL, secret, account string, cfg vacationConfig) error {
-	body := map[string]any{
-		"account": account,
-		"enabled": cfg.Enabled,
-		"subject": cfg.Subject,
-		"body":    cfg.Body,
-		"startAt": cfg.StartAt,
-		"endAt":   cfg.EndAt,
-	}
-	b, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, storeURL, bytes.NewReader(b))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("X-Vulos-Broker-Auth", secret)
-	req.Header.Set("Content-Type", "application/json")
-	hc := &http.Client{Timeout: 15 * time.Second}
-	resp, err := hc.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return &fiber.Error{Code: resp.StatusCode, Message: "vacation config rejected by engine"}
-	}
-	return nil
+	return c.JSON(vacationPublic(in))
 }
 
 // vacationActive reports whether the responder should fire for a message received
@@ -359,36 +272,16 @@ const maxIdentities = 20
 
 // handlePutIdentities replaces the account's send-as identities (aliases). It is
 // the write half of the identities surface, mirroring handlePutSignatures /
-// handlePutVacation: same auth (session OR broker, scoped to fromEmail), same KV,
-// same "PUT replaces the whole set" contract.
+// handlePutVacation: same auth, same KV, same "PUT replaces the whole set" contract.
 //
-// AUTHORITY — an alias is a security decision, not a preference: claiming an address
-// means claiming both the right to SEND as it and the right to RECEIVE at it.
-// lilmail is NOT the authority for that claim. So for a vulos-mail-hosted mailbox the
-// alias list is PUSHED to the engine's broker-gated /internal/identities FIRST, and
-// the engine authorizes each alias against the verified-domain rule (an address at a
-// domain the tenant has proven it owns, or a plus-subaddress of the account's own
-// mailbox) and against the routing namespace (it may not already be a mailbox, a
-// group, or another account's alias). If the engine REFUSES (403 unauthorized / 409
-// collision) or is unreachable, we store NOTHING and propagate the refusal —
-// fail-closed, so the UI can never offer a From the mail server will reject at
-// submission, nor promise an inbound address that will not receive (and no one can
-// register ceo@google.com by writing straight to this surface).
-//
-// For an externally-brokered mailbox (Gmail/Outlook/plain IMAP) there is no
-// vulos-mail engine to authorize against: the identities are stored as the client's
-// read model, `serverEnforced` is false, and the upstream provider's SMTP server
-// remains the authority for what From it will accept — and, since the mailbox is not
-// ours, nothing here makes an address inbound-deliverable. We do not pretend otherwise.
+// AUTHORITY: lilmail is a CLIENT and is NOT the authority for what From an account
+// may send as — the user's own provider SMTP server is. These identities are stored
+// as the client's read model (the compose From menu); the upstream provider remains
+// the authority and will reject a From it does not permit at submission time. The
+// address is still validated for shape + header-injection here (defence in depth).
 //
 // The primary mailbox is implicit — it is always returned by GET and is never
 // stored as an alias, so a client cannot remove, rename, or shadow it.
-//
-// SCOPE (vulos-mail-hosted): BOTH directions. A registered alias is a send-as
-// identity AND an inbound delivery address — mail sent to it is delivered to this
-// mailbox, ranked below an exact mailbox and a group and above a catch-all. (A
-// `you+tag@` subaddress already delivers to the mailbox without being registered;
-// registering it only adds it to the From menu.)
 func (h *Handler) handlePutIdentities(c *fiber.Ctx) error {
 	store, owner, handled, herr := h.settingsStoreOr501(c)
 	if handled {
@@ -406,7 +299,6 @@ func (h *Handler) handlePutIdentities(c *fiber.Ctx) error {
 
 	seen := make(map[string]struct{}, len(body.Identities))
 	out := make([]identity, 0, len(body.Identities))
-	aliases := make([]string, 0, len(body.Identities))
 	for _, id := range body.Identities {
 		addr := strings.ToLower(strings.TrimSpace(id.Address))
 		if addr == "" || strings.EqualFold(addr, owner) {
@@ -426,36 +318,9 @@ func (h *Handler) handlePutIdentities(c *fiber.Ctx) error {
 		seen[addr] = struct{}{}
 		id.Address, id.IsPrimary = addr, false
 		out = append(out, id)
-		aliases = append(aliases, addr)
 	}
 	if len(out) > maxIdentities {
 		return fail(c, fiber.StatusBadRequest, "too many identities")
-	}
-
-	// Register with the authority BEFORE storing (fail-closed).
-	serverEnforced := false
-	if spec, ok := brokerSpecOf(c); ok {
-		if storeURL := identitiesStoreURLFromRules(spec.RulesURL); storeURL != "" {
-			if err := pushIdentities(c.Context(), storeURL, h.brokerSecret, spec.Email, aliases); err != nil {
-				var fe *fiber.Error
-				// Propagate the authority's own refusal verbatim, with its own status —
-				// 403 "you may not claim that address", 409 "that address is already a
-				// mailbox, a group, or another account's alias" (an alias is an INBOUND
-				// address, so a collision is a real routing conflict, not a preference),
-				// 400 malformed, 501 not configured. Anything else is an upstream fault.
-				if errors.As(err, &fe) && (fe.Code == fiber.StatusForbidden ||
-					fe.Code == fiber.StatusConflict ||
-					fe.Code == fiber.StatusBadRequest || fe.Code == fiber.StatusNotImplemented) {
-					msg := fe.Message
-					if msg == "" {
-						msg = "the mail server refused these identities"
-					}
-					return fail(c, fe.Code, msg)
-				}
-				return fail(c, fiber.StatusBadGateway, "could not register identities with the mail server")
-			}
-			serverEnforced = true
-		}
 	}
 
 	if err := store.put(owner, kindIdentities, out); err != nil {
@@ -463,63 +328,8 @@ func (h *Handler) handlePutIdentities(c *fiber.Ctx) error {
 	}
 	// Echo the same shape GET returns (primary first, never removable).
 	return c.JSON(fiber.Map{
-		"identities":     append([]identity{{Address: owner, IsPrimary: true}}, out...),
-		"serverEnforced": serverEnforced,
+		"identities": append([]identity{{Address: owner, IsPrimary: true}}, out...),
 	})
-}
-
-// identitiesStoreURLFromRules derives vulos-mail's /internal/identities endpoint
-// from the brokered rule-store URL (…/internal/mailrules → …/internal/identities),
-// the same derivation the vacation/spam/snooze pushes use. Returns "" when no
-// rule-store URL is brokered — i.e. the mailbox is not vulos-mail-hosted, so there
-// is no send-as authority to register with.
-func identitiesStoreURLFromRules(rulesURL string) string {
-	rulesURL = strings.TrimRight(strings.TrimSpace(rulesURL), "/")
-	if rulesURL == "" {
-		return ""
-	}
-	if strings.HasSuffix(rulesURL, "/internal/mailrules") {
-		return strings.TrimSuffix(rulesURL, "/mailrules") + "/identities"
-	}
-	// Unknown shape: best-effort sibling under the same parent path.
-	if i := strings.LastIndex(rulesURL, "/"); i > 0 {
-		return rulesURL[:i] + "/identities"
-	}
-	return ""
-}
-
-// pushIdentities registers the account's alias addresses with vulos-mail's
-// broker-gated /internal/identities, where they are AUTHORIZED and persisted into
-// the store the send path checks. A non-2xx is returned as a *fiber.Error carrying
-// the upstream status + message so the caller can propagate a 403 ("not an address
-// this account may send as") rather than a generic failure. Package var for the
-// test seam (mirrors pushVacationConfig).
-var pushIdentities = func(ctx context.Context, storeURL, secret, account string, aliases []string) error {
-	if aliases == nil {
-		aliases = []string{}
-	}
-	b, _ := json.Marshal(map[string]any{"account": account, "aliases": aliases})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, storeURL, bytes.NewReader(b))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("X-Vulos-Broker-Auth", secret)
-	req.Header.Set("Content-Type", "application/json")
-	hc := &http.Client{Timeout: 15 * time.Second}
-	resp, err := hc.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		var e struct {
-			Error string `json:"error"`
-		}
-		_ = json.Unmarshal(raw, &e)
-		return &fiber.Error{Code: resp.StatusCode, Message: e.Error}
-	}
-	return nil
 }
 
 // validIdentityAddress reports whether a is a safe send-as address:
@@ -550,7 +360,26 @@ func validIdentityAddress(a string) bool {
 	if a[:i] == "" {
 		return false
 	}
-	return validSpamDomain(a[i+1:])
+	return validDomain(a[i+1:])
+}
+
+// validDomain reports whether d is a syntactically valid DNS domain (2+ labels,
+// each 1..63 chars, no leading/trailing dot or hyphen). Used to bound the domain
+// half of a send-as identity address.
+func validDomain(d string) bool {
+	if d == "" || len(d) > 253 || strings.HasPrefix(d, ".") || strings.HasSuffix(d, ".") {
+		return false
+	}
+	labels := strings.Split(d, ".")
+	if len(labels) < 2 {
+		return false
+	}
+	for _, l := range labels {
+		if l == "" || len(l) > 63 || strings.HasPrefix(l, "-") || strings.HasSuffix(l, "-") {
+			return false
+		}
+	}
+	return true
 }
 
 // --- helpers -----------------------------------------------------------------

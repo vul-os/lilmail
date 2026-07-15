@@ -1,84 +1,27 @@
 // handlers/jsonapi/snooze.go — POST/DELETE /v1/messages/:uid/snooze.
 //
-// Snooze hides a message until a due time, then returns it to the inbox. lilmail
-// owns the reversible IMAP half (move the message to the Snoozed folder), while
-// the authoritative DUE-TIME schedule + the un-snooze action live in vulos-mail
-// (where delivery runs, so a message can actually re-appear in the inbox at the
-// due instant). This handler:
+// Snooze hides a message until a due time. lilmail is a CLIENT and does not run
+// the inbound delivery path, so it owns only the reversible IMAP half: it moves
+// the message to the Snoozed folder (creating it if the account has none). The
+// automatic RETURN of the message to the inbox at the due instant requires a
+// delivery-side scheduler that lilmail does not host, so the response is honest:
+// the message is moved (snoozed), but auto-return is reported as unavailable and
+// the client is expected to surface / handle the due time itself.
 //
-//  1. reads the message's RFC822 Message-ID (the stable identifier shared with
-//     vulos-mail's model, so no fragile IMAP-UID<->model-ID mapping is needed),
-//  2. moves the message from its source folder to the Snoozed folder (IMAP MOVE,
-//     creating the folder if the account has none),
-//  3. registers the due-time with vulos-mail's broker-gated /internal/snooze
-//     endpoint (URL derived from the brokered rule-store URL — the two live under
-//     the same /internal base). If no such backend is brokered (session lilmail,
-//     or a plain Gmail/IMAP account), the move still happens and the response
-//     notes the auto-return is not wired for this backend (honest degrade).
-//
-// DELETE cancels a pending snooze (best-effort) — the caller is expected to move
-// the message back itself; this only clears the scheduled auto-return.
+// DELETE is the inverse intent (cancel a snooze); the caller moves the message
+// back itself — this endpoint is a no-op acknowledgement kept for API symmetry.
 package jsonapi
 
 import (
-	"bytes"
-	"context"
-	"encoding/json"
-	"io"
-	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 )
 
-// snoozeStoreURLFromRules derives vulos-mail's /internal/snooze base URL from the
-// brokered rule-store URL (…/internal/mailrules → …/internal/snooze). Returns ""
-// when no rule-store URL is brokered (the snooze schedule cannot be persisted).
-func snoozeStoreURLFromRules(rulesURL string) string {
-	rulesURL = strings.TrimRight(strings.TrimSpace(rulesURL), "/")
-	if rulesURL == "" {
-		return ""
-	}
-	if strings.HasSuffix(rulesURL, "/internal/mailrules") {
-		return strings.TrimSuffix(rulesURL, "/mailrules") + "/snooze"
-	}
-	// Unknown shape: best-effort sibling under the same parent path.
-	if i := strings.LastIndex(rulesURL, "/"); i > 0 {
-		return rulesURL[:i] + "/snooze"
-	}
-	return ""
-}
-
-// postSnoozeSchedule registers (POST) or cancels (DELETE) a due-time with
-// vulos-mail's /internal/snooze endpoint. Package var for the test seam.
-var postSnoozeSchedule = func(ctx context.Context, storeURL, secret, method, account, messageID string, until time.Time) error {
-	body := map[string]any{"account": account, "messageId": messageID}
-	if method == http.MethodPost {
-		body["until"] = until.UTC().Format(time.RFC3339)
-	}
-	b, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(ctx, method, storeURL, bytes.NewReader(b))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("X-Vulos-Broker-Auth", secret)
-	req.Header.Set("Content-Type", "application/json")
-	hc := &http.Client{Timeout: 15 * time.Second}
-	resp, err := hc.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return &fiber.Error{Code: resp.StatusCode, Message: "snooze schedule rejected"}
-	}
-	return nil
-}
-
-// handleSnooze moves a message to the Snoozed folder and schedules its return to
-// the inbox at `until`.
+// handleSnooze moves a message to the Snoozed folder. `until` is validated and
+// echoed so the client can track the due time, but lilmail does not itself return
+// the message to the inbox (no delivery-side scheduler) — autoReturn is false.
 // POST /v1/messages/:uid/snooze  ?folder=  body {until}
 func (h *Handler) handleSnooze(c *fiber.Ctx) error {
 	uid := c.Params("uid")
@@ -101,13 +44,6 @@ func (h *Handler) handleSnooze(c *fiber.Ctx) error {
 	}
 	defer cl.Close()
 
-	// Read the Message-ID before the move (the UID changes across the move).
-	msg, err := cl.FetchSingleMessage(src, uid)
-	if err != nil {
-		return fail(c, fiber.StatusNotFound, "message not found")
-	}
-	messageID := strings.TrimSpace(msg.MessageID)
-
 	snoozed, err := cl.DiscoverSnoozedFolder()
 	if err != nil {
 		return fail(c, fiber.StatusBadGateway, "could not locate snoozed folder")
@@ -119,56 +55,20 @@ func (h *Handler) handleSnooze(c *fiber.Ctx) error {
 		return fail(c, fiber.StatusBadGateway, "could not snooze message")
 	}
 
-	// Register the due-time with vulos-mail so the message returns to the inbox.
-	// Requires both a brokered rule-store URL (to derive the snooze endpoint) and
-	// a Message-ID to key on. Without either, the move is done but the auto-return
-	// is not scheduled — report that honestly instead of pretending it will fire.
-	scheduled := false
-	if spec, ok := brokerSpecOf(c); ok && messageID != "" {
-		if storeURL := snoozeStoreURLFromRules(spec.RulesURL); storeURL != "" {
-			if err := postSnoozeSchedule(c.Context(), storeURL, h.brokerSecret, http.MethodPost, spec.Email, messageID, until); err == nil {
-				scheduled = true
-			}
-		}
-	}
-	if !scheduled {
-		// 200 (not 204) with a body so the client can surface the caveat if it
-		// wants; the message IS snoozed (moved), just not auto-scheduled to return.
-		return c.Status(fiber.StatusOK).JSON(fiber.Map{
-			"snoozed":    true,
-			"autoReturn": false,
-			"until":      until.UTC().Format(time.RFC3339),
-			"folder":     snoozed,
-			"note":       "message moved to the Snoozed folder; automatic return to the inbox is not available for this mailbox backend",
-		})
-	}
-	return c.SendStatus(fiber.StatusNoContent)
+	// 200 (not 204) with a body so the client can surface the caveat: the message
+	// IS snoozed (moved), but lilmail does not auto-return it to the inbox.
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"snoozed":    true,
+		"autoReturn": false,
+		"until":      until.UTC().Format(time.RFC3339),
+		"folder":     snoozed,
+		"note":       "message moved to the Snoozed folder; automatic return to the inbox is handled by the client",
+	})
 }
 
-// handleUnsnooze cancels a pending scheduled return for a message. It does not
-// move the message (the caller does that); it only clears the schedule so the
-// message will not later re-appear in the inbox on its own.
+// handleUnsnooze is a no-op acknowledgement kept for API symmetry: lilmail holds
+// no due-time schedule to clear (the caller moves the message back itself).
 // DELETE /v1/messages/:uid/snooze  ?folder=
 func (h *Handler) handleUnsnooze(c *fiber.Ctx) error {
-	uid := c.Params("uid")
-	src := folderParam(c)
-
-	cl, err := h.client(c)
-	if err != nil {
-		return fail(c, fiber.StatusBadGateway, "mail server connection failed")
-	}
-	defer cl.Close()
-
-	msg, err := cl.FetchSingleMessage(src, uid)
-	if err != nil {
-		return fail(c, fiber.StatusNotFound, "message not found")
-	}
-	messageID := strings.TrimSpace(msg.MessageID)
-
-	if spec, ok := brokerSpecOf(c); ok && messageID != "" {
-		if storeURL := snoozeStoreURLFromRules(spec.RulesURL); storeURL != "" {
-			_ = postSnoozeSchedule(c.Context(), storeURL, h.brokerSecret, http.MethodDelete, spec.Email, messageID, time.Time{})
-		}
-	}
 	return c.SendStatus(fiber.StatusNoContent)
 }

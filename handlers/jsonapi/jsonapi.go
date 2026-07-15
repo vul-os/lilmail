@@ -187,56 +187,6 @@ func (h *Handler) Register(app *fiber.App) {
 		g.Delete("/contacts/:uid", h.handleDeleteContact)     // ?path=
 	}
 
-	// Rules / filters — registered when the broker path is active (the authoritative
-	// per-account rule store lives in vulos-mail and its base URL arrives per
-	// request as X-Vulos-Mail-Rules-Url). When a request carries no rule-store URL
-	// (e.g. a plain Gmail/IMAP brokered account), the handlers report 501 and the
-	// mail-ui hides Filters. See rules.go.
-	if h.brokerSecret != "" {
-		h.registerRules(g)
-	}
-
-	// Threads — registered when the broker path is active (the authoritative
-	// canonical per-account conversation thread ids are computed by vulos-mail and
-	// its thread-store base URL arrives per request as X-Vulos-Mail-Threads-Url).
-	// When a request carries no thread-store URL (e.g. a plain Gmail/IMAP brokered
-	// account), GET /v1/threads/:id reports 501 and ?threaded=1 on the message list
-	// leaves ThreadID empty so the client falls back to its own JWZ union-find. See
-	// threads.go.
-	if h.brokerSecret != "" {
-		h.registerThreads(g)
-	}
-
-	// Categories — registered when the broker path is active (vulos-mail classifies
-	// inbound mail into Gmail-style inbox tabs and its category base URL arrives per
-	// request as X-Vulos-Mail-Categories-Url). When a request carries no category
-	// URL (e.g. a plain Gmail/IMAP brokered account), the message listing leaves
-	// each `category` empty (client shows a single Primary tab), ?category= is
-	// ignored, and POST /v1/messages/:uid/category reports 501. See categories.go.
-	if h.brokerSecret != "" {
-		h.registerCategories(g)
-	}
-
-	// Smart-folders — registered when the broker path is active (vulos-mail does
-	// semantic auto-foldering and its smart-folders base URL arrives per request as
-	// X-Vulos-Mail-Smartfolders-Url). When a request carries no smart-folders URL,
-	// the message listing leaves each `smartFolder` empty (client shows no smart-
-	// folders), ?folder= is ignored, and POST /v1/messages/:uid/smartfolder reports
-	// 501. See smartfolders.go.
-	if h.brokerSecret != "" {
-		h.registerSmartFolders(g)
-	}
-
-	// Team inbox — registered when the broker path is active (vulos-mail hosts the
-	// collaborative shared-mailbox store and its base URL arrives per request as
-	// X-Vulos-Mail-Teaminbox-Url, ONLY for a shared mailbox, with the acting member
-	// as X-Vulos-Mail-Member). When a request carries no team-inbox URL (a plain
-	// personal account, or standalone/session lilmail), the whole /v1/team surface
-	// reports 501. All team authorization is member-scoped upstream; a non-member
-	// gets 403 and internal notes never enter the send path. See team.go.
-	if h.brokerSecret != "" {
-		h.registerTeam(g)
-	}
 }
 
 // requireAuth gates the group, returning 401 JSON (never a redirect) when the
@@ -342,67 +292,13 @@ func (h *Handler) handleMessages(c *fiber.Ctx) error {
 		return fail(c, fiber.StatusBadGateway, "could not fetch messages")
 	}
 
-	// ?threaded=1: when a thread store is available (vulos-mail-hosted account),
-	// augment each message with its CANONICAL server-side thread id. This is purely
-	// ADDITIVE — the flat response shape (folder/limit/offset/nextOffset/messages)
-	// is unchanged; only an extra optional threadId appears per message. For a
-	// non-hosted account (no thread store) the messages keep an empty threadId and
-	// the client falls back to its own JWZ union-find — the request is never errored.
-	if boolQuery(c, "threaded") && len(emails) > 0 {
-		if store, terr := h.threadStoreFor(c); terr == nil {
-			h.attachThreadIDs(c.Context(), store, emails)
-		}
-	}
-
 	// nextOffset advances the window only when THIS PAGE (the raw IMAP fetch) was
-	// full; a short page means the end of the mailbox was reached. Computed from the
-	// pre-filter page length so a category filter (which shrinks the page) can never
-	// make paging stop early — the client keeps paging the underlying folder and the
-	// filter is re-applied to each page. Must be captured BEFORE any filtering below.
+	// full; a short page means the end of the mailbox was reached.
 	var nextOffset interface{}
 	if limit > 0 && uint32(len(emails)) >= limit {
 		nextOffset = offset + limit
 	}
 
-	// Inbox categories: when a category store is available (vulos-mail-hosted
-	// account), stamp each message with its category tab (additive, like threadId).
-	// A ?category=<tab> query then filters the page to that tab. Both are purely
-	// additive: a non-hosted account (no category store) keeps an empty category and
-	// ?category= is ignored — the client shows a single Primary tab. The filter is
-	// applied ONLY when the category resolve actually SUCCEEDED (categories were
-	// stamped); if the upstream store is transiently unreachable, attachCategories
-	// swallows the error and stamps nothing, so we must NOT filter (that would hide
-	// a real message list behind an all-empty "primary" default). On a resolve miss
-	// the request degrades to the full, un-filtered page rather than an empty tab.
-	wantCat := strings.ToLower(strings.TrimSpace(c.Query("category")))
-	if len(emails) > 0 {
-		if store, cerr := h.categoryStoreFor(c); cerr == nil {
-			stamped := h.attachCategories(c.Context(), store, emails)
-			if stamped {
-				if _, ok := knownCategories[wantCat]; ok {
-					emails = filterByCategory(emails, wantCat)
-				}
-			}
-		}
-	}
-
-	// Semantic smart-folders: same augment-then-filter shape as categories, but a
-	// SEPARATE seam (?folder=<smart>). Additive `smartFolder` stamp per message,
-	// optionally filtered to one smart-folder. A non-hosted account (no store) keeps
-	// smartFolder empty and ?folder= is ignored. Filter applied ONLY when the
-	// resolve SUCCEEDED (else a transient upstream miss would hide the whole list
-	// behind an empty smart-folder). Note: ?folder= is ALSO the IMAP folder param
-	// (folderParam); a value that is a known SMART folder additionally filters here,
-	// while a real IMAP folder name is untouched (not in knownSmartFolders).
-	wantSmart := strings.ToLower(strings.TrimSpace(c.Query("smartFolder")))
-	if len(emails) > 0 {
-		if store, serr := h.smartFolderStoreFor(c); serr == nil {
-			stamped := h.attachSmartFolders(c.Context(), store, emails)
-			if stamped && knownSmartFolders[wantSmart] {
-				emails = filterBySmartFolder(emails, wantSmart)
-			}
-		}
-	}
 	return c.JSON(fiber.Map{
 		"folder":     folder,
 		"limit":      limit,
@@ -437,13 +333,6 @@ func (h *Handler) handleMessage(c *fiber.Ctx) error {
 				break
 			}
 		}
-	}
-	// Smart-card fields: when the backend extracts schema.org structured data, stamp
-	// the message with its `smartFields` (bill amount/due-date, package tracking,
-	// flight info) so the reading pane can render the smart card. Best-effort +
-	// additive: a non-hosted account or a miss leaves it nil.
-	if store, serr := h.smartFolderStoreFor(c); serr == nil {
-		h.attachSmartFields(c.Context(), store, &email)
 	}
 	// Verified sender brand logo (BIMI): privacy-safe sender image gated fail-closed
 	// on DMARC pass (see attachBrandIndicator). Best-effort + additive.

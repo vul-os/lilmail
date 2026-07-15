@@ -1,12 +1,10 @@
 package jsonapi
 
 import (
-	"context"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
-	"time"
 
 	"lilmail/handlers/api"
 	"lilmail/models"
@@ -129,44 +127,9 @@ func TestReportSpamMovesToJunk(t *testing.T) {
 	}
 }
 
-// Snooze moves the message to Snoozed and registers a due-time when a rule-store
-// URL is brokered (so the snooze endpoint can be derived).
-func TestSnoozeMovesAndSchedules(t *testing.T) {
-	rec := &recordingFolders{fetchMsgID: "<abc@x>"}
-	app := newBrokeredApp(t, rec)
-
-	var gotURL, gotAccount, gotMsgID, gotMethod string
-	orig := postSnoozeSchedule
-	postSnoozeSchedule = func(_ context.Context, storeURL, _, method, account, messageID string, _ time.Time) error {
-		gotURL, gotAccount, gotMsgID, gotMethod = storeURL, account, messageID, method
-		return nil
-	}
-	t.Cleanup(func() { postSnoozeSchedule = orig })
-
-	req := fReq("POST", "/v1/messages/5/snooze?folder=INBOX", `{"until":"2030-01-01T10:00:00Z"}`)
-	req.Header.Set(hdrMailRulesURL, "http://127.0.0.1:2080/internal/mailrules")
-	resp, err := app.Test(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resp.StatusCode != fiber.StatusNoContent {
-		b, _ := io.ReadAll(resp.Body)
-		t.Fatalf("want 204, got %d: %s", resp.StatusCode, b)
-	}
-	if rec.movedDest != "Snoozed" || rec.movedSrc != "INBOX" {
-		t.Fatalf("move: src=%q dest=%q", rec.movedSrc, rec.movedDest)
-	}
-	if gotURL != "http://127.0.0.1:2080/internal/snooze" {
-		t.Fatalf("snooze store URL=%q", gotURL)
-	}
-	if gotAccount != "user@gmail.com" || gotMsgID != "<abc@x>" || gotMethod != http.MethodPost {
-		t.Fatalf("schedule args: account=%q msgID=%q method=%q", gotAccount, gotMsgID, gotMethod)
-	}
-}
-
-// Without a brokered rule-store URL, snooze still moves the message but reports
-// autoReturn:false (honest degrade) with a 200 body.
-func TestSnoozeWithoutRuleStoreDegrades(t *testing.T) {
+// Snooze moves the message to the Snoozed folder and reports autoReturn:false
+// (lilmail is a client — it does not itself return the message to the inbox).
+func TestSnoozeMovesToSnoozed(t *testing.T) {
 	rec := &recordingFolders{fetchMsgID: "<abc@x>"}
 	app := newBrokeredApp(t, rec)
 
@@ -182,21 +145,8 @@ func TestSnoozeWithoutRuleStoreDegrades(t *testing.T) {
 	if !strings.Contains(string(body), `"autoReturn":false`) {
 		t.Fatalf("want autoReturn:false, got %s", body)
 	}
-	if rec.movedDest != "Snoozed" {
-		t.Fatalf("message should still be moved to Snoozed, dest=%q", rec.movedDest)
-	}
-}
-
-func TestSnoozeStoreURLDerivation(t *testing.T) {
-	cases := map[string]string{
-		"http://h:2080/internal/mailrules":  "http://h:2080/internal/snooze",
-		"http://h:2080/internal/mailrules/": "http://h:2080/internal/snooze",
-		"":                                  "",
-	}
-	for in, want := range cases {
-		if got := snoozeStoreURLFromRules(in); got != want {
-			t.Fatalf("snoozeStoreURLFromRules(%q)=%q, want %q", in, got, want)
-		}
+	if rec.movedDest != "Snoozed" || rec.movedSrc != "INBOX" {
+		t.Fatalf("message should be moved INBOX→Snoozed, src=%q dest=%q", rec.movedSrc, rec.movedDest)
 	}
 }
 

@@ -1,21 +1,22 @@
-// handlers/jsonapi/broker.go — CP-brokered credential mode for the /v1 JSON API.
+// handlers/jsonapi/broker.go — per-request credential-injection seam for /v1.
 //
-// WHY THIS EXISTS: Vulos Cloud's control plane (CP) custodies users' EXTERNAL
-// mailbox credentials (Gmail/Outlook/IMAP) and reverse-proxies to lilmail's /v1
-// surface, injecting the per-request connection credentials as HTTP headers. In
-// that deployment lilmail has no session of its own — the mailbox identity and
-// secret arrive on every request. This file lets lilmail consume those headers
-// and build a MailClient directly from them, instead of the normal
-// session→CreateIMAPClient path.
+// WHY THIS EXISTS: lilmail is a standalone PIM client — normally it holds its own
+// session and connects to the user's OWN mailbox via session→CreateIMAPClient.
+// This file adds an OPTIONAL alternative: an embedding host (or the test harness)
+// may inject the per-request external-mailbox connection descriptor as HTTP
+// headers, so lilmail builds a MailClient directly from them instead of from a
+// session. lilmail hosts no mail of its own and depends on no central server;
+// these headers only ever describe the USER'S account (IMAP/SMTP/CalDAV/CardDAV
+// endpoint + a short-lived OAuth token or password) that lilmail then talks to.
 //
 // SECURITY: this is credential injection if done wrong. The X-Vulos-Mail-*
-// headers are honored ONLY when the request also presents a valid broker secret
+// headers are honored ONLY when the request also presents a valid secret
 // (X-Vulos-Broker-Auth, constant-time compared against LILMAIL_BROKER_SECRET).
 // If LILMAIL_BROKER_SECRET is unset, or the presented secret does not match, the
-// brokered headers are IGNORED ENTIRELY and the request falls back to normal
+// injected headers are IGNORED ENTIRELY and the request falls back to normal
 // session auth. Standalone lilmail (no secret configured) therefore never trusts
 // arbitrary client headers. The headers are only ever read inside the /v1 group
-// (after the broker middleware), never on unauthenticated or HTMX paths.
+// (after the middleware), never on unauthenticated or HTMX paths.
 package jsonapi
 
 import (
@@ -47,66 +48,13 @@ const (
 	hdrMailSMTPHost = "X-Vulos-Mail-Smtp-Host"
 	hdrMailSMTPPort = "X-Vulos-Mail-Smtp-Port"
 
-	// CalDAV/CardDAV base URLs for the brokered account. Optional: the CP only
-	// sends them for accounts that actually expose DAV (e.g. Gmail/IMAP). When
-	// absent, the calendar/contacts routes report "not available for this
-	// account" rather than touching the session. Auth reuses X-Vulos-Mail-Auth=
-	// xoauth2 + X-Vulos-Mail-Secret as an HTTP Bearer token.
+	// CalDAV/CardDAV base URLs for the injected account. Optional: present only
+	// for accounts that actually expose DAV (e.g. Gmail/IMAP). When absent, the
+	// calendar/contacts routes report "not available for this account" rather than
+	// touching the session. Auth reuses X-Vulos-Mail-Auth=xoauth2 +
+	// X-Vulos-Mail-Secret as an HTTP Bearer token.
 	hdrMailCalDAVURL  = "X-Vulos-Mail-Caldav-Url"
 	hdrMailCardDAVURL = "X-Vulos-Mail-Carddav-Url"
-
-	// Rules-store base URL for the brokered account. Optional: sent only by a
-	// backend that hosts an authoritative per-account rule store (vulos-mail).
-	// When absent, the /v1/rules surface reports "not supported by this mailbox
-	// backend" (501) — e.g. a plain Gmail/IMAP brokered account. lilmail brokers
-	// CRUD to this URL, presenting the shared broker secret as X-Vulos-Rules-Auth.
-	hdrMailRulesURL = "X-Vulos-Mail-Rules-Url"
-
-	// Threads-store base URL for the brokered account. Optional: sent only by a
-	// backend that computes canonical server-side conversation thread ids at ingest
-	// (vulos-mail). When absent, the /v1/threads surface reports 501 and ?threaded=1
-	// leaves ThreadID empty (the client falls back to its own JWZ union-find) — e.g.
-	// a plain Gmail/IMAP brokered account, or standalone/session lilmail. lilmail
-	// brokers reads to this URL, presenting the shared broker secret as
-	// X-Vulos-Broker-Auth and the validated mailbox as the `account` field/query.
-	hdrMailThreadsURL = "X-Vulos-Mail-Threads-Url"
-
-	// Categories base URL for the brokered account. Optional: sent only by a
-	// backend that classifies inbound mail into Gmail-style inbox tabs
-	// (Primary/Social/Promotions/Updates/Forums) — vulos-mail. When absent, the
-	// /v1 category surface reports 501 for re-categorize and the message listing
-	// leaves each `category` empty (the client shows a single Primary tab) — e.g. a
-	// plain Gmail/IMAP brokered account, or standalone/session lilmail. lilmail
-	// brokers reads/trains to this URL, presenting the shared broker secret as
-	// X-Vulos-Broker-Auth and the validated mailbox as the `account` field.
-	hdrMailCategoriesURL = "X-Vulos-Mail-Categories-Url"
-
-	// Smart-folders base URL for the brokered account. Optional: sent only by a
-	// backend that classifies inbound mail into SEMANTIC smart-folders
-	// (Bills/Receipts/Travel/Shipping/Subscriptions/Statements) and extracts
-	// schema.org card fields — vulos-mail. When absent, the /v1 smart-folder surface
-	// reports 501 for re-file and the message listing leaves each `smartFolder`
-	// empty (the client shows no smart-folders) — e.g. a plain Gmail/IMAP brokered
-	// account, or standalone/session lilmail. lilmail brokers reads/trains/field-
-	// extraction to this URL, presenting the shared broker secret as
-	// X-Vulos-Broker-Auth and the validated mailbox as the `account` field.
-	hdrMailSmartFoldersURL = "X-Vulos-Mail-Smartfolders-Url"
-
-	// Team-inbox base URL for a SHARED mailbox. Optional: sent only by a backend
-	// that hosts the collaborative team-inbox store (vulos-mail) AND only when the
-	// brokered mailbox (spec.Email) is a shared mailbox. When absent, the /v1/team
-	// surface reports 501 — a plain personal account has no team inbox. lilmail
-	// brokers all team operations to this URL, presenting the shared broker secret
-	// as X-Vulos-Broker-Auth, the shared mailbox (spec.Email) as `address`, and the
-	// ACTING MEMBER (X-Vulos-Mail-Member) as `member`.
-	hdrMailTeamInboxURL = "X-Vulos-Mail-Teaminbox-Url"
-
-	// The acting team member's OWN account — who is operating the shared mailbox.
-	// The CP sets this to the authenticated end user (distinct from spec.Email, the
-	// shared mailbox). All team-inbox authorization is against THIS member; it is
-	// never client-controlled input to the handlers (it comes from the broker
-	// headers, which are only trusted after the constant-time secret check).
-	hdrMailMember = "X-Vulos-Mail-Member"
 )
 
 // brokerEnvSecret is the env var that gates the whole brokered path. When empty,
@@ -137,33 +85,9 @@ type brokerSpec struct {
 	SMTPHost string
 	SMTPPort int
 	// CalDAVURL / CardDAVURL are the per-account DAV base URLs. Empty when the
-	// brokered account has no calendar/contacts surface (e.g. plain IMAP).
+	// injected account has no calendar/contacts surface (e.g. plain IMAP).
 	CalDAVURL  string
 	CardDAVURL string
-	// RulesURL is the authoritative per-account rule-store base URL (vulos-mail's
-	// /internal/mailrules). Empty when the backend has no rule store.
-	RulesURL string
-	// ThreadsURL is the authoritative per-account thread-store base URL (vulos-mail's
-	// internal threads endpoint). Empty when the backend computes no canonical
-	// server-side thread ids.
-	ThreadsURL string
-	// CategoriesURL is the authoritative per-account inbox-category base URL
-	// (vulos-mail's /internal/categories). Empty when the backend does not classify
-	// mail into tabs — the client then shows a single Primary inbox.
-	CategoriesURL string
-	// SmartFoldersURL is the authoritative per-account smart-folder base URL
-	// (vulos-mail's /internal/smartfolders). Empty when the backend does not do
-	// semantic auto-foldering — the client then shows no smart-folders.
-	SmartFoldersURL string
-	// TeamInboxURL is the collaborative team-inbox store base URL (vulos-mail's
-	// /internal/teaminbox). Empty when the brokered mailbox is not a shared mailbox
-	// (a plain personal account has no team inbox — the /v1/team surface reports 501).
-	TeamInboxURL string
-	// Member is the ACTING team member's own account (the authenticated end user
-	// operating the shared mailbox), from X-Vulos-Mail-Member. Empty when the
-	// request is not a team-inbox operation. All team authorization is against this
-	// member; it is never client-controlled (it arrives in the secret-gated headers).
-	Member string
 }
 
 // brokerDialIMAP builds a live MailClient from a validated broker spec. It is a
@@ -286,18 +210,6 @@ func (h *Handler) parseBroker(c *fiber.Ctx) (brokerSpec, bool) {
 		// Optional DAV URLs — never required to validate the spec.
 		CalDAVURL:  strings.TrimSpace(hdr(hdrMailCalDAVURL)),
 		CardDAVURL: strings.TrimSpace(hdr(hdrMailCardDAVURL)),
-		// Optional rule-store URL — never required to validate the spec.
-		RulesURL: strings.TrimSpace(hdr(hdrMailRulesURL)),
-		// Optional thread-store URL — never required to validate the spec.
-		ThreadsURL: strings.TrimSpace(hdr(hdrMailThreadsURL)),
-		// Optional categories URL — never required to validate the spec.
-		CategoriesURL: strings.TrimSpace(hdr(hdrMailCategoriesURL)),
-		// Optional smart-folders URL — never required to validate the spec.
-		SmartFoldersURL: strings.TrimSpace(hdr(hdrMailSmartFoldersURL)),
-		// Optional team-inbox URL + acting member — never required to validate the
-		// spec (only present for shared-mailbox team operations).
-		TeamInboxURL: strings.TrimSpace(hdr(hdrMailTeamInboxURL)),
-		Member:       strings.TrimSpace(hdr(hdrMailMember)),
 	}
 
 	if spec.Auth == "" {
