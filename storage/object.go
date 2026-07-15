@@ -330,9 +330,9 @@ func endpointAllowed(u *url.URL) bool {
 	}
 }
 
-// EndpointAllowed is the exported form of endpointAllowed so other Vulos seams
-// that dial header-injected URLs (e.g. the CP-brokered CalDAV/CardDAV clients in
-// handlers/api) can enforce the SAME transport-safety rule without duplicating
+// EndpointAllowed is the exported form of endpointAllowed so other seams
+// that dial header-injected URLs (e.g. the injected-credential CalDAV/CardDAV
+// clients in handlers/api) can enforce the SAME transport-safety rule without duplicating
 // the logic: require https unless the host is loopback/private.
 func EndpointAllowed(u *url.URL) bool { return endpointAllowed(u) }
 
