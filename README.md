@@ -8,8 +8,6 @@
 [![Latest release](https://img.shields.io/github/v/tag/vul-os/lilmail?label=release&sort=semver)](https://github.com/vul-os/lilmail/releases)
 [![CI](https://github.com/vul-os/lilmail/actions/workflows/ci.yml/badge.svg)](https://github.com/vul-os/lilmail/actions/workflows/ci.yml)
 
-<sub><img src="docs/assets/vulos-logo.png" height="14" alt="VulOS"> The PIM engine behind <strong><a href="https://vulos.org">VulOS</a></strong> — an independent project the Vulos OS integrates over its <code>/v1</code> API. Runs fully standalone.</sub>
-
 <br>
 
 <img src="docs/screenshots/hero.png" alt="lilmail — a message open in the three-pane reading view" width="900">
@@ -33,38 +31,10 @@ Everything beyond core mail — CalDAV calendar, CardDAV contacts, an AI mail
 assistant, real-time notifications, Web Push, and multi-account support — is
 opt-in via config keys and adds zero overhead when disabled.
 
-> ### Where this fits in Vulos: the **PIM engine** (the GNOME model)
->
-> lilmail is a fully **independent project** — think Evolution + Evolution-Data-
-> Server for the web. It talks to the **user's own** accounts (Gmail, Outlook, any
-> IMAP/CalDAV/CardDAV) over OAuth/password and exposes a stable **`/v1`** JSON API
-> (mail + `/v1/calendar` + `/v1/contacts`). That `/v1` is the shared source of
-> truth: the **Vulos OS consumes it** — thin standalone Calendar/Contacts widgets,
-> a mail surface, and optionally lilmail's own UI. **Vulos hosts no mail**; lilmail
-> is a client engine pointed at the accounts you already have. lilmail links to the
-> OS only through that clean `/v1` seam — never by importing one another's code.
-
-## Part of VulOS
-
-[VulOS](https://vulos.org) is an open, self-hostable web OS + app suite. lilmail
-is its **PIM engine** and stands alone; the OS integrates it over `/v1`. The
-sibling products (each free, OSS, and self-hostable) are:
-
-- **Vulos OS** — the web-native desktop (the shell that hosts the suite apps)
-- **Vulos Office** — documents: docs, sheets, slides, PDF, and whiteboards
-- **Vulos Files** — file storage + P2P sharing, built into the OS
-- **Vulos Relay** — sovereign connectivity / reachability fabric (`@vulos/relay-client`)
-- **llmux** — sovereign AI gateway
-
-lilmail is just an app like the others — one of the apps that runs on the OS.
-The OS and all apps are free OSS you self-host; Vulos bills for only **Relay**
-(reachability) and **backup storage** (buckets). Chat and video are **third-party**
-(Matrix/Element; Element Call / Jitsi), not products built by Vulos.
-
-**lilmail** is a complete IMAP/SMTP + CalDAV + CardDAV client that also exposes a
-clean `/v1` JSON API. It is not a service Vulos runs or bills — it is a client
-engine the user points at their own mailbox, and the OS builds its Calendar,
-Contacts, and mail surfaces on the same `/v1` contract.
+lilmail is a fully **independent project** — think Evolution + Evolution-Data-
+Server for the web. It talks to the **user's own** accounts (Gmail, Outlook, any
+IMAP/CalDAV/CardDAV) over OAuth/password and exposes a stable **`/v1`** JSON API
+(mail + `/v1/calendar` + `/v1/contacts`) that any rich client can build on.
 
 ## Features
 
@@ -77,8 +47,7 @@ Contacts, and mail surfaces on the same `/v1` contract.
   messages, search, flags, move/archive/spam, delete, snooze, compose + drafts,
   attachment upload/download, scheduled send, calendar, contacts, settings) for
   rich clients, served alongside the HTMX UI from the same engine and the same
-  session auth. This is the stable contract the Vulos OS builds its mail, Calendar,
-  and Contacts surfaces on. See [docs/API.md](docs/API.md).
+  session auth. See [docs/API.md](docs/API.md).
 - **OAuth2 / OpenID Connect** — authorization-code flow, PKCE (S256), automatic
   refresh-token handling, XOAUTH2 and OAUTHBEARER SASL; password login still works
 - **Conversation threading** — JWZ algorithm (`References` / `In-Reply-To` /
@@ -115,7 +84,7 @@ page never does a full reload.
 ```mermaid
 flowchart TD
     UI["HTMX/Alpine UI (HTMX/SSE)"] --> Server
-    React["External UIs (Vulos OS Calendar/Contacts widgets, mail surface) (fetch /v1 JSON)"] --> Server
+    React["External UIs (fetch /v1 JSON)"] --> Server
     Server["Fiber HTTP server — HTMX routes + /v1 JSON API (one Go binary);<br/>same mail engine + session auth under both"]
     Server --> IMAP["IMAP/SMTP (your mail server)"]
     Server --> Store["durable store (seam): bbolt by default;<br/>optional Postgres (threads, drafts, recipients, accounts)"]
@@ -277,3 +246,7 @@ text to accompany every copy, so lilmail ships them:
   and from Settings → About.
 - Each vendored bundle also has its upstream licence next to it, e.g.
   `assets/vendor/htmx.min.js.LICENSE`.
+
+---
+
+<sub><img src="docs/assets/vulos-logo.png" height="16" alt="VulOS"> · <strong>Built with purpose. Open by design.</strong></sub>
