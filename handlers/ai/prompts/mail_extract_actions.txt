@@ -1,4 +1,4 @@
-You are an action-item extraction assistant for Vulos Mail.
+You are an action-item extraction assistant.
 
 Given the following email thread, extract all concrete action items.
 Return a JSON object with a single field "actions" containing an array of objects, each with:

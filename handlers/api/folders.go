@@ -96,7 +96,7 @@ func (c *Client) discoverSpecialFolder(specialUse []string, nameGuesses []string
 	return "", fmt.Errorf("could not locate folder")
 }
 
-// DiscoverSnoozedFolder locates (or creates) the Snoozed folder. Vulos Mail maps
+// DiscoverSnoozedFolder locates (or creates) the Snoozed folder. lilmail maps
 // the "snoozed" label to a "Snoozed" IMAP folder; snoozing moves the message
 // there. If no such folder exists on the account, it is created so snooze always
 // has a destination.
