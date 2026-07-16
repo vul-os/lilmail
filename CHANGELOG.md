@@ -9,28 +9,144 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+No unreleased changes.
+
+## [1.13.0] - 2026-07-17
+
+### Added
+
+- **BIMI verified sender brand logo.** On the single-message read, when the
+  message passed DMARC (implying SPF-or-DKIM alignment with the `From` domain,
+  reused from the already-parsed `Authentication-Results` — no
+  re-authentication), lilmail looks up `default._bimi.<domain>`, fetches the
+  `l=` logo, sanitizes it, and attaches it as `models.Email.Brand` for the
+  reading pane to render. Every gate fails closed: no DMARC pass → no lookup;
+  no/invalid BIMI record → no logo; a non-`https` `l=` is never fetched; the
+  fetch is SSRF-screened (`screenDialIP`, no private/loopback/metadata, no
+  redirects, size-capped, and regression-tested against the real dial screen)
+  so a sender-controlled URL can't probe the server's network; any
+  `<script>`/`<foreignObject>`/event-handler/external-reference in the SVG
+  voids the whole logo. Resolution is per-domain and cached server-side (never
+  per-recipient), so a sender can't use it as a tracking beacon, and never
+  blocks a message open.
+- **Send-as identities write path** — `PUT /v1/settings/identities` (the
+  surface was previously read-only, so the compose "From" selector could only
+  ever show the primary address and `POST /v1/messages` ignored `from`
+  entirely). For a vulos-mail-hosted mailbox the alias is pushed to the
+  engine's broker-gated `/internal/identities` first, which accepts it only at
+  a verified domain owned by the tenant (or a `you+tag@` subaddress); a
+  refusal (`403`, now propagated verbatim instead of a generic `502`) or an
+  unreachable engine stores nothing. Compose, draft-save, and scheduled send
+  all gate `From` on the primary address or a registered identity (else
+  `403`); a scheduled send's ownership key stays the authenticated mailbox
+  even when `From` is an alias. Send-as only — an alias does not become an
+  inbound address. Documented in `docs/API.md`.
+- **Third-party licence notices.** lilmail redistributes other people's code
+  (51 Go modules plus vendored htmx/Alpine.js) but shipped none of the
+  required attribution — vendored bundles had their licence headers stripped
+  by the minifier and nothing was surfaced to users. `THIRD-PARTY-NOTICES.txt`
+  (generated from the real module graph by `scripts/gen-notices.sh`, now also
+  covering the Go standard library's BSD-3 licence + patent grant) is embedded
+  in the binary and served at `/licenses.txt`, linked from the login page and
+  Settings → About; upstream licence files sit next to each vendored bundle.
+  The long-dead, no-longer-loaded `assets/vendor/tailwind.js` was removed
+  rather than attributed.
+
 ### Changed
 
 - **Reframed as an independent PIM client.** lilmail is a standalone mail +
   calendar + contacts client that talks to the user's **own**
-  IMAP/SMTP/CalDAV/CardDAV account and exposes a stable `/v1` JSON API. It hosts
-  no mail and depends on no central Vulos server; the Vulos OS integrates it over
-  `/v1`. README/ROADMAP/ARCHITECTURE/API docs updated to this model (the old
-  central-mail / `@vulos.to` / CP-broker framing is retired).
+  IMAP/SMTP/CalDAV/CardDAV account and exposes a stable `/v1` JSON API. It
+  hosts no mail and depends on no central Vulos server; the Vulos OS
+  integrates it over `/v1`. README, ROADMAP, ARCHITECTURE, and API docs were
+  reworked to this model across several passes: dropping the stale "Vulos
+  Mail product" / central-coupling framing from docs, code comments, and the
+  bundled AI-assistant prompts; correcting the "Part of VulOS" product map
+  (OS, Office, Files, Relay, llmux — Talk/Meet are archived); making the
+  README self-contained; and fixing the GitHub org in badges/links
+  (`exolutionza` → `vul-os`, matching the actual remote).
 
 ### Removed
 
-- **Dropped the central `vulos-mail` feature-proxy coupling from `/v1`.** Several
-  `/v1` surfaces existed only to reverse-proxy to a central `vulos-mail` engine's
-  `/internal/*` endpoints and were permanent `501`s in every standalone
-  deployment. Removed the six proxies — **rules/filters, threads, categories,
-  smart-folders, team-inbox, spam-settings** — and the best-effort
-  vacation/identities/snooze push-to-central paths, keeping the local KV
-  read-model + IMAP behaviour. The header credential-injection seam remains but is
-  now a generic per-request credential injector (not a "Vulos Cloud CP" custody
-  path); the orphaned rule/thread/category/smart-folder/team-store header fields
-  and `models/rule.go` were deleted. The standalone `/v1` contract (mail +
-  `/v1/calendar` + `/v1/contacts`) is unchanged. (~5,000 LOC removed.)
+- **Dropped the central `vulos-mail` feature-proxy coupling from `/v1`.**
+  Several `/v1` surfaces existed only to reverse-proxy to a central
+  `vulos-mail` engine's `/internal/*` endpoints and were permanent `501`s in
+  every standalone deployment. Removed the six proxies — **rules/filters,
+  threads, categories, smart-folders, team-inbox, spam-settings** — and the
+  best-effort vacation/identities/snooze push-to-central paths, keeping the
+  local KV read-model + IMAP behaviour. The header credential-injection seam
+  remains but is now a generic per-request credential injector (not a "Vulos
+  Cloud CP" custody path). The standalone `/v1` contract (mail +
+  `/v1/calendar` + `/v1/contacts`) is unchanged; the removed routes are locked
+  out by a regression guard (~5,000 LOC removed).
+- **Dead central-engine remnants.** `vacationActive`/`shouldAutoReply` (an
+  out-of-office responder is delivery-path logic owned by the account's own
+  mail server, not lilmail) and the orphaned `ThreadID`/`Category`/
+  `SmartFolder`/`SmartFields` fields on `models.Email` — server-side
+  classification written only by the deleted `/v1` augmentation, always
+  absent (`omitempty`) from standalone output — were deleted along with a
+  scattering of other provably-unused non-exported declarations
+  (unreferenced regexes/maps/fields flagged by `staticcheck U1000`). No
+  exported symbol or behaviour change.
+- **HTML marketing landing site.** Product landing pages are now centralized
+  in vulos-cloud; lilmail no longer embeds or serves its own (`/site/*` mount
+  and embedded `siteFS` removed). `/` now redirects a logged-out visitor
+  straight to `/login` (a signed-in user still lands on `/inbox`).
+
+### Fixed
+
+- **Single-part `text/html` messages rendered as raw source, and quoted-
+  printable bodies were left undecoded (#9).** Message parsing never reversed
+  `Content-Transfer-Encoding` and only inspected the top level of the MIME
+  tree, so a single-part `text/html` message (e.g. Anthropic's "Secure link to
+  log in to Claude.ai") fell into the non-multipart branch, was assigned to
+  `Email.Body` instead of `Email.HTML`, and showed its HTML source instead of
+  its content, with `=3D`/soft line breaks throughout. Replaced with a
+  recursive `collectBodies()` that routes leaves by media type,
+  transfer-decodes base64/quoted-printable, recurses through nested
+  containers (`multipart/mixed` › `multipart/alternative` previously matched
+  neither `text/plain` nor `text/html` and rendered blank), and skips
+  `Content-Disposition: attachment` leaves. The message-list preview had the
+  matching problem — it now transfer-decodes first, skips `<style>`/`<script>`
+  and comments, resolves entities, and drops zero-width preheader padding
+  instead of showing raw CSS resets or base64 gibberish; the preview window
+  grows 512 → 4096 bytes.
+
+### Security
+
+- **CRITICAL: stored XSS via Edit Draft.** The Edit-Draft path stashed the
+  raw, unsanitized HTML of a viewed message into `data-html`; `restoreDraft()`
+  then assigned it via `innerHTML` into the compose editor in the main
+  (non-sandboxed) app document, where `<img src=x onerror=...>` /
+  `<svg onload=...>` execute under the CSP's `'unsafe-inline'`. Any
+  attacker-controlled HTML mail filed into a folder whose name contains
+  "draft" therefore yielded stored XSS in lilmail's own origin on Edit Draft.
+  Fixed server-side: the HTML feeding the Edit-Draft slot is now defanged by
+  a strict allowlist/denylist policy (strips `script`/`style`/`iframe`/`svg`/
+  `object`/`embed`/`form`, all `on*` handlers, and `javascript:`/`vbscript:`/
+  `data:` URLs), extracted into a shared `handlers/htmlsafe` package. The
+  sandboxed reading-pane iframe path is untouched.
+- **Reading-pane "Display images" opt-in only blocked `<img>`, letting other
+  remote-content vectors auto-load before consent** (tracking-pixel /
+  privacy bypass, not XSS — the frame has no `allow-scripts`).
+  `blockRemoteContent` is now tag-aware and neutralises every remote
+  (`http`/`https`/protocol-relative) fetch vector: `<img>`/`<image>` (the old
+  regex never matched `<image>`), `<input type=image>`, `<video>` poster,
+  `src` on `<video>`/`<audio>`/`<source>`/`<track>`/`<embed>`/`<iframe>`,
+  `<object data>`, `<link href>`, and remote `url()`/`@import` in inline
+  `style=` **and** `<style>` blocks. `data:`, `cid:`, and relative references
+  are left untouched.
+- Bumped `golang.org/x/crypto` 0.45.0 → 0.52.0, clearing 13 Dependabot
+  advisories (7 critical / 2 high / 4 moderate) in `x/crypto/ssh` and related
+  packages pulled in transitively; `govulncheck` reports 0 reachable
+  vulnerabilities after the bump. Pulls forward `x/sync`, `x/sys`, `x/text`
+  as required.
+- Pinned the build toolchain to go1.25.12, clearing the one *reachable*
+  `govulncheck` finding (`GO-2026-5856`, a `crypto/tls` ECH privacy leak
+  reached via the S3 and SMTP TLS paths); Dependabot's other 14 alerts are in
+  unreachable modules.
+
+---
 
 ## [1.12.1] - 2026-07-10
 
@@ -44,9 +160,6 @@ Versioning: [Semantic Versioning](https://semver.org/)
   TLS setups are unchanged); `tls = false` dials plain IMAP. Adds
   `api.NewClientTLS` + a config regression test.
   (`config/config.go`, `handlers/api/client.go`, `handlers/web/auth.go`)
-
-### Fixed
-
 - **Brokered spec buffer-aliasing (per-account routing corruption).** In
   CP-brokered mode the per-request `brokerSpec` was built from `c.Get(...)`
   strings that alias fasthttp's recycled request buffer; because the spec is
@@ -69,7 +182,7 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
-## [1.12.0] — 2026-07-06
+## [1.12.0] - 2026-07-06
 
 ### Added
 
@@ -122,7 +235,7 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
-## [1.11.0] — 2026-06-28
+## [1.11.0] - 2026-06-28
 
 ### Added
 
@@ -183,7 +296,7 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
-## [1.10.0] — 2026-06-22
+## [1.10.0] - 2026-06-22
 
 ### Added
 
@@ -237,7 +350,10 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
-## [1.9.0] — 2026-06-16
+## 1.9.0 - 2026-06-16
+
+> Documented ahead of release and shipped as part of the [1.10.0](#1100---2026-06-22)
+> tag; there is no separate `v1.9.0` git tag.
 
 ### Added
 
@@ -304,7 +420,10 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
-## [1.8.0] — 2026-06-15
+## 1.8.0 - 2026-06-15
+
+> Documented ahead of release and shipped as part of the [1.10.0](#1100---2026-06-22)
+> tag; there is no separate `v1.8.0` git tag.
 
 ### Added
 
@@ -381,7 +500,10 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
-## [1.7.0] — 2026-06-15
+## 1.7.0 - 2026-06-15
+
+> Documented ahead of release and shipped as part of the [1.10.0](#1100---2026-06-22)
+> tag; there is no separate `v1.7.0` git tag.
 
 ### Added
 
@@ -454,7 +576,10 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ---
 
-## [1.6.0] — 2026-06-01
+## 1.6.0 - 2026-06-01
+
+> Documented ahead of release and shipped as part of the [1.10.0](#1100---2026-06-22)
+> tag; there is no separate `v1.6.0` git tag.
 
 ### Added
 
@@ -488,32 +613,6 @@ Versioning: [Semantic Versioning](https://semver.org/)
   opened (and locked) on every inbox load.
 - Handler tests for `handlers/web/` covering threading, `MailOptions`, and
   mark-unread wiring.
-
-### Changed
-
-- `config.toml` renamed to `config.toml.example` (added to `.gitignore`) so
-  placeholder secrets are never committed.  Copy it to `config.toml` to run.
-- `strings.Title` (deprecated) replaced by a local `titleCase` helper.
-- `io/ioutil` (deprecated) replaced with `io`/`os` equivalents throughout.
-- `SMTPClient` constructors take an explicit `useStartTLS bool` parameter
-  (previously always STARTTLS).
-
-### Security
-
-- **CRITICAL: srcdoc XSS fixed** — `email.HTML` was interpolated as
-  `template.HTML` directly into the `srcdoc="..."` attribute of the sandboxed
-  iframe; a quote character in a malicious email body could break out of the
-  attribute and execute script in LilMail's origin. The value is now auto-escaped
-  as a plain Go template string so HTML is passed verbatim without interpretation.
-- **Full Content-Security-Policy** — `script-src`, `style-src`, `img-src`,
-  `connect-src`, `object-src`, `base-uri`, and `frame-ancestors` now emitted on
-  every response. `X-Frame-Options` is omitted when `frame_ancestors` is set
-  (only the CSP variant supports an allow-list).
-- **`SameSite=Lax` session cookie** — explicitly set to prevent CSRF via
-  cross-site form submissions.
-
-### Added
-
 - **AI mail assistant** (`[ai]` config section) — opt-in, disabled by default.
   Five endpoints added under `/api/ai/`:
   - `POST /api/ai/compose` — smart compose / continue / rewrite
@@ -527,7 +626,6 @@ Versioning: [Semantic Versioning](https://semver.org/)
   standalone use. Mail content is forwarded and discarded — never persisted.
   Prompt-injection guard applied to all user-supplied strings before substitution
   into prompt templates. Tests in `handlers/ai/ai_test.go`.
-
 - **`[server] frame_ancestors`** config key — space-separated CSP
   `frame-ancestors` value. When set, LilMail can be embedded as an iframe by the
   listed origins (e.g. the Vulos OS shell). Defaults to `'self'` (same-origin
@@ -535,6 +633,12 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ### Changed
 
+- `config.toml` renamed to `config.toml.example` (added to `.gitignore`) so
+  placeholder secrets are never committed.  Copy it to `config.toml` to run.
+- `strings.Title` (deprecated) replaced by a local `titleCase` helper.
+- `io/ioutil` (deprecated) replaced with `io`/`os` equivalents throughout.
+- `SMTPClient` constructors take an explicit `useStartTLS bool` parameter
+  (previously always STARTTLS).
 - **UI: hand-written CSS design system** — replaced Tailwind CDN with a
   single `assets/css/mail.css` stylesheet (~20 KB). All twelve templates
   restyled: 3-pane layout, dark mode, Gmail-like density, improved login page,
@@ -558,9 +662,23 @@ Versioning: [Semantic Versioning](https://semver.org/)
   the application was not emitting any security headers. Now applied via
   middleware before every response.
 
+### Security
+
+- **CRITICAL: srcdoc XSS fixed** — `email.HTML` was interpolated as
+  `template.HTML` directly into the `srcdoc="..."` attribute of the sandboxed
+  iframe; a quote character in a malicious email body could break out of the
+  attribute and execute script in LilMail's origin. The value is now auto-escaped
+  as a plain Go template string so HTML is passed verbatim without interpretation.
+- **Full Content-Security-Policy** — `script-src`, `style-src`, `img-src`,
+  `connect-src`, `object-src`, `base-uri`, and `frame-ancestors` now emitted on
+  every response. `X-Frame-Options` is omitted when `frame_ancestors` is set
+  (only the CSP variant supports an allow-list).
+- **`SameSite=Lax` session cookie** — explicitly set to prevent CSRF via
+  cross-site form submissions.
+
 ---
 
-## [1.4.0] — 2026-05-24
+## [1.4.0] - 2026-05-24
 
 ### Added
 
@@ -594,10 +712,17 @@ Versioning: [Semantic Versioning](https://semver.org/)
 Initial releases: basic IMAP/SMTP webmail, JWT sessions, file-based cache,
 password-only login, server-rendered Go templates.
 
-[Unreleased]: https://github.com/exolutionza/lilmail/compare/v1.10.0...HEAD
-[1.10.0]: https://github.com/exolutionza/lilmail/compare/v1.9.0...v1.10.0
-[1.9.0]: https://github.com/exolutionza/lilmail/compare/v1.8.0...v1.9.0
-[1.8.0]: https://github.com/exolutionza/lilmail/compare/v1.7.0...v1.8.0
-[1.7.0]: https://github.com/exolutionza/lilmail/releases/tag/v1.7.0
-[1.6.0]: https://github.com/exolutionza/lilmail/releases/tag/v1.6.0
-[1.4.0]: https://github.com/exolutionza/lilmail/releases/tag/v1.4.0
+---
+
+[Unreleased]: https://github.com/vul-os/lilmail/compare/v1.13.0...HEAD
+[1.13.0]: https://github.com/vul-os/lilmail/compare/v1.12.1...v1.13.0
+[1.12.1]: https://github.com/vul-os/lilmail/compare/v1.12.0...v1.12.1
+[1.12.0]: https://github.com/vul-os/lilmail/compare/v1.11.0...v1.12.0
+[1.11.0]: https://github.com/vul-os/lilmail/compare/v1.10.0...v1.11.0
+[1.10.0]: https://github.com/vul-os/lilmail/compare/v1.4.0...v1.10.0
+[1.4.0]: https://github.com/vul-os/lilmail/releases/tag/v1.4.0
+[1.0.7]: https://github.com/vul-os/lilmail/releases/tag/v1.0.7
+
+Note: `v1.6.0`, `v1.7.0`, `v1.8.0`, and `v1.9.0` were documented as part of the
+work that shipped in the `v1.10.0` release, but were never cut as their own git
+tags — there is no `v1.6.0`…`v1.9.0` ref to link to on GitHub.
