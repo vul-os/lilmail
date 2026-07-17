@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>lilmail — A lightweight, database-free PIM client in a single Go binary.</title>
+<meta name="description" content="A lightweight, database-free PIM client — mail + calendar + contacts — in a single Go binary. Self-hostable, connects to your own accounts, no external services by default.">
+<link rel="icon" href="./assets/lilmail-favicon.svg">
+<style>*,*::before,*::after{box-sizing:border-box}
+:root{
+  --bg:#09090B; --bg-soft:#0E0E10; --panel:#131316; --panel-2:#18181B;
+  --border:rgba(255,255,255,.08); --border-2:rgba(255,255,255,.13);
+  --text:#FAFAFA; --muted:#A1A1AA; --faint:#71717A;
+  --radius:16px; --max:1120px;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono","Geist Mono",Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+}
+html{scroll-behavior:smooth}
+body{margin:0;font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.6;-webkit-font-smoothing:antialiased;font-size:16px}
+body::before{content:"";position:fixed;inset:0;z-index:-1;background:
+  radial-gradient(1100px 600px at 80% -10%, color-mix(in srgb,var(--accent) 10%, transparent), transparent 60%),
+  radial-gradient(900px 500px at -10% 10%, color-mix(in srgb,var(--accent-2) 8%, transparent), transparent 55%),
+  var(--bg);}
+a{color:inherit;text-decoration:none}
+img{max-width:100%;display:block}
+.wrap{max-width:var(--max);margin:0 auto;padding:0 24px}
+.accent{color:var(--accent)}
+
+/* Header */
+.site-header{position:sticky;top:0;z-index:50;backdrop-filter:blur(12px);background:color-mix(in srgb,var(--bg) 72%, transparent);border-bottom:1px solid var(--border)}
+.nav{display:flex;align-items:center;gap:18px;height:64px}
+.brand{display:flex;align-items:center;gap:11px;font-weight:600;font-size:18px;letter-spacing:-.03em}
+.brand .tile{width:34px;height:34px;border-radius:9px;overflow:hidden;box-shadow:0 1px 0 rgba(255,255,255,.12) inset, 0 4px 14px rgba(0,0,0,.35)}
+.brand .tile img{width:100%;height:100%;object-fit:contain}
+.brand .lil{font-weight:400;color:var(--muted)}
+.brand .mail{font-weight:700;color:var(--accent)}
+.nav-spacer{flex:1}
+.nav-links{display:flex;align-items:center;gap:22px}
+.nav-links a{color:var(--muted);font-size:14.5px;font-weight:500;transition:color .15s}
+.nav-links a:hover{color:var(--text)}
+.vulos-badge{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border:1px solid var(--border-2);border-radius:999px;font-size:13px;color:var(--muted);transition:border-color .15s,color .15s}
+.vulos-badge:hover{border-color:var(--accent);color:var(--text)}
+.vulos-badge img{width:16px;height:16px;border-radius:4px}
+@media(max-width:760px){.nav-links{display:none}}
+
+/* Buttons */
+.btn{display:inline-flex;align-items:center;gap:9px;padding:12px 20px;border-radius:11px;font-weight:600;font-size:15px;border:1px solid transparent;cursor:pointer;transition:transform .12s,box-shadow .2s,background .2s,border-color .2s}
+.btn:hover{transform:translateY(-1px)}
+.btn-primary{background:linear-gradient(135deg,var(--accent),var(--accent-2));color:#0A0A0A;box-shadow:0 8px 26px -8px color-mix(in srgb,var(--accent) 60%, transparent)}
+.btn-primary:hover{box-shadow:0 12px 34px -8px color-mix(in srgb,var(--accent) 75%, transparent)}
+.btn-ghost{background:var(--panel);border-color:var(--border-2);color:var(--text)}
+.btn-ghost:hover{border-color:var(--accent)}
+
+/* Hero */
+.hero{padding:84px 0 56px}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600;letter-spacing:.02em;color:var(--accent);background:color-mix(in srgb,var(--accent) 10%, transparent);border:1px solid color-mix(in srgb,var(--accent) 28%, transparent);padding:6px 13px;border-radius:999px}
+.hero .wordmark{display:flex;align-items:center;gap:16px;margin:26px 0 0}
+.hero .wordmark .mark{width:clamp(52px,8vw,72px);height:clamp(52px,8vw,72px);border-radius:16px;flex:none;box-shadow:0 8px 24px -8px rgba(0,0,0,.6)}
+.hero .wordmark .name{font-size:clamp(40px,7vw,64px);font-weight:800;letter-spacing:-.04em;line-height:1}
+.hero .wordmark .name .lil{font-weight:300;color:var(--text)}
+.hero .wordmark .name .mail{font-weight:800;color:var(--accent)}
+.hero .tagline{font-size:clamp(18px,2.4vw,23px);color:var(--text);margin:22px 0 0;max-width:720px;font-weight:500}
+.hero .blurb{font-size:16.5px;color:var(--muted);margin:18px 0 0;max-width:680px}
+.cta-row{display:flex;flex-wrap:wrap;gap:13px;margin-top:30px}
+.hero-visual{margin-top:54px;border-radius:var(--radius);border:1px solid var(--border-2);overflow:hidden;box-shadow:0 40px 80px -30px rgba(0,0,0,.7);background:var(--panel)}
+.hero-visual img{width:100%;display:block}
+
+/* Sections */
+.section{padding:64px 0}
+.section h2{font-size:clamp(26px,4vw,36px);letter-spacing:-.03em;margin:0 0 8px;font-weight:800}
+.section .lead{color:var(--muted);margin:0 0 38px;font-size:17px;max-width:640px}
+
+/* Features */
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+@media(max-width:900px){.grid{grid-template-columns:1fr 1fr}}
+@media(max-width:620px){.grid{grid-template-columns:1fr}}
+.card{background:linear-gradient(180deg,var(--panel),var(--bg-soft));border:1px solid var(--border);border-radius:var(--radius);padding:24px;transition:border-color .2s,transform .2s}
+.card:hover{border-color:color-mix(in srgb,var(--accent) 45%, var(--border));transform:translateY(-2px)}
+.card .dot{width:34px;height:34px;border-radius:9px;background:color-mix(in srgb,var(--accent) 13%, transparent);border:1px solid color-mix(in srgb,var(--accent) 32%, transparent);display:grid;place-items:center;margin-bottom:15px}
+.card .dot::after{content:"";width:11px;height:11px;border-radius:3px;background:var(--accent)}
+.card h3{margin:0 0 8px;font-size:17.5px;letter-spacing:-.01em}
+.card p{margin:0;color:var(--muted);font-size:14.5px}
+.card code{font-family:var(--mono);font-size:.86em;background:rgba(255,255,255,.06);padding:1px 5px;border-radius:5px;color:var(--text)}
+
+/* Quickstart */
+.quick{display:grid;grid-template-columns:1.1fr 1fr;gap:34px;align-items:center}
+@media(max-width:820px){.quick{grid-template-columns:1fr}}
+.codeblock{background:#0C0C0E;border:1px solid var(--border-2);border-radius:var(--radius);overflow:hidden}
+.codeblock .bar{display:flex;align-items:center;gap:7px;padding:12px 16px;border-bottom:1px solid var(--border)}
+.codeblock .bar i{width:11px;height:11px;border-radius:50%;background:#26262b;display:inline-block}
+.codeblock pre{margin:0;padding:18px 20px;overflow:auto;font-family:var(--mono);font-size:13.5px;line-height:1.75;color:#D4D4D8}
+.codeblock .c{color:var(--faint)}
+.steps{list-style:none;margin:0;padding:0;display:grid;gap:16px}
+.steps li{display:flex;gap:14px;align-items:flex-start}
+.steps .num{flex:none;width:28px;height:28px;border-radius:8px;background:color-mix(in srgb,var(--accent) 13%, transparent);border:1px solid color-mix(in srgb,var(--accent) 32%, transparent);color:var(--accent);font-weight:700;display:grid;place-items:center;font-size:14px}
+.steps b{display:block;font-size:15.5px}
+.steps span{color:var(--muted);font-size:14px}
+
+/* Why band */
+.decent{background:linear-gradient(120deg,var(--panel),var(--bg-soft));border:1px solid var(--border);border-radius:var(--radius);padding:40px}
+.decent h2{margin-top:0}
+.decent .cols{display:grid;grid-template-columns:repeat(3,1fr);gap:26px;margin-top:28px}
+@media(max-width:820px){.decent .cols{grid-template-columns:1fr}}
+.decent h4{margin:0 0 6px;font-size:16px;letter-spacing:-.01em}
+.decent h4::before{content:"/ ";color:var(--accent);font-weight:700}
+.decent p{margin:0;color:var(--muted);font-size:14.5px}
+
+/* Vulos band */
+.vulos-band{margin:24px 0;background:linear-gradient(120deg,var(--panel),var(--bg-soft));border:1px solid var(--border);border-radius:var(--radius);padding:40px;display:flex;gap:26px;align-items:center}
+@media(max-width:680px){.vulos-band{flex-direction:column;text-align:center}}
+.vulos-band img{width:60px;height:60px;border-radius:14px;flex:none}
+.vulos-band h3{margin:0 0 6px;font-size:21px}
+.vulos-band p{margin:0;color:var(--muted);max-width:680px}
+.vulos-band .more{margin-top:14px;display:inline-flex;color:var(--accent);font-weight:600;font-size:15px}
+
+/* Footer */
+.site-footer{border-top:1px solid var(--border);margin-top:40px;padding:40px 0}
+.foot{display:flex;flex-wrap:wrap;gap:18px;align-items:center;justify-content:space-between}
+.foot .left{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:14px}
+.foot .left img{width:20px;height:20px;border-radius:5px}
+.foot .links{display:flex;gap:20px;flex-wrap:wrap}
+.foot .links a{color:var(--muted);font-size:14px}
+.foot .links a:hover{color:var(--text)}
+</style>
+<style>:root{--accent:#F2674E;--accent-2:#E0492E}</style>
+</head>
+<body>
+<header class="site-header"><div class="wrap nav">
+    <a class="brand" href="./index.html"><span class="tile"><img src="./assets/lilmail-favicon.svg" alt="lilmail mark"></span><span class="lil">lil</span><span class="mail">mail</span></a>
+    <div class="nav-spacer"></div>
+    <nav class="nav-links">
+      <a href="./index.html#features">Features</a>
+      <a href="./index.html#self-hosted">Self-hosted</a>
+      <a href="./docs.html">Docs</a>
+      <a href="https://github.com/vul-os/lilmail" target="_blank" rel="noopener">GitHub</a>
+    </nav>
+    <a class="vulos-badge" href="https://vulos.org" target="_blank" rel="noopener" title="Part of Vulos">
+      <img src="./assets/vulos-logo.png" alt="Vulos">Part of Vulos
+    </a>
+  </div></header>
+<main>
+  <section class="hero"><div class="wrap">
+    <span class="eyebrow">One binary · No database · No CDN</span>
+    <div class="wordmark">
+      <img class="mark" src="./assets/lilmail-favicon.svg" alt="lilmail">
+      <span class="name"><span class="lil">lil</span><span class="mail">mail</span></span>
+    </div>
+    <p class="tagline">A lightweight, database-free PIM client — mail + calendar + contacts — in a single Go binary.</p>
+    <p class="blurb">lilmail is a self-hostable PIM client that connects to your <em>own</em> IMAP/SMTP + CalDAV + CardDAV account and ships as one self-contained Go binary. The UI is server-rendered HTML (Go templates + HTMX + Alpine.js) with every frontend asset embedded — no build step, no CDN, no external services to run by default. Drop the binary next to a <code>config.toml</code> and it runs, comfortably, on 64&nbsp;MB of RAM.</p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="#quickstart">Get started</a>
+      <a class="btn btn-ghost" href="./docs.html">Read the docs</a>
+      <a class="btn btn-ghost" href="https://github.com/vul-os/lilmail" target="_blank" rel="noopener">View on GitHub</a>
+    </div>
+    <div class="hero-visual"><img src="./screenshots/hero.png" alt="lilmail — a message open in the three-pane reading view" loading="lazy"></div>
+  </div></section>
+
+  <section class="section" id="features"><div class="wrap">
+    <h2>Everything, in one binary</h2>
+    <p class="lead">Core mail is always on. Everything beyond it is opt-in via config keys and adds zero overhead when disabled.</p>
+    <div class="grid">
+      <div class="card"><div class="dot"></div><h3>Single binary, no database</h3><p>Templates and vendored JS embedded with <code>embed.FS</code>; durable state uses an embedded bbolt file by default — nothing to run. An optional Postgres backend is there for shared / multi-instance deploys. Runs fully offline with only <code>config.toml</code>.</p></div>
+      <div class="card"><div class="dot"></div><h3>Mail that just works</h3><p>IMAP mailbox browsing and SMTP sending, conversation threading via the JWZ algorithm, plain-text and HTML rich-text compose, file attachments and inline <code>cid:</code> images, scheduled send, and drafts with 30-second auto-save.</p></div>
+      <div class="card"><div class="dot"></div><h3>Stable /v1 JSON API</h3><p>A clean REST surface — folders/labels, paginated messages, search, flags, move/archive/spam, snooze, compose + drafts, attachments, calendar, contacts, settings — served alongside the HTMX UI from the same engine and the same session auth.</p></div>
+      <div class="card"><div class="dot"></div><h3>OAuth2 / OpenID Connect</h3><p>Authorization-code flow with PKCE (S256), automatic refresh-token handling, and XOAUTH2 / OAUTHBEARER SASL. Sign in with your identity provider — classic username/password login still works alongside it.</p></div>
+      <div class="card"><div class="dot"></div><h3>Calendar &amp; contacts</h3><p>CalDAV month/week views with event CRUD, free/busy, and end-to-end iTIP/iMIP meeting invites; CardDAV address-book lookup for recipient autocomplete. Both opt-in via <code>[caldav]</code> / <code>[carddav]</code>.</p></div>
+      <div class="card"><div class="dot"></div><h3>Real-time &amp; AI, opt-in</h3><p>An IMAP IDLE watcher, SSE stream, browser notifications, and VAPID Web Push; plus an AI assistant for smart compose, thread summaries, and phishing detection via any OpenAI-compatible endpoint. Off by default — enable <code>[notifications]</code> / <code>[ai]</code>.</p></div>
+    </div>
+  </div></section>
+
+  <section class="section" id="quickstart"><div class="wrap">
+    <h2>Quick start</h2>
+    <p class="lead">Clone, copy the example config, fill in your mail server details, and run. No account to create — lilmail talks to the one you already have.</p>
+    <div class="quick">
+      <div class="codeblock">
+        <div class="bar"><i></i><i></i><i></i></div>
+        <pre><span class="c"># Clone</span>
+git clone https://github.com/vul-os/lilmail.git
+cd lilmail
+
+<span class="c"># Configure — copy the example and fill in</span>
+<span class="c"># your mail server details + secrets</span>
+cp config.toml.example config.toml   <span class="c"># then edit</span>
+
+<span class="c"># Run</span>
+go run main.go            <span class="c"># or: make build &amp;&amp; ./lilmail</span></pre>
+      </div>
+      <ol class="steps">
+        <li><span class="num">1</span><div><b>Build or download</b><span>Build from source with the Go toolchain, or grab a pre-built archive from Releases — only <code>config.toml</code> needs to sit alongside it.</span></div></li>
+        <li><span class="num">2</span><div><b>Configure</b><span>A minimal setup needs only an IMAP server plus a <code>jwt.secret</code> and a 32-character <code>encryption.key</code>. Optional sections are all default-disabled.</span></div></li>
+        <li><span class="num">3</span><div><b>Sign in</b><span>Open <code>http://localhost:3000</code> and log in with your email and mail-server password — or click Sign in with OAuth2 if configured.</span></div></li>
+      </ol>
+    </div>
+  </div></section>
+
+  <section class="section" id="self-hosted"><div class="wrap">
+    <div class="decent">
+      <h2>Self-hosted by design</h2>
+      <p class="lead" style="margin-bottom:0">lilmail is a fully independent project — think Evolution + Evolution-Data-Server for the web. It runs on your box, talks to your accounts, and has no hosted service behind it.</p>
+      <div class="cols">
+        <div><h4>Your own accounts</h4><p>lilmail connects to the user's own IMAP/SMTP + CalDAV + CardDAV account — Gmail, Outlook, or any standards-compliant server — over OAuth or password. There is no lilmail relay in the middle.</p></div>
+        <div><h4>No external services</h4><p>Frontend assets are embedded via <code>embed.FS</code>; durable state is an embedded bbolt file by default. No CDN, no build step, no database server to provision — it runs air-gapped with only <code>config.toml</code>.</p></div>
+        <div><h4>Security-first</h4><p>JWT sessions, AES-256-GCM encrypted credentials at rest, a strict Content-Security-Policy, <code>SameSite=Lax</code> cookies, a sandboxed email iframe, and CR/LF/NUL header-injection guards on outgoing mail.</p></div>
+      </div>
+    </div>
+  </div></section>
+
+  <section class="section"><div class="wrap">
+    <div class="vulos-band">
+      <img src="./assets/vulos-logo.png" alt="Vulos logo">
+      <div>
+        <h3>Part of Vulos</h3>
+        <p><a href="https://vulos.org" target="_blank" rel="noopener" style="color:var(--text);font-weight:600">Vulos</a> is a family of open, self-hostable apps. lilmail is a fully standalone product — it never requires Vulos infrastructure — and exposes a stable <code>/v1</code> JSON API that Vulos OS (and any rich client) integrates over as a seam, not as a hosted service.</p>
+        <a class="more" href="https://vulos.org" target="_blank" rel="noopener">Explore Vulos →</a>
+      </div>
+    </div>
+  </div></section>
+</main>
+<footer class="site-footer"><div class="wrap foot">
+    <div class="left"><img src="./assets/vulos-logo.png" alt="Vulos"> <span>Part of <a href="https://vulos.org" target="_blank" rel="noopener" style="color:var(--text)">Vulos</a> — open, self-hostable apps. Standalone by design.</span></div>
+    <div class="links">
+      <a href="./docs.html">Docs</a>
+      <a href="https://github.com/vul-os/lilmail" target="_blank" rel="noopener">GitHub</a>
+      <a href="./LICENSE.txt">License</a>
+      <a href="https://vulos.org" target="_blank" rel="noopener">vulos.org</a>
+    </div>
+  </div></footer>
+</body>
+</html>

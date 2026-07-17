@@ -1,0 +1,326 @@
+# Configuration Reference
+
+lilmail reads `config.toml` from the current working directory at startup. Copy
+`config.toml.example` as a starting point:
+
+```bash
+cp config.toml.example config.toml
+```
+
+All sections except `[server]`, `[imap]`, `[smtp]`, `[cache]`, `[jwt]`, and
+`[encryption]` are **optional** and disabled by default.
+
+---
+
+## `[server]`
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `port` | int | `3000` | HTTP listen port |
+| `username_is_email` | bool | `true` | Send the full email address as the IMAP/SMTP login username |
+| `frame_ancestors` | string | `""` | Space-separated CSP `frame-ancestors` origins. Leave empty for same-origin only. Example: `"'self' http://localhost:8080"` |
+| `secure_cookies` | bool | `false` | Set the `Secure` flag on session cookies. Enable when serving over HTTPS (direct `[ssl]` or TLS reverse proxy) |
+
+---
+
+## `[imap]`
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `server` | string | — | IMAP hostname |
+| `port` | int | `993` | IMAP port |
+| `tls` | bool | `true` | Use implicit TLS (recommended; use `false` for STARTTLS on port 143) |
+
+---
+
+## `[smtp]`
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `server` | string | — | SMTP hostname (derived from IMAP server when omitted: `imap.*` → `smtp.*`) |
+| `port` | int | `587` | SMTP port (`587` STARTTLS / `465` implicit TLS) |
+| `use_starttls` | bool | `true` | Use STARTTLS upgrade. Set `false` for implicit TLS (port 465) |
+| `insecure_skip_verify` | bool | `false` | Skip TLS certificate verification. For self-signed certs only |
+
+---
+
+## `[cache]`
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `folder` | string | `"./cache"` | Directory for the on-disk email cache **and outbound attachment staging** (`POST /v1/attachments`). Created automatically. If unset/unwritable, composing with attachments returns `503 attachment staging unavailable` while downloads still work |
+
+---
+
+## `[storage]`
+
+Selects the durable key-value backend used for caches and shared state (thread
+metadata, recipients, push subscriptions). **Optional** — omit the section to use
+the default embedded backend.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `backend` | string | `"bolt"` | `"bolt"` (embedded bbolt, single binary, nothing to run) or `"postgres"` (shared SQL store) |
+| `postgres_dsn` | string | `""` | Connection string, required when `backend = "postgres"`. e.g. `postgres://user:pw@host:5432/db?sslmode=require` |
+
+Use `postgres` only when several lilmail/Vulos instances must share one store, or
+when another Vulos service needs to read the same data. The Postgres schema
+(a single `lilmail_kv` table) is created automatically on first connect.
+
+```toml
+[storage]
+backend = "bolt"   # default; omit the section entirely for the same effect
+# backend = "postgres"
+# postgres_dsn = "postgres://lilmail:secret@localhost:5432/lilmail?sslmode=require"
+```
+
+### Shared object storage (`VULOS_STORAGE_BROKER_SECRET`)
+
+lilmail's primary stores are IMAP (the mail) and the KV seam above; it does **not**
+keep mail or state in object storage. The only object-storage use is a **supplementary
+read-through cache of immutable attachment blobs**, avoiding repeated IMAP pulls of the
+same MIME part.
+
+This is **off by default** and is **authenticated**, exactly like the MAIL credential
+broker (`LILMAIL_BROKER_SECRET`). It activates only when **all** of these hold:
+
+1. The operator sets the environment variable `VULOS_STORAGE_BROKER_SECRET` to a shared
+   secret (set only in deployments behind the Vulos OS gateway). **Setting it is the
+   enable signal — there is no separate on/off toggle.** When unset, injected storage
+   headers are ignored entirely and lilmail behaves as standalone (IMAP-only).
+2. The request presents a matching `X-Vulos-Storage-Broker-Auth` header. It is compared
+   against the secret in constant time; an absent or mismatched value means the storage
+   headers are ignored entirely (standalone behaviour). This proves the headers came
+   from the gateway and were not forged by a client.
+3. The Vulos OS gateway injects per-request `X-Vulos-Storage-*` headers
+   (`-Endpoint`, `-Bucket`, `-Prefix`, `-Region`, `-Access-Key`, `-Secret-Key`,
+   optional `-Session-Token`). An absent/empty `-Endpoint` means "do nothing new".
+
+As an additional SSRF/exfiltration guard, the injected `-Endpoint` must use `https://`
+unless it names a loopback or private-network host (e.g. `http://minio:9000`,
+`http://127.0.0.1:9000`, an RFC 1918 address, or an internal `*.internal`/`*.local`
+name); a plaintext `http://` endpoint to a public host is refused and the request falls
+back to IMAP.
+
+Objects are written under `<X-Vulos-Storage-Prefix>/mail/attachments/<id>` (the prefix
+is now `<userID>/<appID>/`). A cache miss or any S3 error transparently falls back to
+IMAP and is never shown to the user. No config file keys are involved; there is nothing
+to set for standalone use.
+
+---
+
+## `[jwt]`
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `secret` | string | — | Secret for signing JWT session tokens. **Change in production.** Generate with `openssl rand -hex 32` |
+
+---
+
+## `[encryption]`
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `key` | string | — | 32-byte AES-GCM key for encrypting credentials/tokens at rest. **Must be exactly 32 bytes. Change in production.** |
+
+---
+
+## `[ssl]`
+
+Enable HTTPS termination directly in lilmail (alternative: use a reverse proxy
+and set `[server] secure_cookies = true`).
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `false` | Enable HTTPS |
+| `cert_file` | string | — | Path to TLS certificate (PEM) |
+| `key_file` | string | — | Path to TLS private key (PEM) |
+| `port` | int | `443` | HTTPS listen port |
+| `http_port` | int | `80` | HTTP listen port (for redirect when `auto_redirect = true`) |
+| `auto_redirect` | bool | `false` | Redirect HTTP → HTTPS |
+| `domain` | string | — | Domain for HSTS header |
+| `hsts_max_age` | int | `0` | HSTS `max-age` in seconds. `0` disables HSTS. Recommended: `31536000` (1 year) |
+
+---
+
+## `[oauth2]`
+
+OAuth2/OpenID Connect for authenticating to your IMAP and SMTP server (not a
+lilmail user-management system). When enabled, a **Sign in with OAuth2** button
+appears on the login page; password login keeps working alongside it.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `false` | Master switch |
+| `client_id` | string | — | OAuth2 client ID |
+| `client_secret` | string | `""` | OAuth2 client secret. Leave empty for public PKCE clients |
+| `auth_url` | string | — | Authorization endpoint URL |
+| `token_url` | string | — | Token endpoint URL |
+| `userinfo_url` | string | `""` | UserInfo endpoint (optional — used to resolve the email when omitted from `id_token`) |
+| `redirect_url` | string | — | Callback URL. Register this with your provider: `https://yourdomain.com/auth/oauth/callback` |
+| `scopes` | []string | — | OAuth2 scopes. Typically `["openid", "email", "profile"]` |
+| `mechanism` | string | `"xoauth2"` | SASL mechanism for IMAP/SMTP: `"xoauth2"` or `"oauthbearer"` |
+| `email_claim` | string | `"email"` | JWT/UserInfo claim that holds the email address |
+| `use_pkce` | bool | `true` | Enable PKCE (S256). Recommended |
+
+---
+
+## `[caldav]`
+
+CalDAV calendar integration. When enabled, month/week calendar views appear and
+a Calendar link is shown in the sidebar.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `false` | Master switch |
+| `url` | string | — | CalDAV endpoint or principal URL |
+| `auth` | string | `"basic"` | Authentication method: `"basic"` or `"oauth2"` (uses the logged-in user's OAuth2 token) |
+| `username` | string | — | Basic-auth username (ignored when `auth = "oauth2"`) |
+| `password` | string | — | Basic-auth password (ignored when `auth = "oauth2"`) |
+
+---
+
+## `[carddav]`
+
+CardDAV address-book for recipient autocomplete in the compose modal.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `false` | Master switch |
+| `url` | string | — | CardDAV endpoint URL |
+| `username` | string | — | Basic-auth username |
+| `password` | string | — | Basic-auth password |
+
+---
+
+## `[notifications]`
+
+Real-time new-mail notifications. All keys are opt-in; setting
+`enabled = false` (the default) creates no extra goroutines or routes.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `false` | Master switch |
+| `idle` | bool | `true` | Start an IMAP IDLE watcher per session (recommended; falls back to NOOP poll) |
+| `desktop` | bool | `false` | Show native OS toasts via `gen2brain/beeep` (useful for local/desktop runs) |
+| `webpush` | bool | `false` | Enable VAPID Web Push for background notifications. Requires HTTPS |
+| `vapid_key_file` | string | `"vapid.json"` | Path to the VAPID key-pair JSON file (auto-generated on first start; **protect this file**) |
+
+### Web Push routes (registered only when `webpush = true`)
+
+| Route | Description |
+|-------|-------------|
+| `GET /api/push/vapid-public` | Returns `{"publicKey":"<base64url>"}` — public, no auth |
+| `POST /api/push/subscribe` | Upsert a browser PushSubscription (session auth required) |
+| `DELETE /api/push/subscribe` | Remove a subscription by endpoint (session auth required) |
+
+---
+
+## `[ai]`
+
+AI mail assistant. All five AI routes return `404 {"error":"ai_disabled"}` when
+`enabled = false`.
+
+LilMail does **no local inference** — it forwards mail content to a configurable
+**OpenAI-compatible SSE chat-completion endpoint** (just a base URL + Bearer
+token). That endpoint can be a provider directly, the Vulos OS *airouter*
+(`/api/ai/chat`), or the central **llmux** gateway (`/v1/chat/completions`).
+There is no hard dependency on llmux: it is simply a URL you can point `endpoint`
+at.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `false` | Master switch |
+| `endpoint` | string | `"http://localhost:8080/api/ai/chat"` | OpenAI-compatible SSE chat-completion endpoint. Set to llmux's `/v1/chat/completions` to route through the central gateway |
+| `api_key` | string | `""` | Static Bearer token sent as `Authorization: Bearer <key>` when no per-request account token is present. For llmux this is typically a standalone virtual key. Leave empty when the endpoint handles auth separately |
+| `account_header` | string | `""` | Inbound request header carrying the caller's account token. When set and present, its value is forwarded as `Authorization: Bearer <token>` so a central gateway (llmux) can resolve it to an account and apply BYOK-vs-central + metering. Falls back to `api_key` when absent. Leave empty for standalone |
+| `model` | string | `""` | Model slug forwarded to the endpoint. Empty = endpoint default |
+
+### Routing through the central llmux gateway (Vulos suite)
+
+In a Vulos suite deployment, point LilMail at llmux so each account's AI usage is
+powered per its own choice (BYOK or central) and metered/billed centrally:
+
+```toml
+[ai]
+enabled        = true
+endpoint       = "http://llmux:4000/v1/chat/completions"
+account_header = "X-Vulos-Account-Token"   # header the host shell injects per request
+# api_key is used only as a fallback when the header is absent
+```
+
+LilMail forwards the per-request account token from `account_header` as the
+`Authorization: Bearer <token>`. llmux resolves it to an account and decides
+**BYOK vs central** and metering on the account's behalf — **LilMail never
+decides BYOK/central, it only forwards the token**. See llmux's
+`docs/LLM-ACCESS.md` ("Product consumption contract").
+
+For **standalone / BYO** use, leave `account_header` empty and set `endpoint`
+straight at a provider (or airouter) with a static `api_key`. With
+`enabled = false` (the default) the feature is fully off and no AI routes are
+served.
+
+### AI routes (registered only when `enabled = true`)
+
+| Route | Description |
+|-------|-------------|
+| `POST /api/ai/compose` | Smart compose / continue / rewrite |
+| `POST /api/ai/summarize` | Thread summary + key points + action items |
+| `POST /api/ai/reply` | Three reply suggestions (concise / detailed / decline) |
+| `POST /api/ai/extract-actions` | Action items with optional due dates |
+| `POST /api/ai/phishing` | Phishing / suspicious / clean classification |
+
+---
+
+## `[accounts]`
+
+Multi-account support. When enabled, users can add and switch between additional
+IMAP/SMTP accounts from the Settings page.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `false` | Master switch |
+| `store_file` | string | `"accounts.db"` | bbolt database for encrypted additional-account credentials (auto-created) |
+
+### Account routes (registered only when `enabled = true`)
+
+| Route | Description |
+|-------|-------------|
+| `GET /api/accounts` | List additional accounts (passwords not returned) |
+| `POST /api/accounts` | Add an account (validates IMAP credentials; JSON body) |
+| `DELETE /api/accounts/:email` | Remove an account |
+| `POST /api/accounts/:email/switch` | Switch the active session to this account |
+
+---
+
+## Minimal example
+
+```toml
+[server]
+port = 3000
+username_is_email = true
+
+[imap]
+server = "imap.example.com"
+port   = 993
+tls    = true
+
+[smtp]
+server       = "smtp.example.com"
+port         = 587
+use_starttls = true
+
+[cache]
+folder = "./cache"
+
+[jwt]
+secret = "change-me-to-a-long-random-string"
+
+[encryption]
+key = "a-32-character-encryption-key!!"
+```
+
+## Full example
+
+See [`config.toml.example`](../config.toml.example) in the repository root for
+a complete annotated example covering all sections.
