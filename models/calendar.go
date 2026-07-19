@@ -73,7 +73,7 @@ type Attendee struct {
 // CANCEL) without re-parsing MIME on the client.
 type CalendarInvite struct {
 	// Method is the iTIP method, upper-cased: REQUEST, REPLY, CANCEL, COUNTER,
-	// PUBLISH. The mail-ui shows an RSVP card only for REQUEST.
+	// PUBLISH. The webmail UI shows an RSVP card only for REQUEST.
 	Method string `json:"method"`
 	// Event fields extracted from the VEVENT.
 	UID         string    `json:"uid"`

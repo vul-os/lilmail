@@ -11,7 +11,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-// The webmail send path (POST /v1/messages, the route @vulos/mail-ui composes
+// The webmail send path (POST /v1/messages, the route the webmail UI composes
 // against) must treat a Bcc address as a REAL delivery — added to the RCPT TO set
 // so it is actually sent — while NEVER writing it into the message headers, so no
 // To/Cc recipient can see who was blind-copied. A dropped Bcc silently loses mail;

@@ -14,8 +14,8 @@
 // mail-HTML sanitization. Our job here is defense-in-depth: strip the active
 // content that has no place in a signature/auto-reply (script, event handlers,
 // javascript:/vbscript:/data: URLs, <style>, <iframe>, forms) so a stored XSS
-// payload cannot ride out on our envelope, and so the mail-ui can safely preview
-// the snippet.
+// payload cannot ride out on our envelope, and so the webmail UI can safely
+// preview the snippet.
 //
 // SEPARATELY, validateHeaderValue (wave-49) still guards every HEADER these
 // features touch (vacation Subject, send-as From) against CR/LF/NUL injection —

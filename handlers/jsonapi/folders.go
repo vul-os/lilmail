@@ -1,6 +1,6 @@
 // handlers/jsonapi/folders.go — /v1 folder (label) create/delete + report-spam.
 //
-// Labels in the mail-ui are derived from IMAP folders, so creating/deleting a
+// Labels in the webmail UI are derived from IMAP folders, so creating/deleting a
 // label is creating/deleting a mailbox. These handlers back that surface. System
 // folders (INBOX/Sent/Spam/Trash/Drafts/Archive/Snoozed) are protected: they can
 // never be deleted, mirroring Gmail's behaviour and preserving the wave-17 safety
