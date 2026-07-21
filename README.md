@@ -4,8 +4,6 @@
 
 **A lightweight, database-free PIM client — mail + calendar + contacts — in a single Go binary.**
 
-<sub><img src="docs/assets/vulos-logo.png" height="14" alt="VulOS"> Part of <strong><a href="https://vulos.org">VulOS</a></strong> — the open, self-hostable web OS &amp; app suite. Runs standalone, or as an app hosted by the Vulos OS.</sub>
-
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-yellow.svg)](LICENSE-MIT)
 [![Latest release](https://img.shields.io/github/v/tag/vul-os/lilmail?label=release&sort=semver)](https://github.com/vul-os/lilmail/releases)
 [![CI](https://github.com/vul-os/lilmail/actions/workflows/ci.yml/badge.svg)](https://github.com/vul-os/lilmail/actions/workflows/ci.yml)
@@ -253,3 +251,10 @@ text to accompany every copy, so lilmail ships them:
 ---
 
 <sub><img src="docs/assets/vulos-logo.png" height="16" alt="VulOS"> · <strong>Built with purpose. Open by design.</strong></sub>
+
+---
+
+<p align="center">
+  <a href="https://vulos.org"><img src="docs/assets/vulos-logo.png" alt="vulos" height="20"></a><br>
+  <sub><a href="https://vulos.org"><b>vulos</b></a> — open by design</sub>
+</p>
