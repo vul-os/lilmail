@@ -44,7 +44,7 @@
              }
              if (this.draftUID) fd.set('draft_uid', this.draftUID);
              fetch('/api/draft', { method: 'POST', body: fd,
-                 headers: (() => { const tok = (document.getElementById('app-token')||{}).dataset?.token||''; return tok ? {'Authorization':'Bearer '+tok} : {}; })()
+                 headers: (() => { const tok = (document.getElementById('app-token')||{}).dataset?.token||''; const h = tok ? {'Authorization':'Bearer '+tok} : {}; if (window.lmCsrfToken) h['X-CSRF-Token'] = window.lmCsrfToken(); return h; })()
              })
              .then(r => r.json())
              .then(r => {

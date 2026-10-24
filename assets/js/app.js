@@ -68,6 +68,14 @@ document.addEventListener('alpine:initialized', function () {
     Alpine.effect(sync);
 });
 
+// CSRF double-submit token from the "_csrf" cookie. htmx requests get it below;
+// raw fetch() calls that POST/PUT/DELETE must send it as X-CSRF-Token themselves
+// (without it the CSRF middleware answers 403 Forbidden).
+/** @type {any} */ (window).lmCsrfToken = function () {
+    const m = document.cookie.match(/(?:^|;\s*)_csrf=([^;]+)/);
+    return m ? decodeURIComponent(m[1]) : '';
+};
+
 document.body.addEventListener('htmx:configRequest', function (evt) {
     const tokenEl = document.getElementById('app-token');
     const token = tokenEl instanceof HTMLElement && tokenEl.dataset.token ? tokenEl.dataset.token : '';

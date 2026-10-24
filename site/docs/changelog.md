@@ -51,6 +51,12 @@ Versioning: [Semantic Versioning](https://semver.org/)
   across every AI route, with the same recorder proven against both live modes
   so the zero means something.
 
+### Fixed
+
+- **403 on "Add account" and "Save draft".** Their raw `fetch()` calls did not
+  send the CSRF double-submit token (`X-CSRF-Token`); they now do, through a
+  small `window.lmCsrfToken()` helper.
+
 ### Removed
 
 - **`[ssl] port`, `[ssl] http_port` and `[ssl] auto_redirect` are gone.** All

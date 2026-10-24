@@ -249,6 +249,7 @@ function addAccountForm() {
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': 'Bearer ' + token,
+                    'X-CSRF-Token': window.lmCsrfToken ? window.lmCsrfToken() : '',
                 },
                 body: JSON.stringify(this.form),
             }).then(function(r) {
