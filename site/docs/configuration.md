@@ -100,6 +100,12 @@ implemented for **SMTP only** (`[smtp] use_starttls`).
 There is no `insecure_skip_verify` for IMAP. A self-signed IMAP certificate will
 fail the handshake; only the SMTP client exposes that escape hatch.
 
+**Timeouts.** lilmail allows 10 s to connect, finish the TLS handshake and receive
+the server greeting, then 60 s for each IMAP command (an attachment download is
+one command). The IDLE watcher is exempt, since IDLE legitimately blocks. Set
+`LILMAIL_TIMING=1` in the environment to log how long IMAP connect+login takes,
+which tells a slow server from a slow request.
+
 ---
 
 ## `[smtp]`
@@ -110,6 +116,9 @@ fail the handshake; only the SMTP client exposes that escape hatch.
 | `port` | int | `587` | SMTP port (`587` STARTTLS / `465` implicit TLS) |
 | `use_starttls` | bool | `true` | Use STARTTLS upgrade. Set `false` for implicit TLS (port 465) |
 | `insecure_skip_verify` | bool | `false` | Skip TLS certificate verification. For self-signed certs only |
+
+SMTP allows 10 s to connect and receive the greeting, then 2 minutes for the rest
+of the conversation (authentication, the message itself, QUIT).
 
 ---
 

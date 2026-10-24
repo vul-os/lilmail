@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/smtp"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -106,6 +107,66 @@ type MailOptions struct {
 	References string
 }
 
+const (
+	// smtpDialTimeout bounds TCP connect, TLS handshake and the server greeting.
+	smtpDialTimeout = 10 * time.Second
+	// smtpSessionTimeout bounds the whole SMTP conversation after that (auth,
+	// DATA with attachments, QUIT). Without deadlines a server that accepts the
+	// connection and then says nothing (or a STARTTLS/implicit-TLS mix-up)
+	// hangs the HTTP request forever.
+	smtpSessionTimeout = 2 * time.Minute
+)
+
+// dial opens the SMTP connection per the client's TLS mode: implicit TLS, or
+// plain TCP upgraded with STARTTLS (after EHLO). The error prefixes are kept
+// from the original inline code. Deadlines are set as described above.
+func (c *SMTPClient) dial() (*smtp.Client, error) {
+	addr := net.JoinHostPort(c.server, strconv.Itoa(c.port)) // IPv6-safe
+	tlsCfg := &tls.Config{
+		ServerName:         c.server,
+		InsecureSkipVerify: c.insecureSkipVerify, //nolint:gosec // operator-controlled
+	}
+	d := &net.Dialer{Timeout: smtpDialTimeout}
+
+	var conn net.Conn
+	var err error
+	if c.useStartTLS {
+		conn, err = d.Dial("tcp", addr)
+		if err != nil {
+			return nil, fmt.Errorf("dial failed: %v", err)
+		}
+	} else {
+		conn, err = tls.DialWithDialer(d, "tcp", addr, tlsCfg)
+		if err != nil {
+			return nil, fmt.Errorf("tls dial failed: %v", err)
+		}
+	}
+	// Greeting deadline first; widened once the server has spoken.
+	if err = conn.SetDeadline(time.Now().Add(smtpDialTimeout)); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("dial failed: %v", err)
+	}
+	host, _, _ := net.SplitHostPort(addr)
+	client, err := smtp.NewClient(conn, host)
+	if err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("smtp client init failed: %v", err)
+	}
+	_ = conn.SetDeadline(time.Now().Add(smtpSessionTimeout))
+
+	if c.useStartTLS {
+		if err := client.Hello(GetDomainFromEmail(c.email)); err != nil {
+			client.Close()
+			return nil, fmt.Errorf("hello failed: %v", err)
+		}
+		if err := client.StartTLS(tlsCfg); err != nil {
+			client.Close()
+			return nil, fmt.Errorf("starttls failed: %v", err)
+		}
+	}
+	return client, nil
+}
+
 // SendMail sends an email using SMTP.  Extra recipients and threading headers
 // can be provided via opts (pass nil or &MailOptions{} for a plain send).
 func (c *SMTPClient) SendMail(to, subject, body string, opts *MailOptions) error {
@@ -123,42 +184,9 @@ func (c *SMTPClient) SendMail(to, subject, body string, opts *MailOptions) error
 		}
 	}
 
-	addr := fmt.Sprintf("%s:%d", c.server, c.port)
-	tlsCfg := &tls.Config{
-		ServerName:         c.server,
-		InsecureSkipVerify: c.insecureSkipVerify, //nolint:gosec // operator-controlled
-	}
-
-	var client *smtp.Client
-	var err error
-
-	if c.useStartTLS {
-		// Plain TCP → STARTTLS upgrade.
-		client, err = smtp.Dial(addr)
-		if err != nil {
-			return fmt.Errorf("dial failed: %v", err)
-		}
-		domain := GetDomainFromEmail(c.email)
-		if err := client.Hello(domain); err != nil {
-			client.Close()
-			return fmt.Errorf("hello failed: %v", err)
-		}
-		if err = client.StartTLS(tlsCfg); err != nil {
-			client.Close()
-			return fmt.Errorf("starttls failed: %v", err)
-		}
-	} else {
-		// Implicit TLS (port 465).
-		conn, err := tls.Dial("tcp", addr, tlsCfg)
-		if err != nil {
-			return fmt.Errorf("tls dial failed: %v", err)
-		}
-		host, _, _ := net.SplitHostPort(addr)
-		client, err = smtp.NewClient(conn, host)
-		if err != nil {
-			conn.Close()
-			return fmt.Errorf("smtp client init failed: %v", err)
-		}
+	client, err := c.dial()
+	if err != nil {
+		return err
 	}
 	defer client.Close()
 
@@ -247,40 +275,9 @@ func (c *SMTPClient) SendMail(to, subject, body string, opts *MailOptions) error
 // responsible for constructing the full message including all headers and body.
 // allRcpts is the union of To, CC, and BCC addresses to use as RCPT TO.
 func (c *SMTPClient) SendRawMessage(allRcpts []string, rawMessage []byte) error {
-	addr := fmt.Sprintf("%s:%d", c.server, c.port)
-	tlsCfg := &tls.Config{
-		ServerName:         c.server,
-		InsecureSkipVerify: c.insecureSkipVerify, //nolint:gosec // operator-controlled
-	}
-
-	var smtpClient *smtp.Client
-	var err error
-
-	if c.useStartTLS {
-		smtpClient, err = smtp.Dial(addr)
-		if err != nil {
-			return fmt.Errorf("dial failed: %v", err)
-		}
-		domain := GetDomainFromEmail(c.email)
-		if err := smtpClient.Hello(domain); err != nil {
-			smtpClient.Close()
-			return fmt.Errorf("hello failed: %v", err)
-		}
-		if err = smtpClient.StartTLS(tlsCfg); err != nil {
-			smtpClient.Close()
-			return fmt.Errorf("starttls failed: %v", err)
-		}
-	} else {
-		conn, err := tls.Dial("tcp", addr, tlsCfg)
-		if err != nil {
-			return fmt.Errorf("tls dial failed: %v", err)
-		}
-		host, _, _ := net.SplitHostPort(addr)
-		smtpClient, err = smtp.NewClient(conn, host)
-		if err != nil {
-			conn.Close()
-			return fmt.Errorf("smtp client init failed: %v", err)
-		}
+	smtpClient, err := c.dial()
+	if err != nil {
+		return err
 	}
 	defer smtpClient.Close()
 

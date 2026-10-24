@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"lilmail/models"
 	"log"
+	"net"
 	"strings"
 	"time"
 
@@ -96,21 +97,38 @@ type Client struct {
 // like a TLS handshake" because the connection was always TLS.
 func dialIMAP(server string, port int, useTLS bool) (*client.Client, error) {
 	addr := fmt.Sprintf("%s:%d", server, port)
+	var c *client.Client
+	var err error
 	if useTLS {
-		c, err := client.DialTLS(addr, nil)
+		c, err = client.DialWithDialerTLS(imapDialer, addr, nil)
 		if err != nil {
 			log.Printf("DialTLS %s connection err: %v", addr, err)
 			return nil, fmt.Errorf("connection error: %v", err)
 		}
-		return c, nil
+	} else {
+		c, err = client.DialWithDialer(imapDialer, addr)
+		if err != nil {
+			log.Printf("Dial (plain IMAP) %s connection err: %v", addr, err)
+			return nil, fmt.Errorf("connection error: %v", err)
+		}
 	}
-	c, err := client.Dial(addr)
-	if err != nil {
-		log.Printf("Dial (plain IMAP) %s connection err: %v", addr, err)
-		return nil, fmt.Errorf("connection error: %v", err)
-	}
+	c.Timeout = imapCmdTimeout
 	return c, nil
 }
+
+const (
+	// imapDialTimeout bounds TCP connect + TLS handshake + server greeting
+	// (go-imap reuses the dialer's Timeout as the greeting deadline).
+	imapDialTimeout = 10 * time.Second
+	// imapCmdTimeout bounds each IMAP command round trip, including the response
+	// body it streams (so it also caps a single attachment fetch). Without it an
+	// unresponsive server hangs the request forever. The IDLE watcher must reset
+	// it to 0 (see WatchInbox): IDLE legitimately blocks far longer.
+	imapCmdTimeout = 60 * time.Second
+)
+
+// imapDialer is a package var so tests can substitute a short timeout.
+var imapDialer client.Dialer = &net.Dialer{Timeout: imapDialTimeout}
 
 // NewClient creates a new implicit-TLS IMAP client. Backward-compatible default;
 // use NewClientTLS to choose plain vs TLS explicitly (e.g. from config.IMAP.TLS).
@@ -122,6 +140,7 @@ func NewClient(server string, port int, email, password string) (*Client, error)
 // or a plain (non-TLS) connection when false. Fixes #8 — config `tls = false`
 // now actually connects to plain-IMAP servers instead of failing the handshake.
 func NewClientTLS(server string, port int, email, password string, useTLS bool) (*Client, error) {
+	start := time.Now()
 	c, err := dialIMAP(server, port, useTLS)
 	if err != nil {
 		return nil, err
@@ -134,16 +153,17 @@ func NewClientTLS(server string, port int, email, password string, useTLS bool) 
 		return nil, fmt.Errorf("login error: %v", err)
 	}
 
+	logTiming("imap connect+login", start)
 	return &Client{client: c, username: email}, nil
 }
 
 // NewClientOAuth creates a new IMAP client authenticated with an OAuth2 access
 // token using the XOAUTH2 (default) or OAUTHBEARER SASL mechanism.
 func NewClientOAuth(server string, port int, username, accessToken, mechanism string) (*Client, error) {
-	c, err := client.DialTLS(fmt.Sprintf("%s:%d", server, port), nil)
+	start := time.Now()
+	c, err := dialIMAP(server, port, true)
 	if err != nil {
-		log.Printf("DialTLS %s:%d connection err: %v", server, port, err)
-		return nil, fmt.Errorf("connection error: %v", err)
+		return nil, err
 	}
 
 	var auth sasl.Client
@@ -165,6 +185,7 @@ func NewClientOAuth(server string, port int, username, accessToken, mechanism st
 		return nil, fmt.Errorf("oauth2 login error: %v", err)
 	}
 
+	logTiming("imap connect+login (oauth2)", start)
 	return &Client{client: c, username: username}, nil
 }
 
