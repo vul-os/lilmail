@@ -51,6 +51,11 @@ Versioning: [Semantic Versioning](https://semver.org/)
   across every AI route, with the same recorder proven against both live modes
   so the zero means something.
 
+### Fixed
+
+- **A reply whose parent is outside the fetched window vanished** from the
+  threaded list. It is now shown as its own thread.
+
 ### Removed
 
 - **`[ssl] port`, `[ssl] http_port` and `[ssl] auto_redirect` are gone.** All

@@ -209,7 +209,13 @@ func pruneEmpties(roots []*container) []*container {
 				continue
 			}
 			if len(c.children) == 1 || c.parent != nil {
-				// Promote single child (or all children) up.
+				// Promote single child (or all children) up. Re-point their
+				// parent: a stale pointer to the discarded container makes
+				// groupBySubject treat a promoted root as non-root and drop it
+				// (a reply whose parent is outside the fetched window vanished).
+				for _, ch := range c.children {
+					ch.parent = c.parent
+				}
 				out = append(out, c.children...)
 				continue
 			}

@@ -228,3 +228,17 @@ func threadIDs(threads []models.Thread) []string {
 	}
 	return ids
 }
+
+// A reply whose parent is outside the fetched window (e.g. on the next page)
+// must still appear, as its own thread, not vanish.
+func TestThreadMessages_OrphanReplyKept(t *testing.T) {
+	now := time.Now()
+	emails := []models.Email{
+		{ID: "9", MessageID: "<a@t>", Subject: "alone", Date: now},
+		{ID: "5", MessageID: "<r@t>", InReplyTo: "<missing@t>", References: []string{"<missing@t>"}, Subject: "Re: gone", Date: now.Add(-time.Hour)},
+	}
+	threads := ThreadMessages(emails)
+	if len(threads) != 2 {
+		t.Fatalf("want 2 threads (orphan reply kept), got %d", len(threads))
+	}
+}
