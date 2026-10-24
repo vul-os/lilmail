@@ -36,6 +36,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/session"
 
 	"lilmail/config"
+	"lilmail/handlers/api"
 	"lilmail/models"
 )
 
@@ -79,13 +80,13 @@ func NewNotificationHub(store *session.Store, cfg *config.Config, auth *AuthHand
 
 // Subscribe registers ch as a receiver of new-mail events for username.
 // If no watcher is running for that user one is started immediately.
-// The supplied fiberCtx is used once (inside startWatcher) to create the
-// dedicated IMAP client from the live session; after the function returns
-// the watcher goroutine no longer needs the fiber context.
+// The supplied fiberCtx is used synchronously, before Subscribe returns, to
+// create the dedicated IMAP client from the live session. It must NOT be used
+// from the watcher goroutine: Fiber recycles the context as soon as the handler
+// returns, and touching it afterwards is a nil dereference that crashed the
+// whole process on the first /events subscription.
 func (h *NotificationHub) Subscribe(username string, ch chan MailEvent, fiberCtx *fiber.Ctx) {
 	h.mu.Lock()
-	defer h.mu.Unlock()
-
 	st := h.users[username]
 	if st == nil {
 		st = &userState{}
@@ -94,11 +95,29 @@ func (h *NotificationHub) Subscribe(username string, ch chan MailEvent, fiberCtx
 	st.subs = append(st.subs, ch)
 
 	// Start a watcher if none is running.
+	var stop chan struct{}
 	if st.stop == nil && h.config.Notifications.Idle {
-		stop := make(chan struct{})
-		st.stop = stop
-		go h.runWatcher(username, stop, fiberCtx)
+		stop = make(chan struct{})
+		st.stop = stop // claim the slot so concurrent subscribers don't start a second watcher
 	}
+	h.mu.Unlock()
+	if stop == nil {
+		return
+	}
+
+	// Login happens outside the hub lock (network I/O) but inside the request.
+	imapClient, err := h.auth.CreateIMAPClient(fiberCtx)
+	if err != nil {
+		log.Printf("notifications: watcher for %s: create IMAP client: %v", username, err)
+		// Release the slot so a future subscription can retry.
+		h.mu.Lock()
+		if cur := h.users[username]; cur != nil && cur.stop == stop {
+			cur.stop = nil
+		}
+		h.mu.Unlock()
+		return
+	}
+	go h.runWatcher(username, stop, imapClient)
 }
 
 // Unsubscribe removes ch from the subscriber list for username.
@@ -163,28 +182,17 @@ func (h *NotificationHub) Broadcast(username string, ev MailEvent) {
 	}
 }
 
-// runWatcher opens a dedicated IMAP connection for username and calls
-// api.Client.WatchInbox until stop is closed or the connection drops.
-// fiberCtx is used once to obtain session credentials via CreateIMAPClient.
-func (h *NotificationHub) runWatcher(username string, stop <-chan struct{}, fiberCtx *fiber.Ctx) {
-	imapClient, err := h.auth.CreateIMAPClient(fiberCtx)
-	if err != nil {
-		log.Printf("notifications: watcher for %s: create IMAP client: %v", username, err)
-		// Clear the stop channel so a future subscription can retry.
-		h.mu.Lock()
-		if st := h.users[username]; st != nil {
-			st.stop = nil
-		}
-		h.mu.Unlock()
-		return
-	}
+// runWatcher calls WatchInbox on the dedicated imapClient (created by Subscribe
+// from the live session) until stop is closed or the connection drops, then
+// closes it.
+func (h *NotificationHub) runWatcher(username string, stop <-chan struct{}, imapClient api.MailClient) {
 	defer func() {
 		if err := imapClient.Close(); err != nil {
 			log.Printf("notifications: watcher for %s: close: %v", username, err)
 		}
 	}()
 
-	err = imapClient.WatchInbox(stop, func(email models.Email) {
+	err := imapClient.WatchInbox(stop, func(email models.Email) {
 		h.Broadcast(username, MailEvent{
 			From:    email.From,
 			Subject: email.Subject,

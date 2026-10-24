@@ -50,46 +50,56 @@ func (c *Client) WatchInbox(stop <-chan struct{}, onNewMail func(email models.Em
 
 	idleClient := idle.NewClient(raw)
 
-	// idleDone receives the result of the blocking IdleWithFallback call.
-	idleDone := make(chan error, 1)
-	go func() {
-		idleDone <- idleClient.IdleWithFallback(stop, time.Minute)
-	}()
-
 	for {
-		select {
-		case update, ok := <-updates:
-			if !ok {
+		// IDLE owns the connection until it is terminated, so a FETCH issued while
+		// it runs just blocks (the watcher then never reported any new mail). Run
+		// IDLE until the server announces more messages, end it, fetch, resume.
+		idleStop := make(chan struct{})
+		idleDone := make(chan error, 1)
+		go func() { idleDone <- idleClient.IdleWithFallback(idleStop, time.Minute) }()
+
+		var newCount uint32
+	wait:
+		for {
+			select {
+			case update, ok := <-updates:
+				if !ok {
+					close(idleStop)
+					<-idleDone
+					return nil
+				}
+				if mb, isMailbox := update.(*imapClient.MailboxUpdate); isMailbox {
+					if n := mb.Mailbox.Messages; n > prevCount {
+						newCount = n
+						break wait
+					} else {
+						prevCount = n
+					}
+				}
+			case err := <-idleDone:
+				if err != nil {
+					return fmt.Errorf("idle: %w", err)
+				}
+				return nil
+			case <-stop:
+				close(idleStop)
+				<-idleDone
 				return nil
 			}
-			mb, isMailbox := update.(*imapClient.MailboxUpdate)
-			if !isMailbox {
-				continue
-			}
-			newCount := mb.Mailbox.Messages
-			if newCount <= prevCount {
-				prevCount = newCount
-				continue
-			}
-			// Fetch envelopes for the new messages.
-			emails, err := c.fetchEnvelopes(raw, prevCount+1, newCount)
-			prevCount = newCount
-			if err != nil {
-				log.Printf("idle: fetchEnvelopes: %v", err)
-				continue
-			}
-			for _, email := range emails {
-				onNewMail(email)
-			}
+		}
 
-		case err := <-idleDone:
-			if err != nil {
-				return fmt.Errorf("idle: %w", err)
-			}
-			return nil
-
-		case <-stop:
-			return nil
+		close(idleStop)
+		if err := <-idleDone; err != nil {
+			return fmt.Errorf("idle: %w", err)
+		}
+		emails, err := c.fetchEnvelopes(raw, prevCount+1, newCount)
+		prevCount = newCount
+		if err != nil {
+			log.Printf("idle: fetchEnvelopes: %v", err)
+			continue
+		}
+		for _, email := range emails {
+			onNewMail(email)
 		}
 	}
 }

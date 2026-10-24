@@ -51,6 +51,14 @@ Versioning: [Semantic Versioning](https://semver.org/)
   across every AI route, with the same recorder proven against both live modes
   so the zero means something.
 
+### Fixed
+
+- **New-mail notifications.** The IDLE watcher ran a FETCH while IDLE held the
+  connection, so it never reported anything; it now ends IDLE, fetches and
+  resumes. The first `/events` subscription also crashed the process: the
+  watcher goroutine used the Fiber context after the handler returned. The IMAP
+  client is now created inside the request.
+
 ### Removed
 
 - **`[ssl] port`, `[ssl] http_port` and `[ssl] auto_redirect` are gone.** All
