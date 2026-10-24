@@ -10,8 +10,23 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Changed
+
+- **IMAP and SMTP connections now have timeouts.** IMAP: 10 s to connect,
+  complete the TLS handshake and receive the greeting, then 60 s per command.
+  SMTP: 10 s to connect and receive the greeting, 2 min for the rest of the
+  session. A server that accepts the connection and then says nothing (or a
+  STARTTLS/implicit-TLS mix-up) used to hang the request forever. The IDLE
+  watcher disables the per-command limit, since IDLE legitimately blocks.
+- **The login page tells an unreachable server from a wrong password.** A
+  rejected login is a 401 "Invalid email or password"; a connection failure or
+  timeout is a 503 "Could not reach the mail server…"; anything else is a 502.
+  Previously every failure read "Invalid credentials or server error".
+
 ### Added
 
+- `LILMAIL_TIMING=1` logs how long IMAP connect+login takes, to tell a slow
+  server from a slow request.
 - **The mail AI assistant can now run llmux in-process instead of calling a
   gateway.** `[ai] mode = "embedded"` links llmux
   (`github.com/vul-os/llmux`) into LilMail as a Go library: no gateway to

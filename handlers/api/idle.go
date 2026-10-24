@@ -37,6 +37,10 @@ import (
 func (c *Client) WatchInbox(stop <-chan struct{}, onNewMail func(email models.Email)) error {
 	raw := c.IMAPClient()
 
+	// IDLE blocks until the server pushes something; the per-command timeout
+	// set at dial time would kill it after imapCmdTimeout.
+	raw.Timeout = 0
+
 	// Select INBOX so that the server sends EXISTS updates.
 	mbox, err := raw.Select("INBOX", false)
 	if err != nil {
