@@ -51,6 +51,15 @@ Versioning: [Semantic Versioning](https://semver.org/)
   across every AI route, with the same recorder proven against both live modes
   so the zero means something.
 
+### Fixed
+
+- **"Display images" now restores everything the sender blocked.** The reading
+  pane iframe inherited the app CSP through `srcdoc`, so remote images could
+  never load, and backgrounds and remote stylesheets were never restored. The
+  button now loads `/api/email/:id/body?images=1`, a real URL with its own CSP
+  (images/styles/fonts only) and `Referrer-Policy: no-referrer`. A `<meta
+  refresh>` or `<base>` inside a mail body is dropped in both modes.
+
 ### Removed
 
 - **`[ssl] port`, `[ssl] http_port` and `[ssl] auto_redirect` are gone.** All

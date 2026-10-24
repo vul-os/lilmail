@@ -208,7 +208,7 @@ func TestBlockRemoteContent_InputNonImageUntouched(t *testing.T) {
 // TestPrepareEmailHTML_WrapsAndBlocks confirms the wrapper still blocks and
 // reports it, and preserves data: content.
 func TestPrepareEmailHTML_WrapsAndBlocks(t *testing.T) {
-	out, blocked := prepareEmailHTML(`<img src="http://evil/p"><img src="data:image/gif;base64,AAAA">`)
+	out, blocked := prepareEmailHTML(`<img src="http://evil/p"><img src="data:image/gif;base64,AAAA">`, false)
 	if !blocked {
 		t.Fatalf("expected blocked=true")
 	}
@@ -220,5 +220,55 @@ func TestPrepareEmailHTML_WrapsAndBlocks(t *testing.T) {
 	}
 	if !strings.Contains(out, "data:image/gif;base64,AAAA") {
 		t.Fatalf("data: image lost in wrapper: %q", out)
+	}
+}
+
+// TestPrepareEmailHTML_AllowRemote confirms "Display images" re-renders the body
+// untouched (backgrounds, remote CSS and <link> included) with a CSP that lets
+// images/styles load but nothing else.
+func TestPrepareEmailHTML_AllowRemote(t *testing.T) {
+	in := `<table background="https://x/bg.png"><tr><td style="background:url(https://x/a.png)">` +
+		`<img src="https://x/i.png"></td></tr></table><link rel="stylesheet" href="https://x/s.css">`
+	out, blocked := prepareEmailHTML(in, true)
+	if blocked {
+		t.Fatalf("allowRemote must report blocked=false")
+	}
+	if !strings.Contains(out, in) {
+		t.Fatalf("allowRemote altered the body: %q", out)
+	}
+	if page := out[strings.Index(out, "<body>"):]; strings.Contains(page, "data-blocked") || strings.Contains(page, "about:blank") {
+		t.Fatalf("allowRemote left blocking artefacts: %q", page)
+	}
+	if !strings.Contains(out, cspAllowed) || strings.Contains(out, cspBlocked) {
+		t.Fatalf("wrong CSP for allowRemote: %q", out)
+	}
+	blockedOut, _ := prepareEmailHTML(in, false)
+	if !strings.Contains(blockedOut, cspBlocked) {
+		t.Fatalf("blocked mode must use the strict CSP: %q", blockedOut)
+	}
+}
+
+// TestPrepareEmailHTML_StripsBodyMetaBase: a body <meta http-equiv=refresh> or
+// <base> must not survive in either mode.
+func TestPrepareEmailHTML_StripsBodyMetaBase(t *testing.T) {
+	in := `<meta http-equiv="refresh" content="0;url=https://evil/"><base href="https://evil/"><p>hi</p>`
+	for _, allow := range []bool{false, true} {
+		out, _ := prepareEmailHTML(in, allow)
+		if strings.Contains(out, "refresh") || strings.Contains(out, "https://evil/") {
+			t.Fatalf("allow=%v: body meta/base survived: %q", allow, out)
+		}
+		if !strings.Contains(out, "<p>hi</p>") {
+			t.Fatalf("allow=%v: body content lost: %q", allow, out)
+		}
+	}
+}
+
+// The document must not leak the app URL as Referer to remote hosts.
+func TestPrepareEmailHTML_NoReferrer(t *testing.T) {
+	for _, allow := range []bool{false, true} {
+		out, _ := prepareEmailHTML(`<p>x</p>`, allow)
+		if !strings.Contains(out, `<meta name="referrer" content="no-referrer">`) {
+			t.Fatalf("allow=%v: missing no-referrer meta: %q", allow, out)
+		}
 	}
 }

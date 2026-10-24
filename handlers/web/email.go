@@ -238,6 +238,73 @@ func (h *EmailHandler) HandleFolder(c *fiber.Ctx) error {
 	})
 }
 
+// clientForAccount opens an IMAP client for accountEmail: the session account
+// when empty or equal to the session email, otherwise one of the user's stored
+// additional accounts (unified mode). Callers must Close the client.
+func (h *EmailHandler) clientForAccount(c *fiber.Ctx, accountEmail string) (api.MailClient, error) {
+	if accountEmail != "" && h.acctStore != nil && h.config.Accounts.Enabled {
+		username, _ := c.Locals("username").(string)
+		sessionEmail, _ := c.Locals("email").(string)
+		if accountEmail == sessionEmail {
+			return h.auth.CreateIMAPClient(c) // primary account — session client
+		}
+		entries, err := h.acctStore.List(username)
+		if err == nil {
+			for _, e := range entries {
+				if e.Email == accountEmail {
+					return h.auth.CreateIMAPClientForAccount(e)
+				}
+			}
+		}
+		return nil, fmt.Errorf("account %s not found", accountEmail)
+	}
+	return h.auth.CreateIMAPClient(c)
+}
+
+// HandleEmailBody serves a message's HTML body as its own document for the
+// reading-pane iframe. It exists for "Display images": a srcdoc iframe inherits
+// the app's strict CSP (img-src 'self' data: blob:), so remote images and
+// stylesheets could never load there. This route returns the body with its OWN
+// Content-Security-Policy header (images/styles/fonts only, no scripts, frames
+// or forms) and Referrer-Policy: no-referrer so the app URL is not leaked to
+// the remote hosts. Session-gated like the rest of /api; the account lookup is
+// the same as HandleEmailView, so a user can only read their own mailboxes.
+// Route: GET /api/email/:id/body?folder=<folder>[&account=<email>][&images=1]
+func (h *EmailHandler) HandleEmailBody(c *fiber.Ctx) error {
+	emailID := c.Params("id")
+	if emailID == "" {
+		return c.Status(400).SendString("Email ID required")
+	}
+	folderName := c.Query("folder")
+	if folderName == "" {
+		folderName = "INBOX"
+	}
+
+	client, err := h.clientForAccount(c, c.Query("account"))
+	if err != nil {
+		return c.Status(500).SendString("Error connecting to email server")
+	}
+	defer client.Close()
+
+	email, err := client.FetchSingleMessage(folderName, emailID)
+	if err != nil {
+		log.Printf("HandleEmailBody: fetch %s/%s: %v", folderName, emailID, err)
+		return c.Status(500).SendString("Error fetching email")
+	}
+
+	allow := c.Query("images") == "1"
+	doc, _ := prepareEmailHTML(email.HTML, allow)
+	csp := cspBlocked
+	if allow {
+		csp = cspAllowed
+	}
+	c.Set("Content-Security-Policy", csp+"; frame-ancestors 'self'")
+	c.Set("Referrer-Policy", "no-referrer")
+	c.Set("Cache-Control", "private, no-store")
+	c.Type("html", "utf-8")
+	return c.SendString(doc)
+}
+
 // HandleEmailView handles the HTMX request for viewing a single email.
 // In unified mode, X-Account-Email identifies which account's IMAP connection
 // to use.  Falls back to the session account when the header is absent.
@@ -265,36 +332,7 @@ func (h *EmailHandler) HandleEmailView(c *fiber.Ctx) error {
 	// Unified mode: X-Account-Email tells us which account this message belongs to.
 	accountEmail := c.Get("X-Account-Email")
 
-	var client api.MailClient
-	var err error
-
-	if accountEmail != "" && h.acctStore != nil && h.config.Accounts.Enabled {
-		// Try to find this account in the store.
-		username, _ := c.Locals("username").(string)
-		sessionEmail, _ := c.Locals("email").(string)
-
-		if accountEmail == sessionEmail {
-			// It's the primary account — use the session client.
-			client, err = h.auth.CreateIMAPClient(c)
-		} else {
-			// It's an additional account.
-			entries, listErr := h.acctStore.List(username)
-			if listErr == nil {
-				for _, e := range entries {
-					if e.Email == accountEmail {
-						client, err = h.auth.CreateIMAPClientForAccount(e)
-						break
-					}
-				}
-			}
-			if client == nil && err == nil {
-				err = fmt.Errorf("account %s not found", accountEmail)
-			}
-		}
-	} else {
-		client, err = h.auth.CreateIMAPClient(c)
-	}
-
+	client, err := h.clientForAccount(c, accountEmail)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{
 			"error": "Error connecting to email server",
@@ -332,7 +370,7 @@ func (h *EmailHandler) HandleEmailView(c *fiber.Ctx) error {
 	var preparedHTML string
 	var hasRemote bool
 	if email.HTML != "" {
-		preparedHTML, hasRemote = prepareEmailHTML(email.HTML)
+		preparedHTML, hasRemote = prepareEmailHTML(email.HTML, c.Query("images") == "1")
 	}
 
 	// Sanitize the HTML that feeds the Edit-Draft path. The email-viewer template

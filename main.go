@@ -452,6 +452,7 @@ func main() {
 	{
 		// Email routes
 		apiRoutes.Get("/email/:id", webEmailHandler.HandleEmailView)
+		apiRoutes.Get("/email/:id/body", webEmailHandler.HandleEmailBody)
 		apiRoutes.Delete("/email/:id", webEmailHandler.HandleDeleteEmail)
 
 		// Attachment download (ID encodes folder + UID + MIME part)

@@ -35,12 +35,20 @@
 //   - remote url(...) and @import in inline style="" attributes AND in
 //     <style>...</style> blocks
 //
-// Blocked <img>/<image> src/srcset URLs (and the other tag attributes) are
-// stashed in data-blocked-* attributes; the parent page restores <img> ones on
-// demand (it can, because the frame is same-origin and script-free). Remote CSS
-// url()/@import are rewritten to about:blank and are NOT restorable — they are
-// only blocked. Inline data: URIs (embedded/contact-photo images) and cid:/
-// relative references are left untouched, so nothing local is over-blocked.
+// Blocked URLs are stashed in data-blocked-* attributes and remote CSS
+// url()/@import are rewritten to about:blank. Neither is restored in place:
+// clicking "Display images" points the iframe at /api/email/:id/body?images=1
+// (HandleEmailBody), which renders prepareEmailHTML(raw, true) — no blocking at
+// all, same approach as Roundcube's allow_remote — so backgrounds, remote
+// stylesheets and <link> assets come back too, not only <img>. It must be a real
+// URL, not srcdoc: a srcdoc document inherits the app's CSP (img-src 'self'
+// data: blob:) and could never load remote content. Inline data: URIs (embedded/contact-photo images) and cid:/relative
+// references are never touched.
+//
+// Every document also carries a Content-Security-Policy <meta>: with remote
+// content blocked it allows only data: images, so a vector the regex pass
+// misses still cannot fetch anything; with remote content allowed it permits
+// images/styles/fonts only (no frames, media, scripts or forms).
 package web
 
 import (
@@ -79,6 +87,18 @@ var (
 	// bare-string form @import "http://…".
 	cssURLRe    = regexp.MustCompile(`(?is)url\(\s*['"]?\s*(?:https?:|//)[^)]*\)`)
 	cssImportRe = regexp.MustCompile(`(?is)@import\s+['"]\s*(?:https?:|//)[^'"]*['"]`)
+
+	// metaBaseRe matches <meta>/<base> tags in the mail body. A body <meta
+	// http-equiv=refresh> can navigate the (sandboxed but self-navigable) frame
+	// to a remote URL and a body <base> rewrites every relative URL; our own
+	// charset/viewport/CSP/base tags are emitted by prepareEmailHTML instead.
+	metaBaseRe = regexp.MustCompile(`(?is)<(?:meta|base)\b[^>]*>`)
+)
+
+// Content-Security-Policy applied to the srcdoc document (see file comment).
+const (
+	cspBlocked = "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:"
+	cspAllowed = "default-src 'none'; img-src https: http: data:; style-src 'unsafe-inline' https: http:; font-src https: http: data:"
 )
 
 // emailFrameCSS is injected into every rendered HTML email so messages get a
@@ -302,16 +322,26 @@ func ensureQuoted(v string) string {
 
 // prepareEmailHTML wraps a raw HTML email body in a minimal document with our
 // baseline stylesheet and a <base target="_blank"> (so links open in a new tab
-// instead of trying — and failing — to navigate the sandboxed frame). It blocks
-// remote images by default and reports whether any were blocked.
+// instead of trying — and failing — to navigate the sandboxed frame). Unless
+// allowRemote is set it blocks remote content and reports whether any was
+// blocked; with allowRemote the body is rendered as authored and blocked is
+// always false.
 //
 // The returned string is a plain string: the template assigns it to the iframe
 // srcdoc attribute, where html/template attribute-escapes it correctly.
-func prepareEmailHTML(raw string) (string, bool) {
-	body, blocked := blockRemoteContent(raw)
+func prepareEmailHTML(raw string, allowRemote bool) (string, bool) {
+	body := metaBaseRe.ReplaceAllString(raw, "")
+	blocked := false
+	csp := cspAllowed
+	if !allowRemote {
+		body, blocked = blockRemoteContent(body)
+		csp = cspBlocked
+	}
 
 	var b strings.Builder
 	b.WriteString(`<!DOCTYPE html><html><head><meta charset="utf-8">`)
+	b.WriteString(`<meta http-equiv="Content-Security-Policy" content="` + csp + `">`)
+	b.WriteString(`<meta name="referrer" content="no-referrer">`)
 	b.WriteString(`<meta name="viewport" content="width=device-width, initial-scale=1">`)
 	b.WriteString(`<base target="_blank"><style>`)
 	b.WriteString(emailFrameCSS)
