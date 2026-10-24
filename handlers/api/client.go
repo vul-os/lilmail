@@ -2,6 +2,7 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"lilmail/models"
 	"log"
@@ -84,6 +85,15 @@ func (c *Client) SearchMessages(folderName, query string, limit uint32) ([]model
 	return emails, nil
 }
 
+// ErrConnect and ErrLogin classify why opening an IMAP client failed, so callers
+// can tell "server unreachable / TLS mismatch / timeout" from "server answered
+// and rejected the credentials". The error text is unchanged ("connection
+// error: …", "login error: …"); test with errors.Is.
+var (
+	ErrConnect = errors.New("connection error")
+	ErrLogin   = errors.New("login error")
+)
+
 // Client represents an IMAP client wrapper
 type Client struct {
 	client   *client.Client
@@ -100,14 +110,14 @@ func dialIMAP(server string, port int, useTLS bool) (*client.Client, error) {
 		c, err := client.DialTLS(addr, nil)
 		if err != nil {
 			log.Printf("DialTLS %s connection err: %v", addr, err)
-			return nil, fmt.Errorf("connection error: %v", err)
+			return nil, fmt.Errorf("%w: %v", ErrConnect, err)
 		}
 		return c, nil
 	}
 	c, err := client.Dial(addr)
 	if err != nil {
 		log.Printf("Dial (plain IMAP) %s connection err: %v", addr, err)
-		return nil, fmt.Errorf("connection error: %v", err)
+		return nil, fmt.Errorf("%w: %v", ErrConnect, err)
 	}
 	return c, nil
 }
@@ -131,7 +141,7 @@ func NewClientTLS(server string, port int, email, password string, useTLS bool) 
 	if err != nil {
 		c.Logout()
 		log.Printf("IMAP Login %s/xxx login err: %v", email, err)
-		return nil, fmt.Errorf("login error: %v", err)
+		return nil, fmt.Errorf("%w: %v", ErrLogin, err)
 	}
 
 	return &Client{client: c, username: email}, nil
@@ -143,7 +153,7 @@ func NewClientOAuth(server string, port int, username, accessToken, mechanism st
 	c, err := client.DialTLS(fmt.Sprintf("%s:%d", server, port), nil)
 	if err != nil {
 		log.Printf("DialTLS %s:%d connection err: %v", server, port, err)
-		return nil, fmt.Errorf("connection error: %v", err)
+		return nil, fmt.Errorf("%w: %v", ErrConnect, err)
 	}
 
 	var auth sasl.Client
@@ -162,7 +172,7 @@ func NewClientOAuth(server string, port int, username, accessToken, mechanism st
 	if err := c.Authenticate(auth); err != nil {
 		c.Logout()
 		log.Printf("IMAP OAuth2 (%s) login %s err: %v", mechanism, username, err)
-		return nil, fmt.Errorf("oauth2 login error: %v", err)
+		return nil, fmt.Errorf("oauth2 %w: %v", ErrLogin, err)
 	}
 
 	return &Client{client: c, username: username}, nil

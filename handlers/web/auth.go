@@ -2,6 +2,7 @@
 package web
 
 import (
+	"errors"
 	"fmt"
 	"lilmail/config"
 	"lilmail/handlers/api"
@@ -46,6 +47,20 @@ func (h *AuthHandler) ShowLogin(c *fiber.Ctx) error {
 	})
 }
 
+// loginFailure maps an IMAP open error to the HTTP status and the message shown
+// on the login page: a rejected password (401) must not read like an outage, and
+// an unreachable server (503) must not read like a wrong password.
+func loginFailure(err error) (int, string) {
+	switch {
+	case errors.Is(err, api.ErrLogin):
+		return 401, "Invalid email or password"
+	case errors.Is(err, api.ErrConnect):
+		return 503, "Could not reach the mail server. Check that it is running and try again."
+	default:
+		return 502, "Login failed because of a mail server error. Try again later."
+	}
+}
+
 // HandleLogin processes the login form
 func (h *AuthHandler) HandleLogin(c *fiber.Ctx) error {
 	sess, err := h.store.Get(c)
@@ -84,8 +99,9 @@ func (h *AuthHandler) HandleLogin(c *fiber.Ctx) error {
 		h.config.IMAP.TLS,
 	)
 	if err != nil {
-		return c.Status(401).Render("login", fiber.Map{
-			"Error": "Invalid credentials or server error",
+		status, msg := loginFailure(err)
+		return c.Status(status).Render("login", fiber.Map{
+			"Error": msg,
 			"Email": email,
 		})
 	}

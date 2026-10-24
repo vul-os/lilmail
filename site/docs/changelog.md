@@ -10,6 +10,13 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+### Changed
+
+- **The login page tells an unreachable server from a wrong password.** A
+  rejected login is a 401 "Invalid email or password"; a connection failure or
+  timeout is a 503 "Could not reach the mail server…"; anything else is a 502.
+  Previously every failure read "Invalid credentials or server error".
+
 ### Added
 
 - **The mail AI assistant can now run llmux in-process instead of calling a
