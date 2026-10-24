@@ -8,6 +8,7 @@
     <div x-data="{ open: false }" style="border-bottom:1px solid var(--c-border-soft)">
         <div class="email-row{{if $unread}} is-unread{{end}}"
              @click="if({{$thread.Count}} > 1) { open = !open } else {
+                 $el.classList.remove('is-unread'); $el.querySelector('.email-row__unread-dot')?.remove(); 
                  showEmailViewer = true;
                  htmx.ajax('GET', '/api/email/{{$latest.ID}}',
                      {target:'#email-viewer-pane', swap:'innerHTML',
@@ -108,7 +109,7 @@
          hx-swap="innerHTML"
          hx-headers='{"X-Folder": "{{$.CurrentFolder}}", "Authorization": "Bearer {{$.Token}}"{{if .AccountEmail}}, "X-Account-Email": "{{.AccountEmail}}"{{end}}}'
          hx-indicator="#list-spinner"
-         @click="showEmailViewer = true;
+         @click="$el.classList.remove('is-unread'); $el.querySelector('.email-row__unread-dot')?.remove(); showEmailViewer = true;
                  if(window.innerWidth < 1024) {
                      htmx.ajax('GET', '/api/email/{{.ID}}',
                          {target:'#email-viewer-pane-mobile', swap:'innerHTML',

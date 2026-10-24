@@ -51,6 +51,12 @@ Versioning: [Semantic Versioning](https://semver.org/)
   across every AI route, with the same recorder proven against both live modes
   so the zero means something.
 
+### Fixed
+
+- **Opened messages stay "new".** Bodies are fetched with `BODY.PEEK` on a
+  read-only SELECT, so the server never set `\Seen`. Opening a message now
+  marks it read (best effort) and clears the unread styling on its list row.
+
 ### Removed
 
 - **`[ssl] port`, `[ssl] http_port` and `[ssl] auto_redirect` are gone.** All

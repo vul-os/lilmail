@@ -310,6 +310,8 @@ func (h *EmailHandler) HandleEmailView(c *fiber.Ctx) error {
 			"error": fmt.Sprintf("Error fetching email: %v", err),
 		})
 	}
+	markReadOnOpen(client, folderName, emailID, &email)
+
 	// Detect Drafts folder so the template can show "Edit Draft" instead of Reply/Forward.
 	isDrafts := strings.Contains(strings.ToLower(folderName), "draft")
 
@@ -946,6 +948,32 @@ func stripHTMLForPlain(html string) string {
 	}
 	// Collapse runs of whitespace.
 	return strings.Join(strings.Fields(b.String()), " ")
+}
+
+// hasSeenFlag reports whether flags contains \Seen (IMAP flags are case-insensitive).
+func hasSeenFlag(flags []string) bool {
+	for _, f := range flags {
+		if strings.EqualFold(f, `\Seen`) {
+			return true
+		}
+	}
+	return false
+}
+
+// markReadOnOpen sets \Seen on a message that is being opened and mirrors it in
+// email.Flags. The body is fetched with BODY.PEEK on a read-only SELECT (so
+// listing and previews never change flags), which means the server will not set
+// \Seen by itself. Best effort: a failure only leaves the message looking
+// unread, so it must not break the viewer.
+func markReadOnOpen(client api.MailClient, folderName, emailID string, email *models.Email) {
+	if hasSeenFlag(email.Flags) {
+		return
+	}
+	if err := client.SetMessageFlag(folderName, emailID, `\Seen`, true); err != nil {
+		log.Printf("HandleEmailView: mark %s read in %s: %v", emailID, folderName, err)
+		return
+	}
+	email.Flags = append(email.Flags, `\Seen`)
 }
 
 // HandleMarkUnread removes the \Seen flag from a message, marking it as unread.
